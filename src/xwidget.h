@@ -15,7 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #ifndef XWIDGET_H_INCLUDED
 #define XWIDGET_H_INCLUDED
@@ -30,7 +30,7 @@ struct window;
 
 #ifdef HAVE_XWIDGETS
 
-#if defined (USE_GTK)
+#if defined(USE_GTK)
 #include <gtk/gtk.h>
 #ifndef HAVE_PGTK
 #include <X11/Xlib.h>
@@ -38,7 +38,7 @@ struct window;
 #else
 #include "pgtkterm.h"
 #endif
-#elif defined (NS_IMPL_COCOA) && defined (__OBJC__)
+#elif defined(NS_IMPL_COCOA) && defined(__OBJC__)
 #import <AppKit/NSView.h>
 #import "nsxwidget.h"
 #endif
@@ -63,24 +63,38 @@ struct xwidget
   /* A title used for button labels, for instance.  */
   Lisp_Object title;
 
+  /* Init function used by GLArea widget.  */
+  Lisp_Object init_func;
+
+  /* Render function used by GLArea widget.  */
+  Lisp_Object render_func;
+
+  /* Input callbacks used by GLArea widget.  */
+  Lisp_Object cursor_pos_cb;
+  Lisp_Object mouse_button_cb;
+
+  /* Private data for GLArea widget */
+  Lisp_Object private_data;
+
   /* Vector of currently executing scripts with callbacks.  */
   Lisp_Object script_callbacks;
-  /* Here ends the Lisp part.  script_callbacks is the marker field.  */
+  /* Here ends the Lisp part.  script_callbacks is the marker field.
+   */
 
   int height;
   int width;
   uint32_t xwidget_id;
   char *find_text;
 
-#if defined (USE_GTK)
+#if defined(USE_GTK)
   /* For offscreen widgets, unused if not osr.  */
   GtkWidget *widget_osr;
   GtkWidget *widgetwindow_osr;
   struct frame *embedder;
   struct xwidget_view *embedder_view;
   guint hit_result;
-#elif defined (NS_IMPL_COCOA)
-# ifdef __OBJC__
+#elif defined(NS_IMPL_COCOA)
+#ifdef __OBJC__
   /* For offscreen widgets, unused if not osr.  */
   NSView *xwWidget;
   XwWindow *xwWindow;
@@ -88,11 +102,11 @@ struct xwidget
   /* Used only for xwidget types (such as webkit2) enforcing 1 to 1
      relationship between model and view.  */
   struct xwidget_view *xv;
-# else
+#else
   void *xwWidget;
   void *xwWindow;
   struct xwidget_view *xv;
-# endif
+#endif
 #endif
 
   /* Kill silently if Emacs is exited.  */
@@ -114,7 +128,7 @@ struct xwidget_view
 
   enum glyph_row_area area;
 
-#if defined (USE_GTK)
+#if defined(USE_GTK)
 #ifndef HAVE_PGTK
   Display *dpy;
   Window wdesc;
@@ -134,14 +148,14 @@ struct xwidget_view
   cairo_surface_t *cr_surface;
   cairo_t *cr_context;
   int just_resized;
-#elif defined (NS_IMPL_COCOA)
-# ifdef __OBJC__
+#elif defined(NS_IMPL_COCOA)
+#ifdef __OBJC__
   XvWindow *xvWindow;
   NSView *emacswindow;
-# else
+#else
   void *xvWindow;
   void *emacswindow;
-# endif
+#endif
 #endif
 
   int x;
@@ -157,29 +171,30 @@ struct xwidget_view
 
 /* Test for xwidget pseudovector.  */
 #define XWIDGETP(x) PSEUDOVECTORP (x, PVEC_XWIDGET)
-#define XXWIDGET(a) (eassert (XWIDGETP (a)), \
-		     XUNTAG (a, Lisp_Vectorlike, struct xwidget))
+#define XXWIDGET(a)        \
+  (eassert (XWIDGETP (a)), \
+   XUNTAG (a, Lisp_Vectorlike, struct xwidget))
 
 #define XWIDGET_LIVE_P(w) (!NILP ((w)->buffer))
 
-#define CHECK_XWIDGET(x) \
-  CHECK_TYPE (XWIDGETP (x), Qxwidgetp, x)
+#define CHECK_XWIDGET(x) CHECK_TYPE (XWIDGETP (x), Qxwidgetp, x)
 
-#define CHECK_LIVE_XWIDGET(x)				\
-  CHECK_TYPE ((XWIDGETP (x)				\
-	       && XWIDGET_LIVE_P (XXWIDGET (x))),	\
-	      Qxwidget_live_p, x)
+#define CHECK_LIVE_XWIDGET(x)                                  \
+  CHECK_TYPE ((XWIDGETP (x) && XWIDGET_LIVE_P (XXWIDGET (x))), \
+              Qxwidget_live_p, x)
 
 /* Test for xwidget_view pseudovector.  */
 #define XWIDGET_VIEW_P(x) PSEUDOVECTORP (x, PVEC_XWIDGET_VIEW)
-#define XXWIDGET_VIEW(a) (eassert (XWIDGET_VIEW_P (a)), \
-			  XUNTAG (a, Lisp_Vectorlike, struct xwidget_view))
+#define XXWIDGET_VIEW(a)         \
+  (eassert (XWIDGET_VIEW_P (a)), \
+   XUNTAG (a, Lisp_Vectorlike, struct xwidget_view))
 
 #define CHECK_XWIDGET_VIEW(x) \
   CHECK_TYPE (XWIDGET_VIEW_P (x), Qxwidget_view_p, x)
 
 #define XG_XWIDGET "emacs_xwidget"
 #define XG_XWIDGET_VIEW "emacs_xwidget_view"
+#define XG_GL_CONTEXT "emacs_gl_context"
 
 #ifdef HAVE_XWIDGETS
 void syms_of_xwidget (void);
@@ -214,29 +229,55 @@ extern void lower_frame_xwidget_views (struct frame *f);
 extern void kill_frame_xwidget_views (struct frame *f);
 #endif
 #ifdef HAVE_X_WINDOWS
-extern void xwidget_button (struct xwidget_view *, bool, int,
-			    int, int, int, Time);
+extern void xwidget_button (struct xwidget_view *, bool, int, int,
+                            int, int, Time);
 extern void xwidget_motion_or_crossing (struct xwidget_view *,
-					const XEvent *);
+                                        const XEvent *);
 #ifdef HAVE_XINPUT2
 extern void xwidget_motion_notify (struct xwidget_view *, double,
-				   double, double, double, uint, Time);
+                                   double, double, double, uint,
+                                   Time);
 extern void xwidget_scroll (struct xwidget_view *, double, double,
                             double, double, uint, Time, bool);
 #ifdef HAVE_USABLE_XI_GESTURE_PINCH_EVENT
-extern void xwidget_pinch (struct xwidget_view *, XIGesturePinchEvent *);
+extern void xwidget_pinch (struct xwidget_view *,
+                           XIGesturePinchEvent *);
 #endif
 #endif
 #endif
 #else
 INLINE_HEADER_BEGIN
-INLINE void syms_of_xwidget (void) {}
-INLINE bool valid_xwidget_spec_p (Lisp_Object obj) { return false; }
-INLINE void xwidget_view_delete_all_in_window (struct window *w) {}
-INLINE void x_draw_xwidget_glyph_string (struct glyph_string *s) { eassume (0); }
-INLINE struct xwidget *lookup_xwidget (Lisp_Object obj) { eassume (0); }
-INLINE void xwidget_end_redisplay (struct window *w, struct glyph_matrix *m) {}
-INLINE void kill_buffer_xwidgets (Lisp_Object buf) {}
+INLINE void
+syms_of_xwidget (void)
+{
+}
+INLINE bool
+valid_xwidget_spec_p (Lisp_Object obj)
+{
+  return false;
+}
+INLINE void
+xwidget_view_delete_all_in_window (struct window *w)
+{
+}
+INLINE void
+x_draw_xwidget_glyph_string (struct glyph_string *s)
+{
+  eassume (0);
+}
+INLINE struct xwidget *
+lookup_xwidget (Lisp_Object obj)
+{
+  eassume (0);
+}
+INLINE void
+xwidget_end_redisplay (struct window *w, struct glyph_matrix *m)
+{
+}
+INLINE void
+kill_buffer_xwidgets (Lisp_Object buf)
+{
+}
 INLINE_HEADER_END
 #endif
 

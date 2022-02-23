@@ -15,7 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include <config.h>
 
@@ -25,24 +25,28 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "lisp.h"
 #include "blockinput.h"
+#include "buffer.h"
 #include "dispextern.h"
 #include "frame.h"
-#include "keyboard.h"
 #include "gtkutil.h"
+#include "keyboard.h"
+#include "process.h"
 #include "sysstdio.h"
 #include "termhooks.h"
 #include "window.h"
-#include "process.h"
 
 /* Include xwidget bottom end headers.  */
 #ifdef USE_GTK
-#include <webkit2/webkit2.h>
+#include <GL/glx.h>
 #include <JavaScriptCore/JavaScript.h>
 #include <cairo.h>
+#include <webkit2/webkit2.h>
 #ifndef HAVE_PGTK
-#include <cairo-xlib.h>
 #include <X11/Xlib.h>
+#include <cairo-xlib.h>
+#include <gtk/gtk.h>
 #else
+#include <glib.h>
 #include <gtk/gtk.h>
 #endif
 #ifdef HAVE_XINPUT2
@@ -62,59 +66,68 @@ static uint32_t xwidget_counter = 0;
 #ifdef USE_GTK
 #ifdef HAVE_X_WINDOWS
 static Lisp_Object x_window_to_xwv_map;
-#if WEBKIT_CHECK_VERSION (2, 34, 0)
+#if WEBKIT_CHECK_VERSION(2, 34, 0)
 static Lisp_Object dummy_tooltip_string;
 #endif
 #endif
-static gboolean offscreen_damage_event (GtkWidget *, GdkEvent *, gpointer);
+static gboolean offscreen_damage_event (GtkWidget *, GdkEvent *,
+                                        gpointer);
 static void synthesize_focus_in_event (GtkWidget *);
 static GdkDevice *find_suitable_keyboard (struct frame *);
-static gboolean webkit_script_dialog_cb (WebKitWebView *, WebKitScriptDialog *,
-					 gpointer);
+static gboolean webkit_script_dialog_cb (WebKitWebView *,
+                                         WebKitScriptDialog *,
+                                         gpointer);
 static void record_osr_embedder (struct xwidget_view *);
-static void from_embedder (GdkWindow *, double, double, gpointer, gpointer, gpointer);
-static void to_embedder (GdkWindow *, double, double, gpointer, gpointer, gpointer);
-static GdkWindow *pick_embedded_child (GdkWindow *, double, double, gpointer);
+static void from_embedder (GdkWindow *, double, double, gpointer,
+                           gpointer, gpointer);
+static void to_embedder (GdkWindow *, double, double, gpointer,
+                         gpointer, gpointer);
+static GdkWindow *pick_embedded_child (GdkWindow *, double, double,
+                                       gpointer);
 #endif
 
 static struct xwidget *
 allocate_xwidget (void)
 {
-  return ALLOCATE_PSEUDOVECTOR (struct xwidget, script_callbacks, PVEC_XWIDGET);
+  return ALLOCATE_PSEUDOVECTOR (struct xwidget, script_callbacks,
+                                PVEC_XWIDGET);
 }
 
 static struct xwidget_view *
 allocate_xwidget_view (void)
 {
-  return ALLOCATE_PSEUDOVECTOR (struct xwidget_view, w, PVEC_XWIDGET_VIEW);
+  return ALLOCATE_PSEUDOVECTOR (struct xwidget_view, w,
+                                PVEC_XWIDGET_VIEW);
 }
 
 #define XSETXWIDGET(a, b) XSETPSEUDOVECTOR (a, b, PVEC_XWIDGET)
-#define XSETXWIDGET_VIEW(a, b) XSETPSEUDOVECTOR (a, b, PVEC_XWIDGET_VIEW)
+#define XSETXWIDGET_VIEW(a, b) \
+  XSETPSEUDOVECTOR (a, b, PVEC_XWIDGET_VIEW)
 
 static struct xwidget_view *xwidget_view_lookup (struct xwidget *,
-						 struct window *);
+                                                 struct window *);
 static void kill_xwidget (struct xwidget *);
 
 #ifdef USE_GTK
 static void webkit_view_load_changed_cb (WebKitWebView *,
-                                         WebKitLoadEvent,
-                                         gpointer);
-static void webkit_javascript_finished_cb (GObject *,
-                                           GAsyncResult *,
+                                         WebKitLoadEvent, gpointer);
+static void webkit_javascript_finished_cb (GObject *, GAsyncResult *,
                                            gpointer);
-static gboolean webkit_download_cb (WebKitWebContext *, WebKitDownload *, gpointer);
-static GtkWidget *webkit_create_cb (WebKitWebView *, WebKitNavigationAction *, gpointer);
-static gboolean
-webkit_decide_policy_cb (WebKitWebView *,
-                         WebKitPolicyDecision *,
-                         WebKitPolicyDecisionType,
-                         gpointer);
-static GtkWidget *find_widget_at_pos (GtkWidget *, int, int, int *, int *, bool,
-				      struct xwidget_view *);
+static gboolean webkit_download_cb (WebKitWebContext *,
+                                    WebKitDownload *, gpointer);
+static GtkWidget *webkit_create_cb (WebKitWebView *,
+                                    WebKitNavigationAction *,
+                                    gpointer);
+static gboolean webkit_decide_policy_cb (WebKitWebView *,
+                                         WebKitPolicyDecision *,
+                                         WebKitPolicyDecisionType,
+                                         gpointer);
+static GtkWidget *find_widget_at_pos (GtkWidget *, int, int, int *,
+                                      int *, bool,
+                                      struct xwidget_view *);
 static gboolean run_file_chooser_cb (WebKitWebView *,
-				     WebKitFileChooserRequest *,
-				     gpointer);
+                                     WebKitFileChooserRequest *,
+                                     gpointer);
 
 struct widget_search_data
 {
@@ -129,12 +142,13 @@ static void find_widget (GtkWidget *t, struct widget_search_data *);
 #endif
 
 #ifdef HAVE_PGTK
-static void mouse_target_changed (WebKitWebView *, WebKitHitTestResult *, guint,
-				  gpointer);
+static void mouse_target_changed (WebKitWebView *,
+                                  WebKitHitTestResult *, guint,
+                                  gpointer);
 
 static int
 xw_forward_event_translate (GdkEvent *event, struct xwidget_view *xv,
-			    struct xwidget *xw)
+                            struct xwidget *xw)
 {
   GtkWidget *widget;
   int new_x, new_y;
@@ -145,57 +159,62 @@ xw_forward_event_translate (GdkEvent *event, struct xwidget_view *xv,
     case GDK_BUTTON_RELEASE:
     case GDK_2BUTTON_PRESS:
     case GDK_3BUTTON_PRESS:
-      widget = find_widget_at_pos (xw->widgetwindow_osr,
-				   lrint (event->button.x - xv->clip_left),
-				   lrint (event->button.y - xv->clip_top),
-				   &new_x, &new_y, false, NULL);
+      widget
+        = find_widget_at_pos (xw->widgetwindow_osr,
+                              lrint (event->button.x - xv->clip_left),
+                              lrint (event->button.y - xv->clip_top),
+                              &new_x, &new_y, false, NULL);
       if (widget)
-	{
-	  event->any.window = gtk_widget_get_window (widget);
-	  event->button.x = new_x;
-	  event->button.y = new_y;
-	  return 1;
-	}
+        {
+          event->any.window = gtk_widget_get_window (widget);
+          event->button.x = new_x;
+          event->button.y = new_y;
+          return 1;
+        }
       return 0;
     case GDK_SCROLL:
-      widget = find_widget_at_pos (xw->widgetwindow_osr,
-				   lrint (event->scroll.x - xv->clip_left),
-				   lrint (event->scroll.y - xv->clip_top),
-				   &new_x, &new_y, false, NULL);
+      widget
+        = find_widget_at_pos (xw->widgetwindow_osr,
+                              lrint (event->scroll.x - xv->clip_left),
+                              lrint (event->scroll.y - xv->clip_top),
+                              &new_x, &new_y, false, NULL);
       if (widget)
-	{
-	  event->any.window = gtk_widget_get_window (widget);
-	  event->scroll.x = new_x;
-	  event->scroll.y = new_y;
-	  return 1;
-	}
+        {
+          event->any.window = gtk_widget_get_window (widget);
+          event->scroll.x = new_x;
+          event->scroll.y = new_y;
+          return 1;
+        }
       return 0;
     case GDK_MOTION_NOTIFY:
-      widget = find_widget_at_pos (xw->widgetwindow_osr,
-				   lrint (event->motion.x - xv->clip_left),
-				   lrint (event->motion.y - xv->clip_top),
-				   &new_x, &new_y, false, NULL);
+      widget
+        = find_widget_at_pos (xw->widgetwindow_osr,
+                              lrint (event->motion.x - xv->clip_left),
+                              lrint (event->motion.y - xv->clip_top),
+                              &new_x, &new_y, false, NULL);
       if (widget)
-	{
-	  event->any.window = gtk_widget_get_window (widget);
-	  event->motion.x = new_x;
-	  event->motion.y = new_y;
-	  return 1;
-	}
+        {
+          event->any.window = gtk_widget_get_window (widget);
+          event->motion.x = new_x;
+          event->motion.y = new_y;
+          return 1;
+        }
       return 0;
     case GDK_ENTER_NOTIFY:
     case GDK_LEAVE_NOTIFY:
       widget = find_widget_at_pos (xw->widgetwindow_osr,
-				   lrint (event->crossing.x - xv->clip_left),
-				   lrint (event->crossing.y - xv->clip_top),
-				   &new_x, &new_y, false, NULL);
+                                   lrint (event->crossing.x
+                                          - xv->clip_left),
+                                   lrint (event->crossing.y
+                                          - xv->clip_top),
+                                   &new_x, &new_y, false, NULL);
       if (widget)
-	{
-	  event->any.window = gtk_widget_get_window (widget);
-	  event->crossing.x = new_x;
-	  event->crossing.y = new_y;
-	  return 1;
-	}
+        {
+          event->any.window = gtk_widget_get_window (widget);
+          event->crossing.x = new_x;
+          event->crossing.y = new_y;
+          return 1;
+        }
       return 0;
     default:
       return 0;
@@ -204,7 +223,7 @@ xw_forward_event_translate (GdkEvent *event, struct xwidget_view *xv,
 
 static gboolean
 xw_forward_event_from_view (GtkWidget *widget, GdkEvent *event,
-			    gpointer user_data)
+                            gpointer user_data)
 {
   struct xwidget_view *xv = user_data;
   struct xwidget *xw = XXWIDGET (xv->model);
@@ -230,26 +249,26 @@ xw_forward_event_from_view (GtkWidget *widget, GdkEvent *event,
 
 #ifdef HAVE_X_WINDOWS
 enum xw_crossing_mode
-  {
-    XW_CROSSING_LEFT,
-    XW_CROSSING_ENTERED,
-    XW_CROSSING_NONE
-  };
+{
+  XW_CROSSING_LEFT,
+  XW_CROSSING_ENTERED,
+  XW_CROSSING_NONE
+};
 
 static guint
 xw_translate_x_modifiers (struct x_display_info *dpyinfo,
-			  unsigned int modifiers)
+                          unsigned int modifiers)
 {
   guint mods = 0;
 
   if (modifiers & dpyinfo->meta_mod_mask)
     {
       /* GDK always assumes Mod1 is alt, but that's no reason for
-	 us to make that mistake as well.  */
+         us to make that mistake as well.  */
       if (!dpyinfo->alt_mod_mask)
-	mods |= GDK_MOD1_MASK;
+        mods |= GDK_MOD1_MASK;
       else
-	mods |= GDK_META_MASK;
+        mods |= GDK_META_MASK;
     }
 
   if (modifiers & dpyinfo->alt_mod_mask)
@@ -267,15 +286,15 @@ xw_translate_x_modifiers (struct x_display_info *dpyinfo,
 }
 
 static bool xw_maybe_synthesize_crossing (struct xwidget_view *,
-					  GdkWindow *, int, int, int,
-					  Time, unsigned int,
-					  GdkCrossingMode, GdkCrossingMode);
-static void xw_notify_virtual_upwards_until (struct xwidget_view *, GdkWindow *,
-					     GdkWindow *, GdkWindow *, unsigned int,
-					     int, int, Time, GdkEventType, bool,
-					     GdkCrossingMode);
-static void window_coords_from_toplevel (GdkWindow *, GdkWindow *, int,
-					 int, int *, int *);
+                                          GdkWindow *, int, int, int,
+                                          Time, unsigned int,
+                                          GdkCrossingMode,
+                                          GdkCrossingMode);
+static void xw_notify_virtual_upwards_until (
+  struct xwidget_view *, GdkWindow *, GdkWindow *, GdkWindow *,
+  unsigned int, int, int, Time, GdkEventType, bool, GdkCrossingMode);
+static void window_coords_from_toplevel (GdkWindow *, GdkWindow *,
+                                         int, int, int *, int *);
 #endif
 
 DEFUN ("make-xwidget",
@@ -292,9 +311,9 @@ RELATED is nil, or an xwidget.  When constructing a WebKit widget, it
 will share the same settings and internal subprocess as RELATED.
 Returns the newly constructed xwidget, or nil if construction
 fails.  */)
-  (Lisp_Object type,
-   Lisp_Object title, Lisp_Object width, Lisp_Object height,
-   Lisp_Object arguments, Lisp_Object buffer, Lisp_Object related)
+(Lisp_Object type, Lisp_Object title, Lisp_Object width,
+ Lisp_Object height, Lisp_Object arguments, Lisp_Object buffer,
+ Lisp_Object related)
 {
 #ifdef USE_GTK
   if (!xg_gtk_initialized)
@@ -314,7 +333,7 @@ fails.  */)
   xw->type = type;
   xw->title = title;
   xw->buffer = (NILP (buffer) ? Fcurrent_buffer ()
-		: Fget_buffer_create (buffer, Qnil));
+                              : Fget_buffer_create (buffer, Qnil));
   xw->height = XFIXNAT (height);
   xw->width = XFIXNAT (width);
   xw->kill_without_query = false;
@@ -324,6 +343,25 @@ fails.  */)
   xw->plist = Qnil;
   xw->xwidget_id = ++xwidget_counter;
   xw->find_text = NULL;
+
+  if (EQ (xw->type, Qglarea))
+    {
+      xw->init_func = Qnil;
+      xw->render_func = Qnil;
+      xw->cursor_pos_cb = Qnil;
+      xw->mouse_button_cb = Qnil;
+      xw->private_data = Qnil;
+
+      if (!NILP (arguments))
+        {
+          xw->init_func = Fplist_get (arguments, QCinit);
+          xw->render_func = Fplist_get (arguments, QCrender);
+          xw->cursor_pos_cb = Fplist_get (arguments, QCcursor_pos);
+          xw->mouse_button_cb
+            = Fplist_get (arguments, QCmouse_button);
+          xw->private_data = Fplist_get (arguments, QCprivate);
+        }
+    }
 
   Fputhash (make_fixnum (xw->xwidget_id), val, id_to_xwidget_map);
 
@@ -335,60 +373,67 @@ fails.  */)
     {
       block_input ();
       WebKitSettings *settings;
-      WebKitWebContext *webkit_context = webkit_web_context_get_default ();
+      WebKitWebContext *webkit_context
+        = webkit_web_context_get_default ();
 
-# if WEBKIT_CHECK_VERSION (2, 26, 0)
+#if WEBKIT_CHECK_VERSION(2, 26, 0)
       if (!webkit_web_context_get_sandbox_enabled (webkit_context))
-	webkit_web_context_set_sandbox_enabled (webkit_context, TRUE);
-# endif
+        webkit_web_context_set_sandbox_enabled (webkit_context, TRUE);
+#endif
 
       xw->widgetwindow_osr = gtk_offscreen_window_new ();
       gtk_window_resize (GTK_WINDOW (xw->widgetwindow_osr), xw->width,
                          xw->height);
-      gtk_container_check_resize (GTK_CONTAINER (xw->widgetwindow_osr));
+      gtk_container_check_resize (
+        GTK_CONTAINER (xw->widgetwindow_osr));
 
       if (EQ (xw->type, Qwebkit))
         {
-	  WebKitWebView *related_view;
+          WebKitWebView *related_view;
 
-	  if (NILP (related)
-	      || !XWIDGETP (related)
-	      || !EQ (XXWIDGET (related)->type, Qwebkit))
-	    {
-	      WebKitWebContext *ctx = webkit_web_context_new ();
-	      xw->widget_osr = webkit_web_view_new_with_context (ctx);
-	      g_object_unref (ctx);
+          if (NILP (related) || !XWIDGETP (related)
+              || !EQ (XXWIDGET (related)->type, Qwebkit))
+            {
+              WebKitWebContext *ctx = webkit_web_context_new ();
+              xw->widget_osr = webkit_web_view_new_with_context (ctx);
+              g_object_unref (ctx);
 
-	      g_signal_connect (G_OBJECT (ctx),
-				"download-started",
-				G_CALLBACK (webkit_download_cb), xw);
+              g_signal_connect (G_OBJECT (ctx), "download-started",
+                                G_CALLBACK (webkit_download_cb), xw);
 
-	      webkit_web_view_load_uri (WEBKIT_WEB_VIEW (xw->widget_osr),
-					"about:blank");
-	      /* webkitgtk uses GSubprocess which sets sigaction causing
-		 Emacs to not catch SIGCHLD with its usual handle setup in
-		 'catch_child_signal'.  This resets the SIGCHLD sigaction.  */
-	      catch_child_signal ();
-	    }
-	  else
-	    {
-	      related_view = WEBKIT_WEB_VIEW (XXWIDGET (related)->widget_osr);
-	      xw->widget_osr = webkit_web_view_new_with_related_view (related_view);
-	    }
+              webkit_web_view_load_uri (WEBKIT_WEB_VIEW (
+                                          xw->widget_osr),
+                                        "about:blank");
+              /* webkitgtk uses GSubprocess which sets sigaction
+                 causing Emacs to not catch SIGCHLD with its usual
+                 handle setup in 'catch_child_signal'.  This resets
+                 the SIGCHLD sigaction.  */
+              catch_child_signal ();
+            }
+          else
+            {
+              related_view
+                = WEBKIT_WEB_VIEW (XXWIDGET (related)->widget_osr);
+              xw->widget_osr = webkit_web_view_new_with_related_view (
+                related_view);
+            }
 
-	  /* Enable the developer extras.  */
-	  settings = webkit_web_view_get_settings (WEBKIT_WEB_VIEW (xw->widget_osr));
-	  g_object_set (G_OBJECT (settings), "enable-developer-extras", TRUE, NULL);
-	}
+          /* Enable the developer extras.  */
+          settings = webkit_web_view_get_settings (
+            WEBKIT_WEB_VIEW (xw->widget_osr));
+          g_object_set (G_OBJECT (settings),
+                        "enable-developer-extras", TRUE, NULL);
+        }
 
-      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr), xw->width,
-                                   xw->height);
+      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr),
+                                   xw->width, xw->height);
       gtk_widget_queue_allocate (GTK_WIDGET (xw->widget_osr));
 
       if (EQ (xw->type, Qwebkit))
         {
           gtk_container_add (GTK_CONTAINER (xw->widgetwindow_osr),
-                             GTK_WIDGET (WEBKIT_WEB_VIEW (xw->widget_osr)));
+                             GTK_WIDGET (
+                               WEBKIT_WEB_VIEW (xw->widget_osr)));
         }
       else
         {
@@ -402,52 +447,54 @@ fails.  */)
       synthesize_focus_in_event (xw->widgetwindow_osr);
 #endif
 
-      g_signal_connect (G_OBJECT (gtk_widget_get_window (xw->widgetwindow_osr)),
-			"from-embedder", G_CALLBACK (from_embedder), NULL);
-      g_signal_connect (G_OBJECT (gtk_widget_get_window (xw->widgetwindow_osr)),
-			"to-embedder", G_CALLBACK (to_embedder), NULL);
-      g_signal_connect (G_OBJECT (gtk_widget_get_window (xw->widgetwindow_osr)),
-			"pick-embedded-child", G_CALLBACK (pick_embedded_child), NULL);
+      g_signal_connect (G_OBJECT (gtk_widget_get_window (
+                          xw->widgetwindow_osr)),
+                        "from-embedder", G_CALLBACK (from_embedder),
+                        NULL);
+      g_signal_connect (G_OBJECT (gtk_widget_get_window (
+                          xw->widgetwindow_osr)),
+                        "to-embedder", G_CALLBACK (to_embedder),
+                        NULL);
+      g_signal_connect (G_OBJECT (gtk_widget_get_window (
+                          xw->widgetwindow_osr)),
+                        "pick-embedded-child",
+                        G_CALLBACK (pick_embedded_child), NULL);
 
       /* Store some xwidget data in the gtk widgets for convenient
          retrieval in the event handlers.  */
       g_object_set_data (G_OBJECT (xw->widget_osr), XG_XWIDGET, xw);
-      g_object_set_data (G_OBJECT (xw->widgetwindow_osr), XG_XWIDGET, xw);
+      g_object_set_data (G_OBJECT (xw->widgetwindow_osr), XG_XWIDGET,
+                         xw);
 
       /* signals */
       if (EQ (xw->type, Qwebkit))
         {
-          g_signal_connect (G_OBJECT (xw->widget_osr),
-                            "load-changed",
-                            G_CALLBACK (webkit_view_load_changed_cb), xw);
+          g_signal_connect (G_OBJECT (xw->widget_osr), "load-changed",
+                            G_CALLBACK (webkit_view_load_changed_cb),
+                            xw);
 
           g_signal_connect (G_OBJECT (xw->widget_osr),
                             "decide-policy",
-                            G_CALLBACK
-                            (webkit_decide_policy_cb),
-                            xw);
+                            G_CALLBACK (webkit_decide_policy_cb), xw);
 #ifdef HAVE_PGTK
-	  g_signal_connect (G_OBJECT (xw->widget_osr),
-			    "mouse-target-changed",
-			    G_CALLBACK (mouse_target_changed),
-			    xw);
+          g_signal_connect (G_OBJECT (xw->widget_osr),
+                            "mouse-target-changed",
+                            G_CALLBACK (mouse_target_changed), xw);
 #endif
-	  g_signal_connect (G_OBJECT (xw->widget_osr),
-			    "create",
-			    G_CALLBACK (webkit_create_cb),
-			    xw);
-	  g_signal_connect (G_OBJECT (xw->widget_osr),
-			    "script-dialog",
-			    G_CALLBACK (webkit_script_dialog_cb),
-			    NULL);
-	  g_signal_connect (G_OBJECT (xw->widget_osr),
-			    "run-file-chooser",
-			    G_CALLBACK (run_file_chooser_cb),
-			    NULL);
+          g_signal_connect (G_OBJECT (xw->widget_osr), "create",
+                            G_CALLBACK (webkit_create_cb), xw);
+          g_signal_connect (G_OBJECT (xw->widget_osr),
+                            "script-dialog",
+                            G_CALLBACK (webkit_script_dialog_cb),
+                            NULL);
+          g_signal_connect (G_OBJECT (xw->widget_osr),
+                            "run-file-chooser",
+                            G_CALLBACK (run_file_chooser_cb), NULL);
         }
 
-      g_signal_connect (G_OBJECT (xw->widgetwindow_osr), "damage-event",
-			G_CALLBACK (offscreen_damage_event), xw);
+      g_signal_connect (G_OBJECT (xw->widgetwindow_osr),
+                        "damage-event",
+                        G_CALLBACK (offscreen_damage_event), xw);
 
       unblock_input ();
     }
@@ -461,11 +508,11 @@ fails.  */)
 DEFUN ("xwidget-live-p", Fxwidget_live_p, Sxwidget_live_p,
        1, 1, 0, doc: /* Return t if OBJECT is an xwidget that has not been killed.
 Value is nil if OBJECT is not an xwidget or if it has been killed.  */)
-  (Lisp_Object object)
+(Lisp_Object object)
 {
-  return ((XWIDGETP (object)
-	   && !NILP (XXWIDGET (object)->buffer))
-	  ? Qt : Qnil);
+  return ((XWIDGETP (object) && !NILP (XXWIDGET (object)->buffer))
+            ? Qt
+            : Qnil);
 }
 
 #ifdef USE_GTK
@@ -486,7 +533,7 @@ EVENT should be the event that will be sent.  FRAME should be the
 frame which generated the event, and defaults to the selected frame.
 On X11, modifier keys will not be processed if FRAME is nil and the
 selected frame is not an X-Windows frame.  */)
-  (Lisp_Object xwidget, Lisp_Object event, Lisp_Object frame)
+(Lisp_Object xwidget, Lisp_Object event, Lisp_Object frame)
 {
   struct xwidget *xw;
   struct frame *f = NULL;
@@ -535,7 +582,7 @@ selected frame is not an X-Windows frame.  */)
       character = XFIXNUM (event);
 
       if (character < 32)
-	modifiers |= ctrl_modifier;
+        modifiers |= ctrl_modifier;
 
       modifiers |= character & meta_modifier;
       modifiers |= character & hyper_modifier;
@@ -546,18 +593,21 @@ selected frame is not an X-Windows frame.  */)
       character = character & ~(1 << 21);
 
       if (character < 32)
-	character += '_';
+        character += '_';
 
 #ifndef HAVE_PGTK
       if (f)
-	modifiers = x_emacs_to_x_modifiers (FRAME_DISPLAY_INFO (f), modifiers);
+        modifiers = x_emacs_to_x_modifiers (FRAME_DISPLAY_INFO (f),
+                                            modifiers);
       else
-	modifiers = 0;
+        modifiers = 0;
 #else
       if (f)
-	modifiers = pgtk_emacs_to_gtk_modifiers (FRAME_DISPLAY_INFO (f), modifiers);
+        modifiers
+          = pgtk_emacs_to_gtk_modifiers (FRAME_DISPLAY_INFO (f),
+                                         modifiers);
       else
-	modifiers = 0;
+        modifiers = 0;
 #endif
     }
   else if (SYMBOLP (event))
@@ -569,33 +619,36 @@ selected frame is not an X-Windows frame.  */)
       bool found = false;
 
       while (off < 256)
-	{
-	  if (lispy_function_keys[off]
-	      && !strcmp (lispy_function_keys[off],
-			  SSDATA (decoded_name)))
-	    {
-	      found = true;
-	      break;
-	    }
-	  ++off;
-	}
+        {
+          if (lispy_function_keys[off]
+              && !strcmp (lispy_function_keys[off],
+                          SSDATA (decoded_name)))
+            {
+              found = true;
+              break;
+            }
+          ++off;
+        }
 
 #ifndef HAVE_PGTK
       if (f)
-	modifiers = x_emacs_to_x_modifiers (FRAME_DISPLAY_INFO (f),
-					    XFIXNUM (XCAR (XCDR (decoded))));
+        modifiers
+          = x_emacs_to_x_modifiers (FRAME_DISPLAY_INFO (f),
+                                    XFIXNUM (XCAR (XCDR (decoded))));
       else
-	modifiers = 0;
+        modifiers = 0;
 #else
       if (f)
-	modifiers = pgtk_emacs_to_gtk_modifiers (FRAME_DISPLAY_INFO (f),
-						 XFIXNUM (XCAR (XCDR (decoded))));
+        modifiers
+          = pgtk_emacs_to_gtk_modifiers (FRAME_DISPLAY_INFO (f),
+                                         XFIXNUM (
+                                           XCAR (XCDR (decoded))));
       else
-	modifiers = 0;
+        modifiers = 0;
 #endif
 
       if (found)
-	keycode = off + 0xff00;
+        keycode = off + 0xff00;
     }
 
   if (character == -1 && keycode == -1)
@@ -603,9 +656,9 @@ selected frame is not an X-Windows frame.  */)
 #ifdef HAVE_XINPUT2
       block_input ();
       if (xw->embedder_view)
-	record_osr_embedder (xw->embedder_view);
+        record_osr_embedder (xw->embedder_view);
       else
-	gdk_offscreen_window_set_embedder (osw, NULL);
+        gdk_offscreen_window_set_embedder (osw, NULL);
       unblock_input ();
 #endif
       return Qnil;
@@ -624,36 +677,37 @@ selected frame is not an X-Windows frame.  */)
   xg_event->key.state = modifiers;
 #else
   if (f)
-    xg_event->key.state = xw_translate_x_modifiers (FRAME_DISPLAY_INFO (f),
-						    modifiers);
+    xg_event->key.state
+      = xw_translate_x_modifiers (FRAME_DISPLAY_INFO (f), modifiers);
 #endif
 
   if (keycode > -1)
     {
       /* WebKitGTK internals abuse follows.  */
       if (WEBKIT_IS_WEB_VIEW (widget))
-	{
-	  /* WebKitGTK relies on an internal GtkTextView object to
-	     "translate" keys such as backspace.  We must find that
-	     widget and activate its binding to this key if any.  */
-	  klass = GTK_CONTAINER_CLASS (G_OBJECT_GET_CLASS (widget));
+        {
+          /* WebKitGTK relies on an internal GtkTextView object to
+             "translate" keys such as backspace.  We must find that
+             widget and activate its binding to this key if any.  */
+          klass = GTK_CONTAINER_CLASS (G_OBJECT_GET_CLASS (widget));
 
-	  klass->forall (GTK_CONTAINER (xw->widget_osr), TRUE,
-			 set_widget_if_text_view, &temp);
+          klass->forall (GTK_CONTAINER (xw->widget_osr), TRUE,
+                         set_widget_if_text_view, &temp);
 
-	  if (GTK_IS_WIDGET (temp))
-	    {
-	      if (!gtk_widget_get_realized (temp))
-		gtk_widget_realize (temp);
+          if (GTK_IS_WIDGET (temp))
+            {
+              if (!gtk_widget_get_realized (temp))
+                gtk_widget_realize (temp);
 
-	      gtk_bindings_activate (G_OBJECT (temp), keycode, modifiers);
-	    }
-	}
+              gtk_bindings_activate (G_OBJECT (temp), keycode,
+                                     modifiers);
+            }
+        }
     }
 
   if (f)
     gdk_event_set_device (xg_event,
-			  find_suitable_keyboard (SELECTED_FRAME ()));
+                          find_suitable_keyboard (SELECTED_FRAME ()));
 
   gtk_main_do_event (xg_event);
   xg_event->type = GDK_KEY_RELEASE;
@@ -676,7 +730,7 @@ DEFUN ("get-buffer-xwidgets", Fget_buffer_xwidgets, Sget_buffer_xwidgets,
        1, 1, 0,
        doc: /* Return a list of xwidgets associated with BUFFER.
 BUFFER may be a buffer or the name of one.  */)
-  (Lisp_Object buffer)
+(Lisp_Object buffer)
 {
   Lisp_Object xw, tail, xw_list;
 
@@ -718,7 +772,7 @@ xwidget_from_id (uint32_t id)
 #ifdef USE_GTK
 static GdkWindow *
 pick_embedded_child (GdkWindow *window, double x, double y,
-		     gpointer user_data)
+                     gpointer user_data)
 {
   GtkWidget *widget;
   GtkWidget *child;
@@ -733,8 +787,8 @@ pick_embedded_child (GdkWindow *window, double x, double y,
   if (!widget)
     return NULL;
 
-  child = find_widget_at_pos (widget, lrint (x), lrint (y),
-			      &xout, &yout, false, NULL);
+  child = find_widget_at_pos (widget, lrint (x), lrint (y), &xout,
+                              &yout, false, NULL);
 
   if (!child)
     return NULL;
@@ -751,7 +805,8 @@ record_osr_embedder (struct xwidget_view *view)
   xw = XXWIDGET (view->model);
   window = gtk_widget_get_window (xw->widgetwindow_osr);
 #ifndef HAVE_PGTK
-  embedder = gtk_widget_get_window (FRAME_GTK_OUTER_WIDGET (view->frame));
+  embedder
+    = gtk_widget_get_window (FRAME_GTK_OUTER_WIDGET (view->frame));
 #else
   embedder = gtk_widget_get_window (view->widget);
 #endif
@@ -770,13 +825,13 @@ find_xwidget_for_offscreen_window (GdkWindow *window)
   for (tem = internal_xwidget_list; CONSP (tem); tem = XCDR (tem))
     {
       if (XWIDGETP (XCAR (tem)))
-	{
-	  xw = XXWIDGET (XCAR (tem));
-	  w = gtk_widget_get_window (xw->widgetwindow_osr);
+        {
+          xw = XXWIDGET (XCAR (tem));
+          w = gtk_widget_get_window (xw->widgetwindow_osr);
 
-	  if (w == window)
-	    return xw;
-	}
+          if (w == window)
+            return xw;
+        }
     }
 
   return NULL;
@@ -784,8 +839,8 @@ find_xwidget_for_offscreen_window (GdkWindow *window)
 
 static void
 from_embedder (GdkWindow *window, double x, double y,
-	       gpointer x_out_ptr, gpointer y_out_ptr,
-	       gpointer user_data)
+               gpointer x_out_ptr, gpointer y_out_ptr,
+               gpointer user_data)
 {
   double *xout = x_out_ptr;
   double *yout = y_out_ptr;
@@ -807,8 +862,9 @@ from_embedder (GdkWindow *window, double x, double y,
   else
     {
       gtk_widget_translate_coordinates (FRAME_GTK_WIDGET (xvw->frame),
-					FRAME_GTK_OUTER_WIDGET (xvw->frame),
-					0, 0, &xoff, &yoff);
+                                        FRAME_GTK_OUTER_WIDGET (
+                                          xvw->frame),
+                                        0, 0, &xoff, &yoff);
 
       *xout = x - xvw->x - xoff;
       *yout = y - xvw->y - yoff;
@@ -821,8 +877,8 @@ from_embedder (GdkWindow *window, double x, double y,
 
 static void
 to_embedder (GdkWindow *window, double x, double y,
-	     gpointer x_out_ptr, gpointer y_out_ptr,
-	     gpointer user_data)
+             gpointer x_out_ptr, gpointer y_out_ptr,
+             gpointer user_data)
 {
   double *xout = x_out_ptr;
   double *yout = y_out_ptr;
@@ -844,8 +900,9 @@ to_embedder (GdkWindow *window, double x, double y,
   else
     {
       gtk_widget_translate_coordinates (FRAME_GTK_WIDGET (xvw->frame),
-					FRAME_GTK_OUTER_WIDGET (xvw->frame),
-					0, 0, &xoff, &yoff);
+                                        FRAME_GTK_OUTER_WIDGET (
+                                          xvw->frame),
+                                        0, 0, &xoff, &yoff);
 
       *xout = x + xvw->x + xoff;
       *yout = y + xvw->y + yoff;
@@ -859,8 +916,8 @@ to_embedder (GdkWindow *window, double x, double y,
 static GdkDevice *
 find_suitable_pointer (struct frame *f)
 {
-  GdkSeat *seat = gdk_display_get_default_seat
-    (gtk_widget_get_display (FRAME_GTK_WIDGET (f)));
+  GdkSeat *seat = gdk_display_get_default_seat (
+    gtk_widget_get_display (FRAME_GTK_WIDGET (f)));
 
   if (!seat)
     return NULL;
@@ -871,8 +928,8 @@ find_suitable_pointer (struct frame *f)
 static GdkDevice *
 find_suitable_keyboard (struct frame *f)
 {
-  GdkSeat *seat = gdk_display_get_default_seat
-    (gtk_widget_get_display (FRAME_GTK_WIDGET (f)));
+  GdkSeat *seat = gdk_display_get_default_seat (
+    gtk_widget_get_display (FRAME_GTK_WIDGET (f)));
 
   if (!seat)
     return NULL;
@@ -887,8 +944,7 @@ find_widget_cb (GtkWidget *widget, void *user)
 }
 
 static void
-find_widget (GtkWidget *widget,
-	     struct widget_search_data *data)
+find_widget (GtkWidget *widget, struct widget_search_data *data)
 {
   GtkAllocation new_allocation;
   GdkWindow *window;
@@ -906,41 +962,43 @@ find_widget (GtkWidget *widget,
   if (gtk_widget_get_parent (widget) && !data->first)
     {
       window = gtk_widget_get_window (widget);
-      while (window != gtk_widget_get_window (gtk_widget_get_parent (widget)))
-	{
-	  gint tx, ty, twidth, theight;
+      while (
+        window
+        != gtk_widget_get_window (gtk_widget_get_parent (widget)))
+        {
+          gint tx, ty, twidth, theight;
 
-	  if (!window)
-	    return;
+          if (!window)
+            return;
 
-	  twidth = gdk_window_get_width (window);
-	  theight = gdk_window_get_height (window);
+          twidth = gdk_window_get_width (window);
+          theight = gdk_window_get_height (window);
 
-	  if (new_allocation.x < 0)
-	    {
-	      new_allocation.width += new_allocation.x;
-	      new_allocation.x = 0;
-	    }
+          if (new_allocation.x < 0)
+            {
+              new_allocation.width += new_allocation.x;
+              new_allocation.x = 0;
+            }
 
-	  if (new_allocation.y < 0)
-	    {
-	      new_allocation.height += new_allocation.y;
-	      new_allocation.y = 0;
-	    }
+          if (new_allocation.y < 0)
+            {
+              new_allocation.height += new_allocation.y;
+              new_allocation.y = 0;
+            }
 
-	  if (new_allocation.x + new_allocation.width > twidth)
-	    new_allocation.width = twidth - new_allocation.x;
-	  if (new_allocation.y + new_allocation.height > theight)
-	    new_allocation.height = theight - new_allocation.y;
+          if (new_allocation.x + new_allocation.width > twidth)
+            new_allocation.width = twidth - new_allocation.x;
+          if (new_allocation.y + new_allocation.height > theight)
+            new_allocation.height = theight - new_allocation.y;
 
-	  gdk_window_get_position (window, &tx, &ty);
-	  new_allocation.x += tx;
-	  x_offset += tx;
-	  new_allocation.y += ty;
-	  y_offset += ty;
+          gdk_window_get_position (window, &tx, &ty);
+          new_allocation.x += tx;
+          x_offset += tx;
+          new_allocation.y += ty;
+          y_offset += ty;
 
-	  window = gdk_window_get_parent (window);
-	}
+          window = gdk_window_get_parent (window);
+        }
     }
 
   if ((data->x >= new_allocation.x) && (data->y >= new_allocation.y)
@@ -948,40 +1006,39 @@ find_widget (GtkWidget *widget,
       && (data->y < new_allocation.y + new_allocation.height))
     {
       /* First, check if the drag is in a valid drop site in one of
-	 our children.	*/
+         our children.	*/
       if (GTK_IS_CONTAINER (widget))
-	{
-	  struct widget_search_data new_data = *data;
+        {
+          struct widget_search_data new_data = *data;
 
-	  new_data.x -= x_offset;
-	  new_data.y -= y_offset;
-	  new_data.foundp = false;
-	  new_data.first = false;
+          new_data.x -= x_offset;
+          new_data.y -= y_offset;
+          new_data.foundp = false;
+          new_data.first = false;
 
-	  gtk_container_forall (GTK_CONTAINER (widget),
-				find_widget_cb, &new_data);
+          gtk_container_forall (GTK_CONTAINER (widget),
+                                find_widget_cb, &new_data);
 
-	  data->foundp = new_data.foundp;
-	  if (data->foundp)
-	    data->data = new_data.data;
-	}
+          data->foundp = new_data.foundp;
+          if (data->foundp)
+            data->data = new_data.data;
+        }
 
       /* If not, and this widget is registered as a drop site, check
-	 to emit "drag_motion" to check if we are actually in a drop
-	 site.	*/
+         to emit "drag_motion" to check if we are actually in a drop
+         site.	*/
       if (!data->foundp)
-	{
-	  data->foundp = true;
-	  data->data = widget;
-	}
+        {
+          data->foundp = true;
+          data->data = widget;
+        }
     }
 }
 
 static GtkWidget *
-find_widget_at_pos (GtkWidget *w, int x, int y,
-		    int *new_x, int *new_y,
-		    bool pointer_grabs,
-		    struct xwidget_view *vw)
+find_widget_at_pos (GtkWidget *w, int x, int y, int *new_x,
+                    int *new_y, bool pointer_grabs,
+                    struct xwidget_view *vw)
 {
   struct widget_search_data data;
 #ifdef HAVE_X_WINDOWS
@@ -992,12 +1049,12 @@ find_widget_at_pos (GtkWidget *w, int x, int y,
       grab = vw->passive_grab;
 
       if (grab && gtk_widget_get_window (grab))
-	{
-	  gtk_widget_translate_coordinates (w, grab, x,
-					    y, new_x, new_y);
+        {
+          gtk_widget_translate_coordinates (w, grab, x, y, new_x,
+                                            new_y);
 
-	  return grab;
-	}
+          return grab;
+        }
     }
 #endif
 
@@ -1010,8 +1067,8 @@ find_widget_at_pos (GtkWidget *w, int x, int y,
 
   if (data.foundp)
     {
-      gtk_widget_translate_coordinates (w, data.data, x,
-					y, new_x, new_y);
+      gtk_widget_translate_coordinates (w, data.data, x, y, new_x,
+                                        new_y);
       return data.data;
     }
 
@@ -1053,27 +1110,28 @@ define_cursors (struct xwidget *xw, WebKitHitTestResult *res)
        tem = XCDR (tem))
     {
       if (XWIDGET_VIEW_P (XCAR (tem)))
-	{
-	  xvw = XXWIDGET_VIEW (XCAR (tem));
+        {
+          xvw = XXWIDGET_VIEW (XCAR (tem));
 
-	  if (XXWIDGET (xvw->model) == xw)
-	    {
-	      xvw->cursor = cursor_for_hit (xw->hit_result, xvw->frame);
+          if (XXWIDGET (xvw->model) == xw)
+            {
+              xvw->cursor
+                = cursor_for_hit (xw->hit_result, xvw->frame);
 
-	      if (gtk_widget_get_realized (xvw->widget))
-		{
-		  wdesc = gtk_widget_get_window (xvw->widget);
-		  gdk_window_set_cursor (wdesc, xvw->cursor);
-		}
-	    }
-	}
+              if (gtk_widget_get_realized (xvw->widget))
+                {
+                  wdesc = gtk_widget_get_window (xvw->widget);
+                  gdk_window_set_cursor (wdesc, xvw->cursor);
+                }
+            }
+        }
     }
 }
 
 static void
 mouse_target_changed (WebKitWebView *webview,
-		      WebKitHitTestResult *hitresult,
-		      guint modifiers, gpointer xw)
+                      WebKitHitTestResult *hitresult, guint modifiers,
+                      gpointer xw)
 {
   define_cursors (xw, hitresult);
 }
@@ -1081,8 +1139,8 @@ mouse_target_changed (WebKitWebView *webview,
 
 static gboolean
 run_file_chooser_cb (WebKitWebView *webview,
-		     WebKitFileChooserRequest *request,
-		     gpointer user_data)
+                     WebKitFileChooserRequest *request,
+                     gpointer user_data)
 {
   struct frame *f = SELECTED_FRAME ();
   GtkFileChooserNative *chooser;
@@ -1100,15 +1158,19 @@ run_file_chooser_cb (WebKitWebView *webview,
   if (!FRAME_WINDOW_P (f))
     return TRUE;
 
-  chooser = gtk_file_chooser_native_new ("Select file",
-					 GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)),
-					 GTK_FILE_CHOOSER_ACTION_OPEN, "Select",
-					 "Cancel");
-  filter = webkit_file_chooser_request_get_mime_types_filter (request);
-  select_multiple_p = webkit_file_chooser_request_get_select_multiple (request);
+  chooser
+    = gtk_file_chooser_native_new ("Select file",
+                                   GTK_WINDOW (
+                                     FRAME_GTK_OUTER_WIDGET (f)),
+                                   GTK_FILE_CHOOSER_ACTION_OPEN,
+                                   "Select", "Cancel");
+  filter
+    = webkit_file_chooser_request_get_mime_types_filter (request);
+  select_multiple_p
+    = webkit_file_chooser_request_get_select_multiple (request);
 
   gtk_file_chooser_set_select_multiple (GTK_FILE_CHOOSER (chooser),
-					select_multiple_p);
+                                        select_multiple_p);
   gtk_file_chooser_add_filter (GTK_FILE_CHOOSER (chooser), filter);
   response = gtk_native_dialog_run (GTK_NATIVE_DIALOG (chooser));
 
@@ -1120,7 +1182,8 @@ run_file_chooser_cb (WebKitWebView *webview,
       return TRUE;
     }
 
-  filenames = gtk_file_chooser_get_filenames (GTK_FILE_CHOOSER (chooser));
+  filenames
+    = gtk_file_chooser_get_filenames (GTK_FILE_CHOOSER (chooser));
   len = g_slist_length (filenames);
   files = alloca (sizeof *files * (len + 1));
 
@@ -1129,7 +1192,8 @@ run_file_chooser_cb (WebKitWebView *webview,
   files[len] = NULL;
 
   g_slist_free (filenames);
-  webkit_file_chooser_request_select_files (request, (const gchar **) files);
+  webkit_file_chooser_request_select_files (request,
+                                            (const gchar **) files);
 
   for (i = 0; i < len; ++i)
     g_free (files[i]);
@@ -1142,26 +1206,24 @@ run_file_chooser_cb (WebKitWebView *webview,
 #ifdef HAVE_X_WINDOWS
 
 static void
-xv_drag_begin_cb (GtkWidget *widget,
-		  GdkDragContext *context,
-		  gpointer user_data)
+xv_drag_begin_cb (GtkWidget *widget, GdkDragContext *context,
+                  gpointer user_data)
 {
   struct xwidget_view *view = user_data;
 
   if (view->passive_grab)
     {
+      g_signal_handler_disconnect (
+        view->passive_grab, view->passive_grab_destruction_signal);
       g_signal_handler_disconnect (view->passive_grab,
-				   view->passive_grab_destruction_signal);
-      g_signal_handler_disconnect (view->passive_grab,
-				   view->passive_grab_drag_signal);
+                                   view->passive_grab_drag_signal);
       view->passive_grab = NULL;
     }
 }
 
 static void
-xwidget_button_1 (struct xwidget_view *view,
-		  bool down_p, int x, int y, int button,
-		  int modifier_state, Time time)
+xwidget_button_1 (struct xwidget_view *view, bool down_p, int x,
+                  int y, int button, int modifier_state, Time time)
 {
   GdkEvent *xg_event;
   struct xwidget *model = XXWIDGET (view->model);
@@ -1178,16 +1240,17 @@ xwidget_button_1 (struct xwidget_view *view,
   view_y = y;
 
   target = find_widget_at_pos (model->widgetwindow_osr, x, y, &x, &y,
-			       true, view);
+                               true, view);
 
   if (!target)
     target = model->widget_osr;
 
-  xg_event = gdk_event_new (down_p ? GDK_BUTTON_PRESS : GDK_BUTTON_RELEASE);
+  xg_event
+    = gdk_event_new (down_p ? GDK_BUTTON_PRESS : GDK_BUTTON_RELEASE);
 
   xg_event->any.window = gtk_widget_get_window (target);
   g_object_ref (xg_event->any.window); /* The window will be unrefed
-					  later by gdk_event_free.  */
+                                          later by gdk_event_free.  */
 
   xg_event->button.x = x;
   xg_event->button.x_root = x;
@@ -1201,91 +1264,98 @@ xwidget_button_1 (struct xwidget_view *view,
   gtk_main_do_event (xg_event);
   gdk_event_free (xg_event);
 
-
   if (down_p && !view->passive_grab)
     {
       view->passive_grab = target;
       view->passive_grab_destruction_signal
-	= g_signal_connect (G_OBJECT (view->passive_grab),
-			    "destroy", G_CALLBACK (gtk_widget_destroyed),
-			    &view->passive_grab);
+        = g_signal_connect (G_OBJECT (view->passive_grab), "destroy",
+                            G_CALLBACK (gtk_widget_destroyed),
+                            &view->passive_grab);
       view->passive_grab_drag_signal
-	= g_signal_connect (G_OBJECT (view->passive_grab),
-			    "drag-begin", G_CALLBACK (xv_drag_begin_cb),
-			    view);
+        = g_signal_connect (G_OBJECT (view->passive_grab),
+                            "drag-begin",
+                            G_CALLBACK (xv_drag_begin_cb), view);
     }
   else
     {
-      ungrab_target = find_widget_at_pos (model->widgetwindow_osr,
-					  view_x, view_y, &x, &y,
-					  false, NULL);
+      ungrab_target
+        = find_widget_at_pos (model->widgetwindow_osr, view_x, view_y,
+                              &x, &y, false, NULL);
 
       if (view->last_crossing_window && ungrab_target)
-	{
-	  xw_maybe_synthesize_crossing (view, gtk_widget_get_window (ungrab_target),
-					view_x, view_y, XW_CROSSING_NONE,
-					time, modifier_state, GDK_CROSSING_UNGRAB,
-					GDK_CROSSING_UNGRAB);
-	}
+        {
+          xw_maybe_synthesize_crossing (view,
+                                        gtk_widget_get_window (
+                                          ungrab_target),
+                                        view_x, view_y,
+                                        XW_CROSSING_NONE, time,
+                                        modifier_state,
+                                        GDK_CROSSING_UNGRAB,
+                                        GDK_CROSSING_UNGRAB);
+        }
       else
-	{
-	  toplevel = gtk_widget_get_window (model->widgetwindow_osr);
-	  xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
-	  target_window = gtk_widget_get_window (target);
-	  window_coords_from_toplevel (target_window, toplevel, view_x,
-				       view_y, &x, &y);
+        {
+          toplevel = gtk_widget_get_window (model->widgetwindow_osr);
+          xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
+          target_window = gtk_widget_get_window (target);
+          window_coords_from_toplevel (target_window, toplevel,
+                                       view_x, view_y, &x, &y);
 
-	  xg_event->crossing.x = x;
-	  xg_event->crossing.y = y;
-	  xg_event->crossing.time = time;
-	  xg_event->crossing.focus = FALSE;
-	  xg_event->crossing.detail = GDK_NOTIFY_ANCESTOR;
-	  xg_event->crossing.mode = GDK_CROSSING_UNGRAB;
-	  xg_event->crossing.window = g_object_ref (target_window);
-	  gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
+          xg_event->crossing.x = x;
+          xg_event->crossing.y = y;
+          xg_event->crossing.time = time;
+          xg_event->crossing.focus = FALSE;
+          xg_event->crossing.detail = GDK_NOTIFY_ANCESTOR;
+          xg_event->crossing.mode = GDK_CROSSING_UNGRAB;
+          xg_event->crossing.window = g_object_ref (target_window);
+          gdk_event_set_device (xg_event,
+                                find_suitable_pointer (view->frame));
 
-	  gtk_main_do_event (xg_event);
-	  gdk_event_free (xg_event);
+          gtk_main_do_event (xg_event);
+          gdk_event_free (xg_event);
 
-	  xw_notify_virtual_upwards_until (view, target_window, toplevel, toplevel,
-					   modifier_state, view_x, view_y, time,
-					   GDK_LEAVE_NOTIFY, false,
-					   GDK_CROSSING_UNGRAB);
+          xw_notify_virtual_upwards_until (view, target_window,
+                                           toplevel, toplevel,
+                                           modifier_state, view_x,
+                                           view_y, time,
+                                           GDK_LEAVE_NOTIFY, false,
+                                           GDK_CROSSING_UNGRAB);
 
-	  if (target_window != toplevel)
-	    {
-	      xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
+          if (target_window != toplevel)
+            {
+              xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
 
-	      xg_event->crossing.x = view_y;
-	      xg_event->crossing.y = view_y;
-	      xg_event->crossing.time = time;
-	      xg_event->crossing.focus = FALSE;
-	      xg_event->crossing.detail = GDK_NOTIFY_VIRTUAL;
-	      xg_event->crossing.mode = GDK_CROSSING_UNGRAB;
-	      xg_event->crossing.window = g_object_ref (toplevel);
+              xg_event->crossing.x = view_y;
+              xg_event->crossing.y = view_y;
+              xg_event->crossing.time = time;
+              xg_event->crossing.focus = FALSE;
+              xg_event->crossing.detail = GDK_NOTIFY_VIRTUAL;
+              xg_event->crossing.mode = GDK_CROSSING_UNGRAB;
+              xg_event->crossing.window = g_object_ref (toplevel);
 
-	      gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
-	      gtk_main_do_event (xg_event);
-	      gdk_event_free (xg_event);
-	    }
-
-	}
+              gdk_event_set_device (xg_event, find_suitable_pointer (
+                                                view->frame));
+              gtk_main_do_event (xg_event);
+              gdk_event_free (xg_event);
+            }
+        }
 
       if (view->passive_grab)
-	{
-	  g_signal_handler_disconnect (view->passive_grab,
-				       view->passive_grab_destruction_signal);
-	  g_signal_handler_disconnect (view->passive_grab,
-				       view->passive_grab_drag_signal);
-	  view->passive_grab = NULL;
-	}
+        {
+          g_signal_handler_disconnect (
+            view->passive_grab,
+            view->passive_grab_destruction_signal);
+          g_signal_handler_disconnect (view->passive_grab,
+                                       view
+                                         ->passive_grab_drag_signal);
+          view->passive_grab = NULL;
+        }
     }
 }
 
 void
-xwidget_button (struct xwidget_view *view,
-		bool down_p, int x, int y, int button,
-		int modifier_state, Time time)
+xwidget_button (struct xwidget_view *view, bool down_p, int x, int y,
+                int button, int modifier_state, Time time)
 {
   if (NILP (XXWIDGET (view->model)->buffer))
     return;
@@ -1293,60 +1363,62 @@ xwidget_button (struct xwidget_view *view,
   record_osr_embedder (view);
 
   if (button < 4 || button > 8)
-    xwidget_button_1 (view, down_p, x, y, button, modifier_state, time);
+    xwidget_button_1 (view, down_p, x, y, button, modifier_state,
+                      time);
   else
     {
       if (!down_p)
-	{
-	  GdkEvent *xg_event = gdk_event_new (GDK_SCROLL);
-	  struct xwidget *model = XXWIDGET (view->model);
-	  GtkWidget *target;
+        {
+          GdkEvent *xg_event = gdk_event_new (GDK_SCROLL);
+          struct xwidget *model = XXWIDGET (view->model);
+          GtkWidget *target;
 
-	  x += view->clip_left;
-	  y += view->clip_top;
+          x += view->clip_left;
+          y += view->clip_top;
 
-	  target = find_widget_at_pos (model->widgetwindow_osr, x, y, &x, &y,
-				       true, view);
+          target = find_widget_at_pos (model->widgetwindow_osr, x, y,
+                                       &x, &y, true, view);
 
-	  if (!target)
-	    target = model->widget_osr;
+          if (!target)
+            target = model->widget_osr;
 
-	  xg_event->any.window = gtk_widget_get_window (target);
-	  g_object_ref (xg_event->any.window); /* The window will be unrefed
-						  later by gdk_event_free.  */
-	  if (button == 4)
-	    xg_event->scroll.direction = GDK_SCROLL_UP;
-	  else if (button == 5)
-	    xg_event->scroll.direction = GDK_SCROLL_DOWN;
-	  else if (button == 6)
-	    xg_event->scroll.direction = GDK_SCROLL_LEFT;
-	  else
-	    xg_event->scroll.direction = GDK_SCROLL_RIGHT;
+          xg_event->any.window = gtk_widget_get_window (target);
+          g_object_ref (
+            xg_event->any.window); /* The window will be unrefed
+                                      later by gdk_event_free.  */
+          if (button == 4)
+            xg_event->scroll.direction = GDK_SCROLL_UP;
+          else if (button == 5)
+            xg_event->scroll.direction = GDK_SCROLL_DOWN;
+          else if (button == 6)
+            xg_event->scroll.direction = GDK_SCROLL_LEFT;
+          else
+            xg_event->scroll.direction = GDK_SCROLL_RIGHT;
 
-	  xg_event->scroll.device = find_suitable_pointer (view->frame);
+          xg_event->scroll.device
+            = find_suitable_pointer (view->frame);
 
-	  xg_event->scroll.x = x;
-	  xg_event->scroll.x_root = x;
-	  xg_event->scroll.y = y;
-	  xg_event->scroll.y_root = y;
-	  xg_event->scroll.state = modifier_state;
-	  xg_event->scroll.time = time;
+          xg_event->scroll.x = x;
+          xg_event->scroll.x_root = x;
+          xg_event->scroll.y = y;
+          xg_event->scroll.y_root = y;
+          xg_event->scroll.state = modifier_state;
+          xg_event->scroll.time = time;
 
-	  xg_event->scroll.delta_x = 0;
-	  xg_event->scroll.delta_y = 0;
+          xg_event->scroll.delta_x = 0;
+          xg_event->scroll.delta_y = 0;
 
-	  gtk_main_do_event (xg_event);
-	  gdk_event_free (xg_event);
-	}
+          gtk_main_do_event (xg_event);
+          gdk_event_free (xg_event);
+        }
     }
 }
 
 #ifdef HAVE_XINPUT2
 void
-xwidget_motion_notify (struct xwidget_view *view,
-		       double x, double y,
-		       double root_x, double root_y,
-		       uint state, Time time)
+xwidget_motion_notify (struct xwidget_view *view, double x, double y,
+                       double root_x, double root_y, uint state,
+                       Time time)
 {
   GdkEvent *xg_event;
   GtkWidget *target;
@@ -1359,10 +1431,9 @@ xwidget_motion_notify (struct xwidget_view *view,
   record_osr_embedder (view);
 
   target = find_widget_at_pos (model->widgetwindow_osr,
-			       lrint (x + view->clip_left),
-			       lrint (y + view->clip_top),
-			       &target_x, &target_y,
-			       true, view);
+                               lrint (x + view->clip_left),
+                               lrint (y + view->clip_top), &target_x,
+                               &target_y, true, view);
 
   if (!target)
     {
@@ -1370,13 +1441,17 @@ xwidget_motion_notify (struct xwidget_view *view,
       target_y = lrint (y + view->clip_top);
       target = model->widget_osr;
     }
-  else if (xw_maybe_synthesize_crossing (view, gtk_widget_get_window (target),
-					 x + view->clip_left, y + view->clip_top,
-					 XW_CROSSING_NONE, time, state,
-					 (view->passive_grab
-					  ? GDK_CROSSING_GRAB
-					  : GDK_CROSSING_NORMAL),
-					 GDK_CROSSING_NORMAL))
+  else if (xw_maybe_synthesize_crossing (view,
+                                         gtk_widget_get_window (
+                                           target),
+                                         x + view->clip_left,
+                                         y + view->clip_top,
+                                         XW_CROSSING_NONE, time,
+                                         state,
+                                         (view->passive_grab
+                                            ? GDK_CROSSING_GRAB
+                                            : GDK_CROSSING_NORMAL),
+                                         GDK_CROSSING_NORMAL))
     return;
 
   xg_event = gdk_event_new (GDK_MOTION_NOTIFY);
@@ -1397,8 +1472,8 @@ xwidget_motion_notify (struct xwidget_view *view,
 
 void
 xwidget_scroll (struct xwidget_view *view, double x, double y,
-		double dx, double dy, uint state, Time time,
-		bool stop_p)
+                double dx, double dy, uint state, Time time,
+                bool stop_p)
 {
   GdkEvent *xg_event;
   GtkWidget *target;
@@ -1411,10 +1486,9 @@ xwidget_scroll (struct xwidget_view *view, double x, double y,
   record_osr_embedder (view);
 
   target = find_widget_at_pos (model->widgetwindow_osr,
-			       lrint (x + view->clip_left),
-			       lrint (y + view->clip_top),
-			       &target_x, &target_y,
-			       true, view);
+                               lrint (x + view->clip_left),
+                               lrint (y + view->clip_top), &target_x,
+                               &target_y, true, view);
 
   if (!target)
     {
@@ -1447,7 +1521,7 @@ xwidget_scroll (struct xwidget_view *view, double x, double y,
 void
 xwidget_pinch (struct xwidget_view *view, XIGesturePinchEvent *xev)
 {
-#if GTK_CHECK_VERSION (3, 18, 0)
+#if GTK_CHECK_VERSION(3, 18, 0)
   GdkEvent *xg_event;
   GtkWidget *target;
   struct xwidget *model = XXWIDGET (view->model);
@@ -1461,10 +1535,9 @@ xwidget_pinch (struct xwidget_view *view, XIGesturePinchEvent *xev)
   record_osr_embedder (view);
 
   target = find_widget_at_pos (model->widgetwindow_osr,
-			       lrint (x + view->clip_left),
-			       lrint (y + view->clip_top),
-			       &target_x, &target_y,
-			       true, view);
+                               lrint (x + view->clip_left),
+                               lrint (y + view->clip_top), &target_x,
+                               &target_y, true, view);
 
   if (!target)
     {
@@ -1489,17 +1562,20 @@ xwidget_pinch (struct xwidget_view *view, XIGesturePinchEvent *xev)
   switch (xev->evtype)
     {
     case XI_GesturePinchBegin:
-      xg_event->touchpad_pinch.phase = GDK_TOUCHPAD_GESTURE_PHASE_BEGIN;
+      xg_event->touchpad_pinch.phase
+        = GDK_TOUCHPAD_GESTURE_PHASE_BEGIN;
       break;
     case XI_GesturePinchUpdate:
-      xg_event->touchpad_pinch.phase = GDK_TOUCHPAD_GESTURE_PHASE_UPDATE;
+      xg_event->touchpad_pinch.phase
+        = GDK_TOUCHPAD_GESTURE_PHASE_UPDATE;
       break;
     case XI_GesturePinchEnd:
       xg_event->touchpad_pinch.phase = GDK_TOUCHPAD_GESTURE_PHASE_END;
       break;
     }
 
-  gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
+  gdk_event_set_device (xg_event,
+                        find_suitable_pointer (view->frame));
 
   g_object_ref (xg_event->any.window);
   gtk_main_do_event (xg_event);
@@ -1533,7 +1609,7 @@ xi_translate_notify_detail (int detail)
 
 static void
 window_coords_from_toplevel (GdkWindow *window, GdkWindow *toplevel,
-			     int x, int y, int *out_x, int *out_y)
+                             int x, int y, int *out_x, int *out_y)
 {
   GdkWindow *parent;
   GList *children, *l;
@@ -1563,9 +1639,8 @@ window_coords_from_toplevel (GdkWindow *window, GdkWindow *toplevel,
 }
 
 static GdkWindow *
-xw_find_common_ancestor (GdkWindow *window,
-			 GdkWindow *other,
-			 GdkWindow *toplevel)
+xw_find_common_ancestor (GdkWindow *window, GdkWindow *other,
+                         GdkWindow *toplevel)
 {
   GdkWindow *tem;
   GList *l1 = NULL;
@@ -1604,35 +1679,30 @@ xw_find_common_ancestor (GdkWindow *window,
 }
 
 static void
-xw_notify_virtual_upwards_until (struct xwidget_view *xv,
-				 GdkWindow *window,
-				 GdkWindow *until,
-				 GdkWindow *toplevel,
-				 unsigned int state,
-				 int x, int y, Time time,
-				 GdkEventType type,
-				 bool nonlinear_p,
-				 GdkCrossingMode crossing)
+xw_notify_virtual_upwards_until (
+  struct xwidget_view *xv, GdkWindow *window, GdkWindow *until,
+  GdkWindow *toplevel, unsigned int state, int x, int y, Time time,
+  GdkEventType type, bool nonlinear_p, GdkCrossingMode crossing)
 {
   GdkEvent *xg_event;
   GdkWindow *tem;
   int cx, cy;
 
-  for (tem = gdk_window_get_parent (window);
-       tem && (tem != until);
+  for (tem = gdk_window_get_parent (window); tem && (tem != until);
        tem = gdk_window_get_parent (tem))
     {
       xg_event = gdk_event_new (type);
 
-      gdk_event_set_device (xg_event, find_suitable_pointer (xv->frame));
+      gdk_event_set_device (xg_event,
+                            find_suitable_pointer (xv->frame));
       window_coords_from_toplevel (tem, toplevel, x, y, &cx, &cy);
       xg_event->crossing.x = cx;
       xg_event->crossing.y = cy;
       xg_event->crossing.time = time;
       xg_event->crossing.focus = FALSE;
-      xg_event->crossing.detail = (nonlinear_p
-				   ? GDK_NOTIFY_NONLINEAR_VIRTUAL
-				   : GDK_NOTIFY_VIRTUAL);
+      xg_event->crossing.detail
+        = (nonlinear_p ? GDK_NOTIFY_NONLINEAR_VIRTUAL
+                       : GDK_NOTIFY_VIRTUAL);
       xg_event->crossing.mode = crossing;
       xg_event->crossing.window = g_object_ref (tem);
 
@@ -1642,15 +1712,10 @@ xw_notify_virtual_upwards_until (struct xwidget_view *xv,
 }
 
 static void
-xw_notify_virtual_downwards_until (struct xwidget_view *xv,
-				   GdkWindow *window,
-				   GdkWindow *until,
-				   GdkWindow *toplevel,
-				   unsigned int state,
-				   int x, int y, Time time,
-				   GdkEventType type,
-				   bool nonlinear_p,
-				   GdkCrossingMode crossing)
+xw_notify_virtual_downwards_until (
+  struct xwidget_view *xv, GdkWindow *window, GdkWindow *until,
+  GdkWindow *toplevel, unsigned int state, int x, int y, Time time,
+  GdkEventType type, bool nonlinear_p, GdkCrossingMode crossing)
 {
   GdkEvent *xg_event;
   GdkWindow *tem;
@@ -1670,15 +1735,16 @@ xw_notify_virtual_downwards_until (struct xwidget_view *xv,
       tem = it->data;
       xg_event = gdk_event_new (type);
 
-      gdk_event_set_device (xg_event, find_suitable_pointer (xv->frame));
+      gdk_event_set_device (xg_event,
+                            find_suitable_pointer (xv->frame));
       window_coords_from_toplevel (tem, toplevel, x, y, &cx, &cy);
       xg_event->crossing.x = cx;
       xg_event->crossing.y = cy;
       xg_event->crossing.time = time;
       xg_event->crossing.focus = FALSE;
-      xg_event->crossing.detail = (nonlinear_p
-				   ? GDK_NOTIFY_NONLINEAR_VIRTUAL
-				   : GDK_NOTIFY_VIRTUAL);
+      xg_event->crossing.detail
+        = (nonlinear_p ? GDK_NOTIFY_NONLINEAR_VIRTUAL
+                       : GDK_NOTIFY_VIRTUAL);
       xg_event->crossing.mode = crossing;
       xg_event->crossing.window = g_object_ref (tem);
 
@@ -1691,7 +1757,7 @@ xw_notify_virtual_downwards_until (struct xwidget_view *xv,
 
 static void
 xw_update_cursor_for_view (struct xwidget_view *xv,
-			   GdkWindow *crossing_window)
+                           GdkWindow *crossing_window)
 {
   GdkCursor *xg_cursor;
   Cursor cursor;
@@ -1703,7 +1769,7 @@ xw_update_cursor_for_view (struct xwidget_view *xv,
       cursor = gdk_x11_cursor_get_xcursor (xg_cursor);
 
       if (gdk_x11_cursor_get_xdisplay (xg_cursor) == xv->dpy)
-	xv->cursor = cursor;
+        xv->cursor = cursor;
     }
   else
     xv->cursor = FRAME_OUTPUT_DATA (xv->frame)->nontext_cursor;
@@ -1713,20 +1779,19 @@ xw_update_cursor_for_view (struct xwidget_view *xv,
 }
 
 static void
-xw_last_crossing_cursor_cb (GdkWindow *window,
-			    GParamSpec *spec,
-			    gpointer user_data)
+xw_last_crossing_cursor_cb (GdkWindow *window, GParamSpec *spec,
+                            gpointer user_data)
 {
   xw_update_cursor_for_view (user_data, window);
 }
 
 static bool
 xw_maybe_synthesize_crossing (struct xwidget_view *view,
-			      GdkWindow *current_window,
-			      int x, int y, int crossing,
-			      Time time, unsigned int state,
-			      GdkCrossingMode entry_crossing,
-			      GdkCrossingMode exit_crossing)
+                              GdkWindow *current_window, int x, int y,
+                              int crossing, Time time,
+                              unsigned int state,
+                              GdkCrossingMode entry_crossing,
+                              GdkCrossingMode exit_crossing)
 {
   GdkWindow *last_crossing, *toplevel, *ancestor;
   GdkEvent *xg_event;
@@ -1734,124 +1799,136 @@ xw_maybe_synthesize_crossing (struct xwidget_view *view,
   bool nonlinear_p;
   bool retention_flag;
 
-#if WEBKIT_CHECK_VERSION (2, 34, 0)
+#if WEBKIT_CHECK_VERSION(2, 34, 0)
   /* Work around a silly bug in WebKitGTK+ that tries to make tooltip
      windows transient for our offscreen window.  */
   int tooltip_width, tooltip_height;
 
   xg_prepare_tooltip (view->frame, dummy_tooltip_string,
-		      &tooltip_width, &tooltip_height);
+                      &tooltip_width, &tooltip_height);
 #endif
 
-  toplevel = gtk_widget_get_window (XXWIDGET (view->model)->widgetwindow_osr);
+  toplevel = gtk_widget_get_window (
+    XXWIDGET (view->model)->widgetwindow_osr);
   retention_flag = false;
 
   if (crossing == XW_CROSSING_LEFT
       && (view->last_crossing_window
-	  && !gdk_window_is_destroyed (view->last_crossing_window)))
+          && !gdk_window_is_destroyed (view->last_crossing_window)))
     {
-      xw_notify_virtual_upwards_until (view, view->last_crossing_window,
-				       toplevel, toplevel,
-				       state, x, y, time,
-				       GDK_LEAVE_NOTIFY, false,
-				       exit_crossing);
+      xw_notify_virtual_upwards_until (view,
+                                       view->last_crossing_window,
+                                       toplevel, toplevel, state, x,
+                                       y, time, GDK_LEAVE_NOTIFY,
+                                       false, exit_crossing);
     }
 
   if (view->last_crossing_window
       && (gdk_window_is_destroyed (view->last_crossing_window)
-	  || crossing == XW_CROSSING_LEFT))
+          || crossing == XW_CROSSING_LEFT))
     {
       if (!gdk_window_is_destroyed (view->last_crossing_window)
-	  && view->last_crossing_window != toplevel)
-	{
-	  xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
-	  window_coords_from_toplevel (view->last_crossing_window,
-				       toplevel, x, y, &cx, &cy);
+          && view->last_crossing_window != toplevel)
+        {
+          xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
+          window_coords_from_toplevel (view->last_crossing_window,
+                                       toplevel, x, y, &cx, &cy);
 
-	  xg_event->crossing.x = cx;
-	  xg_event->crossing.y = cy;
-	  xg_event->crossing.time = time;
-	  xg_event->crossing.focus = FALSE;
-	  xg_event->crossing.detail = GDK_NOTIFY_ANCESTOR;
-	  xg_event->crossing.mode = exit_crossing;
-	  xg_event->crossing.window = g_object_ref (view->last_crossing_window);
-	  gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
+          xg_event->crossing.x = cx;
+          xg_event->crossing.y = cy;
+          xg_event->crossing.time = time;
+          xg_event->crossing.focus = FALSE;
+          xg_event->crossing.detail = GDK_NOTIFY_ANCESTOR;
+          xg_event->crossing.mode = exit_crossing;
+          xg_event->crossing.window
+            = g_object_ref (view->last_crossing_window);
+          gdk_event_set_device (xg_event,
+                                find_suitable_pointer (view->frame));
 
-	  gtk_main_do_event (xg_event);
-	  gdk_event_free (xg_event);
+          gtk_main_do_event (xg_event);
+          gdk_event_free (xg_event);
 
-	  xw_notify_virtual_upwards_until (view, view->last_crossing_window,
-					   gdk_window_get_parent (toplevel),
-					   toplevel, state, x, y, time,
-					   GDK_LEAVE_NOTIFY, false, exit_crossing);
-	  retention_flag = true;
-	}
+          xw_notify_virtual_upwards_until (view,
+                                           view->last_crossing_window,
+                                           gdk_window_get_parent (
+                                             toplevel),
+                                           toplevel, state, x, y,
+                                           time, GDK_LEAVE_NOTIFY,
+                                           false, exit_crossing);
+          retention_flag = true;
+        }
 
       g_signal_handler_disconnect (view->last_crossing_window,
-				   view->last_crossing_cursor_signal);
-      g_clear_pointer (&view->last_crossing_window,
-		       g_object_unref);
+                                   view->last_crossing_cursor_signal);
+      g_clear_pointer (&view->last_crossing_window, g_object_unref);
     }
   last_crossing = view->last_crossing_window;
 
   if (!last_crossing)
     {
       if (current_window)
-	{
-	  view->last_crossing_window = g_object_ref (current_window);
-	  xw_update_cursor_for_view (view, current_window);
-	  view->last_crossing_cursor_signal
-	    = g_signal_connect (G_OBJECT (current_window), "notify::cursor",
-				G_CALLBACK (xw_last_crossing_cursor_cb), view);
+        {
+          view->last_crossing_window = g_object_ref (current_window);
+          xw_update_cursor_for_view (view, current_window);
+          view->last_crossing_cursor_signal
+            = g_signal_connect (G_OBJECT (current_window),
+                                "notify::cursor",
+                                G_CALLBACK (
+                                  xw_last_crossing_cursor_cb),
+                                view);
 
-	  xw_notify_virtual_downwards_until (view, current_window,
-					     toplevel, toplevel,
-					     state, x, y, time,
-					     GDK_ENTER_NOTIFY,
-					     false, entry_crossing);
-	}
+          xw_notify_virtual_downwards_until (view, current_window,
+                                             toplevel, toplevel,
+                                             state, x, y, time,
+                                             GDK_ENTER_NOTIFY, false,
+                                             entry_crossing);
+        }
       return retention_flag;
     }
 
   if (last_crossing != current_window)
     {
       view->last_crossing_window = g_object_ref (current_window);
-      g_signal_handler_disconnect (last_crossing, view->last_crossing_cursor_signal);
+      g_signal_handler_disconnect (last_crossing,
+                                   view->last_crossing_cursor_signal);
 
       xw_update_cursor_for_view (view, current_window);
       view->last_crossing_cursor_signal
-	= g_signal_connect (G_OBJECT (current_window), "notify::cursor",
-			    G_CALLBACK (xw_last_crossing_cursor_cb), view);
+        = g_signal_connect (G_OBJECT (current_window),
+                            "notify::cursor",
+                            G_CALLBACK (xw_last_crossing_cursor_cb),
+                            view);
 
-      ancestor = xw_find_common_ancestor (last_crossing, current_window, toplevel);
+      ancestor = xw_find_common_ancestor (last_crossing,
+                                          current_window, toplevel);
 
       if (!ancestor)
-	emacs_abort ();
+        emacs_abort ();
 
-      nonlinear_p = (last_crossing != ancestor) && (current_window != ancestor);
+      nonlinear_p
+        = (last_crossing != ancestor) && (current_window != ancestor);
 
       if (nonlinear_p || (last_crossing != ancestor))
-	xw_notify_virtual_upwards_until (view, last_crossing,
-					 ancestor, toplevel,
-					 state, x, y, time,
-					 GDK_LEAVE_NOTIFY,
-					 nonlinear_p,
-					 exit_crossing);
+        xw_notify_virtual_upwards_until (view, last_crossing,
+                                         ancestor, toplevel, state, x,
+                                         y, time, GDK_LEAVE_NOTIFY,
+                                         nonlinear_p, exit_crossing);
 
       xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
-      gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
-      window_coords_from_toplevel (last_crossing, toplevel,
-				   x, y, &cx, &cy);
+      gdk_event_set_device (xg_event,
+                            find_suitable_pointer (view->frame));
+      window_coords_from_toplevel (last_crossing, toplevel, x, y, &cx,
+                                   &cy);
       xg_event->crossing.x = cx;
       xg_event->crossing.y = cy;
       xg_event->crossing.time = time;
       xg_event->crossing.focus = FALSE;
       xg_event->crossing.state = state;
-      xg_event->crossing.detail = (nonlinear_p
-				   ? GDK_NOTIFY_NONLINEAR
-				   : (last_crossing == ancestor
-				      ? GDK_NOTIFY_INFERIOR
-				      : GDK_NOTIFY_ANCESTOR));
+      xg_event->crossing.detail
+        = (nonlinear_p
+             ? GDK_NOTIFY_NONLINEAR
+             : (last_crossing == ancestor ? GDK_NOTIFY_INFERIOR
+                                          : GDK_NOTIFY_ANCESTOR));
       xg_event->crossing.mode = exit_crossing;
       xg_event->crossing.window = g_object_ref (last_crossing);
 
@@ -1859,27 +1936,28 @@ xw_maybe_synthesize_crossing (struct xwidget_view *view,
       gdk_event_free (xg_event);
 
       if (nonlinear_p || (current_window != ancestor))
-	xw_notify_virtual_downwards_until (view, current_window,
-					   ancestor, toplevel,
-					   state, x, y, time,
-					   GDK_ENTER_NOTIFY,
-					   nonlinear_p,
-					   entry_crossing);
+        xw_notify_virtual_downwards_until (view, current_window,
+                                           ancestor, toplevel, state,
+                                           x, y, time,
+                                           GDK_ENTER_NOTIFY,
+                                           nonlinear_p,
+                                           entry_crossing);
 
       xg_event = gdk_event_new (GDK_ENTER_NOTIFY);
-      gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
-      window_coords_from_toplevel (current_window, toplevel,
-				   x, y, &cx, &cy);
+      gdk_event_set_device (xg_event,
+                            find_suitable_pointer (view->frame));
+      window_coords_from_toplevel (current_window, toplevel, x, y,
+                                   &cx, &cy);
       xg_event->crossing.x = cx;
       xg_event->crossing.y = cy;
       xg_event->crossing.time = time;
       xg_event->crossing.focus = FALSE;
       xg_event->crossing.state = state;
-      xg_event->crossing.detail = (nonlinear_p
-				   ? GDK_NOTIFY_NONLINEAR
-				   : (current_window == ancestor
-				      ? GDK_NOTIFY_INFERIOR
-				      : GDK_NOTIFY_ANCESTOR));
+      xg_event->crossing.detail
+        = (nonlinear_p
+             ? GDK_NOTIFY_NONLINEAR
+             : (current_window == ancestor ? GDK_NOTIFY_INFERIOR
+                                           : GDK_NOTIFY_ANCESTOR));
       xg_event->crossing.mode = entry_crossing;
       xg_event->crossing.window = g_object_ref (current_window);
 
@@ -1894,7 +1972,8 @@ xw_maybe_synthesize_crossing (struct xwidget_view *view,
 }
 
 void
-xwidget_motion_or_crossing (struct xwidget_view *view, const XEvent *event)
+xwidget_motion_or_crossing (struct xwidget_view *view,
+                            const XEvent *event)
 {
   GdkEvent *xg_event;
   struct xwidget *model = XXWIDGET (view->model);
@@ -1912,36 +1991,37 @@ xwidget_motion_or_crossing (struct xwidget_view *view, const XEvent *event)
 #endif
     {
       xg_event = gdk_event_new (event->type == MotionNotify
-				? GDK_MOTION_NOTIFY
-				: (event->type == LeaveNotify
-				   ? GDK_LEAVE_NOTIFY
-				   : GDK_ENTER_NOTIFY));
+                                  ? GDK_MOTION_NOTIFY
+                                  : (event->type == LeaveNotify
+                                       ? GDK_LEAVE_NOTIFY
+                                       : GDK_ENTER_NOTIFY));
       toplevel_x = (event->type == MotionNotify
-		    ? event->xmotion.x + view->clip_left
-		    : event->xcrossing.x + view->clip_left);
+                      ? event->xmotion.x + view->clip_left
+                      : event->xcrossing.x + view->clip_left);
       toplevel_y = (event->type == MotionNotify
-		    ? event->xmotion.y + view->clip_top
-		    : event->xcrossing.y + view->clip_top);
-      target = find_widget_at_pos (model->widgetwindow_osr,
-				   toplevel_x, toplevel_y, &x, &y,
-				   true, view);
+                      ? event->xmotion.y + view->clip_top
+                      : event->xcrossing.y + view->clip_top);
+      target
+        = find_widget_at_pos (model->widgetwindow_osr, toplevel_x,
+                              toplevel_y, &x, &y, true, view);
     }
 #ifdef HAVE_XINPUT2
   else
     {
       eassert (event->xcookie.evtype == XI_Enter
-	       || event->xcookie.evtype == XI_Leave);
+               || event->xcookie.evtype == XI_Leave);
 
       xev = (XIEnterEvent *) event->xcookie.data;
-      xg_event = gdk_event_new (event->type == XI_Enter
-				? GDK_ENTER_NOTIFY
-				: GDK_LEAVE_NOTIFY);
-      target = find_widget_at_pos (model->widgetwindow_osr,
-				   (toplevel_x
-				    = lrint (xev->event_x + view->clip_left)),
-				   (toplevel_y
-				    = lrint (xev->event_y + view->clip_top)),
-				   &x, &y, true, view);
+      xg_event
+        = gdk_event_new (event->type == XI_Enter ? GDK_ENTER_NOTIFY
+                                                 : GDK_LEAVE_NOTIFY);
+      target
+        = find_widget_at_pos (model->widgetwindow_osr,
+                              (toplevel_x = lrint (
+                                 xev->event_x + view->clip_left)),
+                              (toplevel_y = lrint (xev->event_y
+                                                   + view->clip_top)),
+                              &x, &y, true, view);
     }
 #endif
 
@@ -1951,32 +2031,34 @@ xwidget_motion_or_crossing (struct xwidget_view *view, const XEvent *event)
   record_osr_embedder (view);
   xg_event->any.window = gtk_widget_get_window (target);
   g_object_ref (xg_event->any.window); /* The window will be unrefed
-					  later by gdk_event_free.  */
+                                          later by gdk_event_free.  */
 
   if (event->type == MotionNotify)
     {
       if (!xw_maybe_synthesize_crossing (view, xg_event->any.window,
-					 toplevel_x, toplevel_y,
-					 XW_CROSSING_NONE, event->xmotion.time,
-					 event->xmotion.state,
-					 (view->passive_grab
-					  ? GDK_CROSSING_GRAB
-					  : GDK_CROSSING_NORMAL),
-					 GDK_CROSSING_NORMAL))
-	{
-	  xg_event->motion.x = x;
-	  xg_event->motion.y = y;
-	  xg_event->motion.x_root = event->xmotion.x_root;
-	  xg_event->motion.y_root = event->xmotion.y_root;
-	  xg_event->motion.time = event->xmotion.time;
-	  xg_event->motion.state = event->xmotion.state;
-	  xg_event->motion.device = find_suitable_pointer (view->frame);
-	}
+                                         toplevel_x, toplevel_y,
+                                         XW_CROSSING_NONE,
+                                         event->xmotion.time,
+                                         event->xmotion.state,
+                                         (view->passive_grab
+                                            ? GDK_CROSSING_GRAB
+                                            : GDK_CROSSING_NORMAL),
+                                         GDK_CROSSING_NORMAL))
+        {
+          xg_event->motion.x = x;
+          xg_event->motion.y = y;
+          xg_event->motion.x_root = event->xmotion.x_root;
+          xg_event->motion.y_root = event->xmotion.y_root;
+          xg_event->motion.time = event->xmotion.time;
+          xg_event->motion.state = event->xmotion.state;
+          xg_event->motion.device
+            = find_suitable_pointer (view->frame);
+        }
       else
-	{
-	  gdk_event_free (xg_event);
-	  return;
-	}
+        {
+          gdk_event_free (xg_event);
+          return;
+        }
     }
 #ifdef HAVE_XINPUT2
   else if (event->type == GenericEvent)
@@ -1988,56 +2070,59 @@ xwidget_motion_or_crossing (struct xwidget_view *view, const XEvent *event)
       xg_event->crossing.time = xev->time;
       xg_event->crossing.focus = xev->focus;
       xg_event->crossing.mode = xev->mode;
-      xg_event->crossing.detail = xi_translate_notify_detail (xev->detail);
+      xg_event->crossing.detail
+        = xi_translate_notify_detail (xev->detail);
       xg_event->crossing.state = xev->mods.effective;
 
       if (xev->buttons.mask_len)
-	{
-	  if (XIMaskIsSet (xev->buttons.mask, 1))
-	    xg_event->crossing.state |= GDK_BUTTON1_MASK;
-	  if (XIMaskIsSet (xev->buttons.mask, 2))
-	    xg_event->crossing.state |= GDK_BUTTON2_MASK;
-	  if (XIMaskIsSet (xev->buttons.mask, 3))
-	    xg_event->crossing.state |= GDK_BUTTON3_MASK;
-	}
+        {
+          if (XIMaskIsSet (xev->buttons.mask, 1))
+            xg_event->crossing.state |= GDK_BUTTON1_MASK;
+          if (XIMaskIsSet (xev->buttons.mask, 2))
+            xg_event->crossing.state |= GDK_BUTTON2_MASK;
+          if (XIMaskIsSet (xev->buttons.mask, 3))
+            xg_event->crossing.state |= GDK_BUTTON3_MASK;
+        }
 
       if (view->passive_grab
-	  || xw_maybe_synthesize_crossing (view, xg_event->any.window,
-					   toplevel_x, toplevel_y,
-					   (xev->type == XI_Enter
-					    ? XW_CROSSING_ENTERED
-					    : XW_CROSSING_LEFT),
-					   xev->time, xg_event->crossing.state,
-					   (view->passive_grab
-					    ? GDK_CROSSING_GRAB
-					    : GDK_CROSSING_NORMAL),
-					   GDK_CROSSING_NORMAL))
-	{
-	  gdk_event_free (xg_event);
-	  return;
-	}
+          || xw_maybe_synthesize_crossing (view, xg_event->any.window,
+                                           toplevel_x, toplevel_y,
+                                           (xev->type == XI_Enter
+                                              ? XW_CROSSING_ENTERED
+                                              : XW_CROSSING_LEFT),
+                                           xev->time,
+                                           xg_event->crossing.state,
+                                           (view->passive_grab
+                                              ? GDK_CROSSING_GRAB
+                                              : GDK_CROSSING_NORMAL),
+                                           GDK_CROSSING_NORMAL))
+        {
+          gdk_event_free (xg_event);
+          return;
+        }
 
-      gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
+      gdk_event_set_device (xg_event,
+                            find_suitable_pointer (view->frame));
     }
 #endif
   else
     {
       if (view->passive_grab
-	  || xw_maybe_synthesize_crossing (view, xg_event->any.window,
-					   toplevel_x, toplevel_y,
-					   (event->type == EnterNotify
-					    ? XW_CROSSING_ENTERED
-					    : XW_CROSSING_LEFT),
-					   event->xcrossing.time,
-					   event->xcrossing.state,
-					   (view->passive_grab
-					    ? GDK_CROSSING_GRAB
-					    : GDK_CROSSING_NORMAL),
-					   GDK_CROSSING_NORMAL))
-	{
-	  gdk_event_free (xg_event);
-	  return;
-	}
+          || xw_maybe_synthesize_crossing (view, xg_event->any.window,
+                                           toplevel_x, toplevel_y,
+                                           (event->type == EnterNotify
+                                              ? XW_CROSSING_ENTERED
+                                              : XW_CROSSING_LEFT),
+                                           event->xcrossing.time,
+                                           event->xcrossing.state,
+                                           (view->passive_grab
+                                              ? GDK_CROSSING_GRAB
+                                              : GDK_CROSSING_NORMAL),
+                                           GDK_CROSSING_NORMAL))
+        {
+          gdk_event_free (xg_event);
+          return;
+        }
 
       xg_event->crossing.detail = min (5, event->xcrossing.detail);
       xg_event->crossing.time = event->xcrossing.time;
@@ -2046,7 +2131,8 @@ xwidget_motion_or_crossing (struct xwidget_view *view, const XEvent *event)
       xg_event->crossing.x_root = event->xcrossing.x_root;
       xg_event->crossing.y_root = event->xcrossing.y_root;
       xg_event->crossing.focus = event->xcrossing.focus;
-      gdk_event_set_device (xg_event, find_suitable_pointer (view->frame));
+      gdk_event_set_device (xg_event,
+                            find_suitable_pointer (view->frame));
     }
 
   gtk_main_do_event (xg_event);
@@ -2072,7 +2158,7 @@ synthesize_focus_in_event (GtkWidget *offscreen_window)
 
   if (FRAME_WINDOW_P (SELECTED_FRAME ()))
     gdk_event_set_device (focus_event,
-			  find_suitable_pointer (SELECTED_FRAME ()));
+                          find_suitable_pointer (SELECTED_FRAME ()));
 
   g_object_ref (wnd);
 
@@ -2099,15 +2185,14 @@ xwidget_show_view (struct xwidget_view *xv)
 {
   xv->hidden = false;
 #ifdef HAVE_X_WINDOWS
-  XMoveWindow (xv->dpy, xv->wdesc,
-	       xv->x + xv->clip_left,
-	       xv->y + xv->clip_top);
+  XMoveWindow (xv->dpy, xv->wdesc, xv->x + xv->clip_left,
+               xv->y + xv->clip_top);
   XMapWindow (xv->dpy, xv->wdesc);
   XFlush (xv->dpy);
 #else
   gtk_fixed_move (GTK_FIXED (FRAME_GTK_WIDGET (xv->frame)),
-		  xv->widget, xv->x + xv->clip_left,
-		  xv->y + xv->clip_top);
+                  xv->widget, xv->x + xv->clip_left,
+                  xv->y + xv->clip_top);
   gtk_widget_show_all (xv->widget);
 #endif
 }
@@ -2159,8 +2244,7 @@ xv_do_draw (struct xwidget_view *xw, struct xwidget *w)
 }
 #else
 static void
-xwidget_view_draw_cb (GtkWidget *widget, cairo_t *cr,
-		      gpointer data)
+xwidget_view_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
   struct xwidget_view *view = data;
   struct xwidget *w = XXWIDGET (view->model);
@@ -2177,8 +2261,7 @@ xwidget_view_draw_cb (GtkWidget *widget, cairo_t *cr,
   cairo_save (cr);
   if (surface)
     {
-      cairo_translate (cr, -view->clip_left,
-		       -view->clip_top);
+      cairo_translate (cr, -view->clip_left, -view->clip_top);
       cairo_set_source_surface (cr, surface, 0, 0);
       cairo_set_operator (cr, CAIRO_OPERATOR_SOURCE);
       cairo_paint (cr);
@@ -2189,8 +2272,8 @@ xwidget_view_draw_cb (GtkWidget *widget, cairo_t *cr,
 }
 #endif
 
-/* When the off-screen webkit master view changes this signal is called.
-   It copies the bitmap from the off-screen instance.  */
+/* When the off-screen webkit master view changes this signal is
+   called. It copies the bitmap from the off-screen instance.  */
 static gboolean
 offscreen_damage_event (GtkWidget *widget, GdkEvent *event,
                         gpointer xwidget)
@@ -2201,15 +2284,15 @@ offscreen_damage_event (GtkWidget *widget, GdkEvent *event,
        tail = XCDR (tail))
     {
       if (XWIDGET_VIEW_P (XCAR (tail)))
-	{
-	  struct xwidget_view *view = XXWIDGET_VIEW (XCAR (tail));
+        {
+          struct xwidget_view *view = XXWIDGET_VIEW (XCAR (tail));
 #ifdef HAVE_X_WINDOWS
-	  if (view->wdesc && XXWIDGET (view->model) == xwidget)
-	    xv_do_draw (view, XXWIDGET (view->model));
+          if (view->wdesc && XXWIDGET (view->model) == xwidget)
+            xv_do_draw (view, XXWIDGET (view->model));
 #else
-	  gtk_widget_queue_draw (view->widget);
+          gtk_widget_queue_draw (view->widget);
 #endif
-	}
+        }
     }
 
   unblock_input ();
@@ -2238,7 +2321,8 @@ store_xwidget_event_string (struct xwidget *xw, const char *eventname,
   EVENT_INIT (event);
   event.kind = XWIDGET_EVENT;
   event.frame_or_window = Qnil;
-  event.arg = list3 (intern (eventname), xwl, build_string (eventstr));
+  event.arg
+    = list3 (intern (eventname), xwl, build_string (eventstr));
   kbd_buffer_store_event (&event);
 }
 
@@ -2254,17 +2338,14 @@ store_xwidget_download_callback_event (struct xwidget *xw,
   EVENT_INIT (event);
   event.kind = XWIDGET_EVENT;
   event.frame_or_window = Qnil;
-  event.arg = list5 (intern ("download-callback"),
-                     xwl,
-                     build_string (url),
-                     build_string (mimetype),
-                     build_string (filename));
+  event.arg
+    = list5 (intern ("download-callback"), xwl, build_string (url),
+             build_string (mimetype), build_string (filename));
   kbd_buffer_store_event (&event);
 }
 
 void
-store_xwidget_js_callback_event (struct xwidget *xw,
-                                 Lisp_Object proc,
+store_xwidget_js_callback_event (struct xwidget *xw, Lisp_Object proc,
                                  Lisp_Object argument)
 {
   struct input_event event;
@@ -2273,15 +2354,14 @@ store_xwidget_js_callback_event (struct xwidget *xw,
   EVENT_INIT (event);
   event.kind = XWIDGET_EVENT;
   event.frame_or_window = Qnil;
-  event.arg = list4 (intern ("javascript-callback"), xwl, proc, argument);
+  event.arg
+    = list4 (intern ("javascript-callback"), xwl, proc, argument);
   kbd_buffer_store_event (&event);
 }
 
-
 #ifdef USE_GTK
 static void
-store_xwidget_display_event (struct xwidget *xw,
-			     struct xwidget *src)
+store_xwidget_display_event (struct xwidget *xw, struct xwidget *src)
 {
   struct input_event evt;
   Lisp_Object val, src_val;
@@ -2296,8 +2376,7 @@ store_xwidget_display_event (struct xwidget *xw,
 }
 
 static void
-webkit_ready_to_show (WebKitWebView *new_view,
-		      gpointer user_data)
+webkit_ready_to_show (WebKitWebView *new_view, gpointer user_data)
 {
   Lisp_Object tem;
   struct xwidget *xw;
@@ -2308,36 +2387,36 @@ webkit_ready_to_show (WebKitWebView *new_view,
   for (tem = internal_xwidget_list; CONSP (tem); tem = XCDR (tem))
     {
       if (XWIDGETP (XCAR (tem)))
-	{
-	  xw = XXWIDGET (XCAR (tem));
+        {
+          xw = XXWIDGET (XCAR (tem));
 
-	  if (EQ (xw->type, Qwebkit)
-	      && WEBKIT_WEB_VIEW (xw->widget_osr) == new_view)
-	    {
-	      /* The source widget was destroyed before we had a
-		 chance to display the new widget.  */
-	      if (!src)
-		kill_xwidget (xw);
-	      else
-		store_xwidget_display_event (xw, src);
-	    }
-	}
+          if (EQ (xw->type, Qwebkit)
+              && WEBKIT_WEB_VIEW (xw->widget_osr) == new_view)
+            {
+              /* The source widget was destroyed before we had a
+                 chance to display the new widget.  */
+              if (!src)
+                kill_xwidget (xw);
+              else
+                store_xwidget_display_event (xw, src);
+            }
+        }
     }
 }
 
 static GtkWidget *
-webkit_create_cb_1 (WebKitWebView *webview,
-		    struct xwidget *xv)
+webkit_create_cb_1 (WebKitWebView *webview, struct xwidget *xv)
 {
   Lisp_Object related;
   Lisp_Object xwidget;
   GtkWidget *widget;
 
   XSETXWIDGET (related, xv);
-  xwidget = Fmake_xwidget (Qwebkit, Qnil, make_fixnum (0),
-			   make_fixnum (0), Qnil,
-			   build_string (" *detached xwidget buffer*"),
-			   related);
+  xwidget
+    = Fmake_xwidget (Qwebkit, Qnil, make_fixnum (0), make_fixnum (0),
+                     Qnil,
+                     build_string (" *detached xwidget buffer*"),
+                     related);
 
   if (NILP (xwidget))
     return NULL;
@@ -2345,16 +2424,16 @@ webkit_create_cb_1 (WebKitWebView *webview,
   widget = XXWIDGET (xwidget)->widget_osr;
 
   g_signal_connect (G_OBJECT (widget), "ready-to-show",
-		    G_CALLBACK (webkit_ready_to_show),
-		    gtk_widget_get_window (xv->widgetwindow_osr));
+                    G_CALLBACK (webkit_ready_to_show),
+                    gtk_widget_get_window (xv->widgetwindow_osr));
 
   return widget;
 }
 
 static GtkWidget *
 webkit_create_cb (WebKitWebView *webview,
-		  WebKitNavigationAction *nav_action,
-		  gpointer user_data)
+                  WebKitNavigationAction *nav_action,
+                  gpointer user_data)
 {
   switch (webkit_navigation_action_get_navigation_type (nav_action))
     {
@@ -2376,22 +2455,25 @@ webkit_view_load_changed_cb (WebKitWebView *webkitwebview,
                              WebKitLoadEvent load_event,
                              gpointer data)
 {
-  struct xwidget *xw = g_object_get_data (G_OBJECT (webkitwebview),
-					  XG_XWIDGET);
+  struct xwidget *xw
+    = g_object_get_data (G_OBJECT (webkitwebview), XG_XWIDGET);
 
   switch (load_event)
     {
     case WEBKIT_LOAD_FINISHED:
-      store_xwidget_event_string (xw, "load-changed", "load-finished");
+      store_xwidget_event_string (xw, "load-changed",
+                                  "load-finished");
       break;
     case WEBKIT_LOAD_STARTED:
       store_xwidget_event_string (xw, "load-changed", "load-started");
       break;
     case WEBKIT_LOAD_REDIRECTED:
-      store_xwidget_event_string (xw, "load-changed", "load-redirected");
+      store_xwidget_event_string (xw, "load-changed",
+                                  "load-redirected");
       break;
     case WEBKIT_LOAD_COMMITTED:
-      store_xwidget_event_string (xw, "load-changed", "load-committed");
+      store_xwidget_event_string (xw, "load-changed",
+                                  "load-committed");
       break;
     }
 }
@@ -2422,38 +2504,40 @@ webkit_js_to_lisp (JSCValue *value)
       const gint32 dlen = jsc_value_to_int32 (len);
 
       Lisp_Object obj;
-      if (! (0 <= dlen && dlen < G_MAXINT32))
-	memory_full (SIZE_MAX);
+      if (!(0 <= dlen && dlen < G_MAXINT32))
+        memory_full (SIZE_MAX);
 
       ptrdiff_t n = dlen;
       struct Lisp_Vector *p = allocate_nil_vector (n);
 
       for (ptrdiff_t i = 0; i < n; ++i)
-	{
-	  p->contents[i] =
-	    webkit_js_to_lisp (jsc_value_object_get_property_at_index (value, i));
-	}
+        {
+          p->contents[i] = webkit_js_to_lisp (
+            jsc_value_object_get_property_at_index (value, i));
+        }
       XSETVECTOR (obj, p);
       return obj;
     }
   else if (jsc_value_is_object (value))
     {
-      char **properties_names = jsc_value_object_enumerate_properties (value);
+      char **properties_names
+        = jsc_value_object_enumerate_properties (value);
       guint n = g_strv_length (properties_names);
 
       Lisp_Object obj;
       if (PTRDIFF_MAX < n)
-	memory_full (n);
+        memory_full (n);
       struct Lisp_Vector *p = allocate_nil_vector (n);
 
       for (ptrdiff_t i = 0; i < n; ++i)
-	{
-	  const char *name = properties_names[i];
-	  JSCValue *property = jsc_value_object_get_property (value, name);
+        {
+          const char *name = properties_names[i];
+          JSCValue *property
+            = jsc_value_object_get_property (value, name);
 
-	  p->contents[i] =
-	    Fcons (build_string (name), webkit_js_to_lisp (property));
-	}
+          p->contents[i] = Fcons (build_string (name),
+                                  webkit_js_to_lisp (property));
+        }
 
       g_strfreev (properties_names);
 
@@ -2465,58 +2549,60 @@ webkit_js_to_lisp (JSCValue *value)
 }
 
 static void
-webkit_javascript_finished_cb (GObject      *webview,
-                               GAsyncResult *result,
-                               gpointer      arg)
+webkit_javascript_finished_cb (GObject *webview, GAsyncResult *result,
+                               gpointer arg)
 {
   GError *error = NULL;
-  struct xwidget *xw = g_object_get_data (G_OBJECT (webview), XG_XWIDGET);
+  struct xwidget *xw
+    = g_object_get_data (G_OBJECT (webview), XG_XWIDGET);
 
   ptrdiff_t script_idx = (intptr_t) arg;
-  Lisp_Object script_callback = AREF (xw->script_callbacks, script_idx);
+  Lisp_Object script_callback
+    = AREF (xw->script_callbacks, script_idx);
   ASET (xw->script_callbacks, script_idx, Qnil);
   if (!NILP (script_callback))
     xfree (xmint_pointer (XCAR (script_callback)));
 
-  WebKitJavascriptResult *js_result =
-    webkit_web_view_run_javascript_finish
-    (WEBKIT_WEB_VIEW (webview), result, &error);
+  WebKitJavascriptResult *js_result
+    = webkit_web_view_run_javascript_finish (WEBKIT_WEB_VIEW (
+                                               webview),
+                                             result, &error);
 
   if (!js_result)
     {
       if (error)
-	g_error_free (error);
+        g_error_free (error);
       return;
     }
 
   if (!NILP (script_callback) && !NILP (XCDR (script_callback)))
     {
-      JSCValue *value = webkit_javascript_result_get_js_value (js_result);
+      JSCValue *value
+        = webkit_javascript_result_get_js_value (js_result);
 
       Lisp_Object lisp_value = webkit_js_to_lisp (value);
 
       /* Register an xwidget event here, which then runs the callback.
-	 This ensures that the callback runs in sync with the Emacs
-	 event loop.  */
-      store_xwidget_js_callback_event (xw, XCDR (script_callback), lisp_value);
+         This ensures that the callback runs in sync with the Emacs
+         event loop.  */
+      store_xwidget_js_callback_event (xw, XCDR (script_callback),
+                                       lisp_value);
     }
 
   webkit_javascript_result_unref (js_result);
 }
 
-
 gboolean
 webkit_download_cb (WebKitWebContext *webkitwebcontext,
-                    WebKitDownload *arg1,
-                    gpointer data)
+                    WebKitDownload *arg1, gpointer data)
 {
-  WebKitWebView *view = webkit_download_get_web_view(arg1);
-  WebKitURIRequest *request = webkit_download_get_request(arg1);
-  struct xwidget *xw = g_object_get_data (G_OBJECT (view),
-                                          XG_XWIDGET);
+  WebKitWebView *view = webkit_download_get_web_view (arg1);
+  WebKitURIRequest *request = webkit_download_get_request (arg1);
+  struct xwidget *xw
+    = g_object_get_data (G_OBJECT (view), XG_XWIDGET);
 
   store_xwidget_event_string (xw, "download-started",
-                              webkit_uri_request_get_uri(request));
+                              webkit_uri_request_get_uri (request));
   return FALSE;
 }
 
@@ -2526,75 +2612,85 @@ webkit_decide_policy_cb (WebKitWebView *webView,
                          WebKitPolicyDecisionType type,
                          gpointer user_data)
 {
-  switch (type) {
-  case WEBKIT_POLICY_DECISION_TYPE_RESPONSE:
-    /* This function makes webkit send a download signal for all unknown
-       mime types.  TODO: Defer the decision to Lisp, so that it's
-       possible to make Emacs handle mime text for instance.  */
+  switch (type)
     {
-      WebKitResponsePolicyDecision *response =
-        WEBKIT_RESPONSE_POLICY_DECISION (decision);
-      if (!webkit_response_policy_decision_is_mime_type_supported (response))
-        {
-          webkit_policy_decision_download (decision);
-          return TRUE;
-        }
-      else
+    case WEBKIT_POLICY_DECISION_TYPE_RESPONSE:
+      /* This function makes webkit send a download signal for all
+         unknown mime types.  TODO: Defer the decision to Lisp, so
+         that it's possible to make Emacs handle mime text for
+         instance.  */
+      {
+        WebKitResponsePolicyDecision *response
+          = WEBKIT_RESPONSE_POLICY_DECISION (decision);
+        if (!webkit_response_policy_decision_is_mime_type_supported (
+              response))
+          {
+            webkit_policy_decision_download (decision);
+            return TRUE;
+          }
+        else
+          return FALSE;
+        break;
+      }
+    case WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION:
+      {
+        WebKitNavigationPolicyDecision *navigation_decision
+          = WEBKIT_NAVIGATION_POLICY_DECISION (decision);
+        WebKitNavigationAction *navigation_action
+          = webkit_navigation_policy_decision_get_navigation_action (
+            navigation_decision);
+        WebKitURIRequest *request
+          = webkit_navigation_action_get_request (navigation_action);
+        WebKitWebView *newview;
+        struct xwidget *xw
+          = g_object_get_data (G_OBJECT (webView), XG_XWIDGET);
+        Lisp_Object val, new_xwidget;
+
+        XSETXWIDGET (val, xw);
+
+        new_xwidget = Fmake_xwidget (Qwebkit, Qnil, make_fixnum (0),
+                                     make_fixnum (0), Qnil,
+                                     build_string (
+                                       " *detached xwidget buffer*"),
+                                     val);
+
+        if (NILP (new_xwidget))
+          return FALSE;
+
+        newview
+          = WEBKIT_WEB_VIEW (XXWIDGET (new_xwidget)->widget_osr);
+        webkit_web_view_load_request (newview, request);
+
+        store_xwidget_display_event (XXWIDGET (new_xwidget), xw);
+        return TRUE;
+      }
+    case WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION:
+      {
+        WebKitNavigationPolicyDecision *navigation_decision
+          = WEBKIT_NAVIGATION_POLICY_DECISION (decision);
+        WebKitNavigationAction *navigation_action
+          = webkit_navigation_policy_decision_get_navigation_action (
+            navigation_decision);
+        WebKitURIRequest *request
+          = webkit_navigation_action_get_request (navigation_action);
+
+        struct xwidget *xw
+          = g_object_get_data (G_OBJECT (webView), XG_XWIDGET);
+        store_xwidget_event_string (xw, "decide-policy",
+                                    webkit_uri_request_get_uri (
+                                      request));
         return FALSE;
-      break;
-    }
-  case WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION:
-    {
-      WebKitNavigationPolicyDecision *navigation_decision =
-        WEBKIT_NAVIGATION_POLICY_DECISION (decision);
-      WebKitNavigationAction *navigation_action =
-        webkit_navigation_policy_decision_get_navigation_action (navigation_decision);
-      WebKitURIRequest *request =
-        webkit_navigation_action_get_request (navigation_action);
-      WebKitWebView *newview;
-      struct xwidget *xw = g_object_get_data (G_OBJECT (webView), XG_XWIDGET);
-      Lisp_Object val, new_xwidget;
-
-      XSETXWIDGET (val, xw);
-
-      new_xwidget = Fmake_xwidget (Qwebkit, Qnil, make_fixnum (0),
-				   make_fixnum (0), Qnil,
-				   build_string (" *detached xwidget buffer*"),
-				   val);
-
-      if (NILP (new_xwidget))
-	return FALSE;
-
-      newview = WEBKIT_WEB_VIEW (XXWIDGET (new_xwidget)->widget_osr);
-      webkit_web_view_load_request (newview, request);
-
-      store_xwidget_display_event (XXWIDGET (new_xwidget), xw);
-      return TRUE;
-    }
-  case WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION:
-    {
-      WebKitNavigationPolicyDecision *navigation_decision =
-        WEBKIT_NAVIGATION_POLICY_DECISION (decision);
-      WebKitNavigationAction *navigation_action =
-        webkit_navigation_policy_decision_get_navigation_action (navigation_decision);
-      WebKitURIRequest *request =
-        webkit_navigation_action_get_request (navigation_action);
-
-      struct xwidget *xw = g_object_get_data (G_OBJECT (webView), XG_XWIDGET);
-      store_xwidget_event_string (xw, "decide-policy",
-                                  webkit_uri_request_get_uri (request));
+        break;
+      }
+    default:
       return FALSE;
-      break;
     }
-  default:
-    return FALSE;
-  }
 }
 
 static gboolean
 webkit_script_dialog_cb (WebKitWebView *webview,
-			 WebKitScriptDialog *script_dialog,
-			 gpointer user)
+                         WebKitScriptDialog *script_dialog,
+                         gpointer user)
 {
   struct frame *f = SELECTED_FRAME ();
   WebKitScriptDialogType type;
@@ -2614,18 +2710,21 @@ webkit_script_dialog_cb (WebKitWebView *webview,
   if (!FRAME_WINDOW_P (f))
     return TRUE;
 
-  type = webkit_script_dialog_get_dialog_type (script_dialog);;
+  type = webkit_script_dialog_get_dialog_type (script_dialog);
+  ;
   widget = FRAME_GTK_OUTER_WIDGET (f);
   content = webkit_script_dialog_get_message (script_dialog);
 
   if (type == WEBKIT_SCRIPT_DIALOG_ALERT)
-    dialog = gtk_dialog_new_with_buttons ("Alert", GTK_WINDOW (widget),
-					  GTK_DIALOG_MODAL,
-					  "Dismiss", 1, NULL);
+    dialog
+      = gtk_dialog_new_with_buttons ("Alert", GTK_WINDOW (widget),
+                                     GTK_DIALOG_MODAL, "Dismiss", 1,
+                                     NULL);
   else
-    dialog = gtk_dialog_new_with_buttons ("Question", GTK_WINDOW (widget),
-					  GTK_DIALOG_MODAL,
-					  "OK", 0, "Cancel", 1, NULL);
+    dialog
+      = gtk_dialog_new_with_buttons ("Question", GTK_WINDOW (widget),
+                                     GTK_DIALOG_MODAL, "OK", 0,
+                                     "Cancel", 1, NULL);
 
   box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 8);
   label = gtk_label_new (content);
@@ -2640,7 +2739,8 @@ webkit_script_dialog_cb (WebKitWebView *webview,
   if (type == WEBKIT_SCRIPT_DIALOG_PROMPT)
     {
       entry = gtk_entry_new ();
-      message = webkit_script_dialog_prompt_get_default_text (script_dialog);
+      message = webkit_script_dialog_prompt_get_default_text (
+        script_dialog);
 
       gtk_widget_show (entry);
       gtk_entry_set_text (GTK_ENTRY (entry), message);
@@ -2651,26 +2751,161 @@ webkit_script_dialog_cb (WebKitWebView *webview,
 
   if (type == WEBKIT_SCRIPT_DIALOG_CONFIRM
       || type == WEBKIT_SCRIPT_DIALOG_BEFORE_UNLOAD_CONFIRM)
-    webkit_script_dialog_confirm_set_confirmed (script_dialog, result == 0);
+    webkit_script_dialog_confirm_set_confirmed (script_dialog,
+                                                result == 0);
 
   if (type == WEBKIT_SCRIPT_DIALOG_PROMPT)
     webkit_script_dialog_prompt_set_text (script_dialog,
-					  gtk_entry_get_text (GTK_ENTRY (entry)));
+                                          gtk_entry_get_text (
+                                            GTK_ENTRY (entry)));
 
   gtk_widget_destroy (GTK_WIDGET (dialog));
 
   return TRUE;
 }
+//#endif /* USE_GTK */
+
+/* For gtk3 offscreen rendered widgets.  */
+static gboolean
+xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
+{
+  struct xwidget *xw
+    = g_object_get_data (G_OBJECT (widget), XG_XWIDGET);
+  struct xwidget_view *xv
+    = g_object_get_data (G_OBJECT (widget), XG_XWIDGET_VIEW);
+
+  if (EQ (xw->type, Qglarea))
+    {
+      GdkWindow *xwin = gtk_widget_get_window (xw->widgetwindow_osr);
+      GdkWindow *xwin_widget = gtk_widget_get_window (xv->widget);
+      GLXContext glcontext
+        = g_object_get_data (G_OBJECT (xv->widget), XG_GL_CONTEXT);
+      struct buffer *buf = XBUFFER (xw->buffer),
+                    *old = current_buffer;
+
+      set_buffer_internal (buf);
+
+      if (glXMakeCurrent (GDK_WINDOW_XDISPLAY (xwin),
+                          GDK_WINDOW_XID (xwin_widget), glcontext))
+        {
+          if (!NILP (xw->init_func))
+            {
+              call3 (xw->init_func, make_fixed_natnum (xw->width),
+                     make_fixed_natnum (xw->height),
+                     xw->private_data);
+              xw->init_func = Qnil;
+            }
+
+          if (!NILP (xw->render_func))
+            call1 (xw->render_func, xw->private_data);
+
+          glXSwapBuffers (GDK_WINDOW_XDISPLAY (xwin),
+                          GDK_WINDOW_XID (xwin_widget));
+        }
+
+      set_buffer_internal (old);
+
+      return TRUE;
+    }
+
+  cairo_rectangle (cr, 0, 0, xv->clip_right, xv->clip_bottom);
+  cairo_clip (cr);
+
+  gtk_widget_draw (xw->widget_osr, cr);
+  return FALSE;
+}
+
+static gboolean
+xwidget_osr_event_forward (GtkWidget *widget, GdkEvent *event,
+                           gpointer user_data)
+{
+  /* Copy events that arrive at the outer widget to the offscreen
+   * widget.  */
+  struct xwidget *xw
+    = g_object_get_data (G_OBJECT (widget), XG_XWIDGET);
+  GdkEvent *eventcopy = gdk_event_copy (event);
+  eventcopy->any.window = gtk_widget_get_window (xw->widget_osr);
+
+  /* TODO: This might leak events.  They should be deallocated later,
+     perhaps in xwgir_event_cb.  */
+  gtk_main_do_event (eventcopy);
+
+  /* Don't propagate this event further.  */
+  return TRUE;
+}
+
+static gboolean
+xwidget_osr_event_set_embedder (GtkWidget *widget, GdkEvent *event,
+                                gpointer data)
+{
+  struct xwidget_view *xv = data;
+  struct xwidget *xww = XXWIDGET (xv->model);
+  gdk_offscreen_window_set_embedder (gtk_widget_get_window (
+                                       xww->widgetwindow_osr),
+                                     gtk_widget_get_window (
+                                       xv->widget));
+  return FALSE;
+}
+
+static gboolean
+glarea_button_event_cb (GtkWidget *widget, GdkEventButton *event,
+                        gpointer data)
+{
+  struct xwidget *xw
+    = g_object_get_data (G_OBJECT (widget), XG_XWIDGET);
+  struct buffer *buf = XBUFFER (xw->buffer), *old = current_buffer;
+
+  if (!NILP (xw->mouse_button_cb))
+    {
+      Lisp_Object action;
+
+      switch (event->type)
+        {
+        case GDK_BUTTON_PRESS:
+        case GDK_2BUTTON_PRESS:
+        case GDK_3BUTTON_PRESS:
+          action = Qpress;
+          break;
+        default:
+          action = Qrelease;
+          break;
+        }
+
+      set_buffer_internal (buf);
+      call3 (xw->mouse_button_cb, make_int (event->button), action,
+             xw->private_data);
+      set_buffer_internal (old);
+    }
+
+  return TRUE;
+}
+
+static gboolean
+glarea_motion_notify_event_cb (GtkWidget *widget,
+                               GdkEventMotion *event, gpointer data)
+{
+  struct xwidget *xw
+    = g_object_get_data (G_OBJECT (widget), XG_XWIDGET);
+  struct buffer *buf = XBUFFER (xw->buffer), *old = current_buffer;
+
+  if (!NILP (xw->cursor_pos_cb))
+    {
+      set_buffer_internal (buf);
+      call3 (xw->cursor_pos_cb, make_fixed_natnum (event->x),
+             make_fixed_natnum (event->y), xw->private_data);
+      set_buffer_internal (old);
+    }
+
+  return TRUE;
+}
 #endif /* USE_GTK */
 
-
-/* Initializes and does initial placement of an xwidget view on screen.  */
+/* Initializes and does initial placement of an xwidget view on
+ * screen.  */
 static struct xwidget_view *
-xwidget_init_view (struct xwidget *xww,
-                   struct glyph_string *s,
-                   int x, int y)
+xwidget_init_view (struct xwidget *xww, struct glyph_string *s, int x,
+                   int y)
 {
-
 #ifdef USE_GTK
   if (!xg_gtk_initialized)
     error ("xwidget_init_view: GTK has not been initialized");
@@ -2680,13 +2915,131 @@ xwidget_init_view (struct xwidget *xww,
   Lisp_Object val;
 
   XSETXWIDGET_VIEW (val, xv);
-  internal_xwidget_view_list = Fcons (val, internal_xwidget_view_list);
+  internal_xwidget_view_list
+    = Fcons (val, internal_xwidget_view_list);
   Vxwidget_view_list = Fcopy_sequence (internal_xwidget_view_list);
 
   XSETWINDOW (xv->w, s->w);
   XSETXWIDGET (xv->model, xww);
 
-#ifdef HAVE_X_WINDOWS
+#ifdef USE_GTK
+  if (EQ (xww->type, Qwebkit) || EQ (xww->type, Qglarea))
+    {
+      xv->widget = gtk_drawing_area_new ();
+      /* Expose event handling.  */
+      gtk_widget_set_app_paintable (xv->widget, TRUE);
+      gtk_widget_add_events (xv->widget, GDK_ALL_EVENTS_MASK);
+
+      /* Draw the view on damage-event.  */
+      g_signal_connect (G_OBJECT (xww->widgetwindow_osr),
+                        "damage-event",
+                        G_CALLBACK (offscreen_damage_event),
+                        xv->widget);
+
+      if (EQ (xww->type, Qwebkit))
+        {
+          g_signal_connect (G_OBJECT (xv->widget),
+                            "button-press-event",
+                            G_CALLBACK (xwidget_osr_event_forward),
+                            NULL);
+          g_signal_connect (G_OBJECT (xv->widget),
+                            "button-release-event",
+                            G_CALLBACK (xwidget_osr_event_forward),
+                            NULL);
+          g_signal_connect (G_OBJECT (xv->widget),
+                            "motion-notify-event",
+                            G_CALLBACK (xwidget_osr_event_forward),
+                            NULL);
+        }
+      else if (EQ (xww->type, Qglarea))
+        {
+          g_signal_connect (G_OBJECT (xv->widget),
+                            "button-press-event",
+                            G_CALLBACK (glarea_button_event_cb),
+                            NULL);
+          g_signal_connect (G_OBJECT (xv->widget),
+                            "button-release-event",
+                            G_CALLBACK (glarea_button_event_cb),
+                            NULL);
+          g_signal_connect (G_OBJECT (xv->widget),
+                            "motion-notify-event",
+                            G_CALLBACK (
+                              glarea_motion_notify_event_cb),
+                            NULL);
+        }
+      else
+        {
+          /* xwgir debug, orthogonal to forwarding.  */
+          g_signal_connect (G_OBJECT (xv->widget),
+                            "enter-notify-event",
+                            G_CALLBACK (
+                              xwidget_osr_event_set_embedder),
+                            xv);
+        }
+      g_signal_connect (G_OBJECT (xv->widget), "draw",
+                        G_CALLBACK (xwidget_osr_draw_cb), NULL);
+    }
+
+  if (EQ (xww->type, Qglarea))
+    {
+      /* Create GL context. */
+      GdkWindow *xwin = gtk_widget_get_window (xww->widgetwindow_osr);
+
+      GLint attr_list[] = { GLX_DOUBLEBUFFER,
+                            GLX_RGBA,
+                            GLX_DEPTH_SIZE,
+                            16,
+                            GLX_RED_SIZE,
+                            8,
+                            GLX_GREEN_SIZE,
+                            8,
+                            GLX_BLUE_SIZE,
+                            8,
+                            None };
+      XVisualInfo *visualinfo
+        = glXChooseVisual (GDK_WINDOW_XDISPLAY (xwin),
+                           gdk_screen_get_number (
+                             gdk_window_get_screen (xwin)),
+                           attr_list);
+      GLXContext glcontext
+        = glXCreateContext (GDK_WINDOW_XDISPLAY (xwin), visualinfo,
+                            NULL, TRUE);
+      xfree (visualinfo);
+      g_object_set_data (G_OBJECT (xv->widget), XG_GL_CONTEXT,
+                         glcontext);
+    }
+
+  /* Widget realization.
+     Make container widget first, and put the actual widget inside the
+     container later.  Drawing should crop container window if
+     necessary to handle case where xwidget is partially obscured by
+     other Emacs windows.  Other containers than gtk_fixed where
+     explored, but
+     gtk_fixed had the most predictable behavior so far.  */
+
+  xv->emacswindow = FRAME_GTK_WIDGET (s->f);
+  xv->widgetwindow = gtk_fixed_new ();
+  gtk_widget_set_has_window (xv->widgetwindow, TRUE);
+  gtk_container_add (GTK_CONTAINER (xv->widgetwindow), xv->widget);
+
+  /* Store some xwidget data in the gtk widgets.  */
+  g_object_set_data (G_OBJECT (xv->widget), XG_FRAME_DATA, s->f);
+  g_object_set_data (G_OBJECT (xv->widget), XG_XWIDGET, xww);
+  g_object_set_data (G_OBJECT (xv->widget), XG_XWIDGET_VIEW, xv);
+  g_object_set_data (G_OBJECT (xv->widgetwindow), XG_XWIDGET, xww);
+  g_object_set_data (G_OBJECT (xv->widgetwindow), XG_XWIDGET_VIEW,
+                     xv);
+
+  gtk_widget_set_size_request (GTK_WIDGET (xv->widget), xww->width,
+                               xww->height);
+  gtk_widget_set_size_request (xv->widgetwindow, xww->width,
+                               xww->height);
+  gtk_fixed_put (GTK_FIXED (FRAME_GTK_WIDGET (s->f)),
+                 xv->widgetwindow, x, y);
+  xv->x = x;
+  xv->y = y;
+  gtk_widget_show_all (xv->widgetwindow);
+#elif HAVE_X_WINDOWS
   xv->dpy = FRAME_X_DISPLAY (s->f);
 
   xv->x = x;
@@ -2709,12 +3062,12 @@ xwidget_init_view (struct xwidget *xww,
   gtk_widget_set_app_paintable (xv->widget, TRUE);
   gtk_widget_add_events (xv->widget, GDK_ALL_EVENTS_MASK);
   gtk_container_add (GTK_CONTAINER (FRAME_GTK_WIDGET (s->f)),
-		     xv->widget);
+                     xv->widget);
 
   g_signal_connect (xv->widget, "draw",
-		    G_CALLBACK (xwidget_view_draw_cb), xv);
+                    G_CALLBACK (xwidget_view_draw_cb), xv);
   g_signal_connect (xv->widget, "event",
-		    G_CALLBACK (xw_forward_event_from_view), xv);
+                    G_CALLBACK (xw_forward_event_from_view), xv);
 
   g_object_set_data (G_OBJECT (xv->widget), XG_XWIDGET_VIEW, xv);
 
@@ -2731,7 +3084,7 @@ xwidget_init_view (struct xwidget *xww,
   xv->just_resized = false;
 #elif defined NS_IMPL_COCOA
   nsxwidget_init_view (xv, xww, s, x, y);
-  nsxwidget_resize_view(xv, xww->width, xww->height);
+  nsxwidget_resize_view (xv, xww->width, xww->height);
 #endif
 
   return xv;
@@ -2776,7 +3129,8 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
             }
           else
             {
-              message ("You can't share an xwidget (webkit2) among windows.");
+              message ("You can't share an xwidget (webkit2) among "
+                       "windows.");
               return;
             }
         }
@@ -2789,12 +3143,24 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
   window_box (s->w, xv->area, &text_area_x, &text_area_y,
               &text_area_width, &text_area_height);
 
+  if ((EQ (xww->type, Qwebkit) || EQ (xww->type, Qglarea))
+      && (xww->width != text_area_width
+          || xww->height != text_area_height))
+    {
+      Lisp_Object xwl;
+      XSETXWIDGET (xwl, xww);
+      Fxwidget_resize (xwl, make_int (text_area_width),
+                       make_int (text_area_height));
+    }
+
   clip_left = max (0, text_area_x - x);
-  clip_right = max (clip_left,
-		    min (xww->width, text_area_x + text_area_width - x));
+  clip_right
+    = max (clip_left,
+           min (xww->width, text_area_x + text_area_width - x));
   clip_top = max (0, text_area_y - y);
-  clip_bottom = max (clip_top,
-		     min (xww->height, text_area_y + text_area_height - y));
+  clip_bottom
+    = max (clip_top,
+           min (xww->height, text_area_y + text_area_height - y));
 
   /* We are concerned with movement of the onscreen area.  The area
      might sit still when the widget actually moves.  This happens
@@ -2805,7 +3171,7 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
      widget can also move inside the clipping area, which happens
      later.  */
   bool moved = (xv->x + xv->clip_left != x + clip_left
-		|| xv->y + xv->clip_top != y + clip_top);
+                || xv->y + xv->clip_top != y + clip_top);
 
 #ifdef HAVE_X_WINDOWS
   bool wdesc_was_none = xv->wdesc == None;
@@ -2820,57 +3186,58 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
       Lisp_Object xvw;
       XSETXWIDGET_VIEW (xvw, xv);
       XSetWindowAttributes a;
-      a.event_mask = (ExposureMask | ButtonPressMask | ButtonReleaseMask
-		      | PointerMotionMask | EnterWindowMask | LeaveWindowMask);
+      a.event_mask
+        = (ExposureMask | ButtonPressMask | ButtonReleaseMask
+           | PointerMotionMask | EnterWindowMask | LeaveWindowMask);
 
-      if (clip_right - clip_left <= 0
-	  || clip_bottom - clip_top <= 0)
-	{
-	  unblock_input ();
-	  return;
-	}
+      if (clip_right - clip_left <= 0 || clip_bottom - clip_top <= 0)
+        {
+          unblock_input ();
+          return;
+        }
 
       xv->wdesc = XCreateWindow (xv->dpy, FRAME_X_WINDOW (s->f),
-				 x + clip_left, y + clip_top,
-				 clip_right - clip_left,
-				 clip_bottom - clip_top, 0,
-				 CopyFromParent, CopyFromParent,
-				 CopyFromParent, CWEventMask, &a);
+                                 x + clip_left, y + clip_top,
+                                 clip_right - clip_left,
+                                 clip_bottom - clip_top, 0,
+                                 CopyFromParent, CopyFromParent,
+                                 CopyFromParent, CWEventMask, &a);
 #ifdef HAVE_XINPUT2
       XIEventMask mask;
       ptrdiff_t l = XIMaskLen (XI_LASTEVENT);
       unsigned char *m;
 
       if (FRAME_DISPLAY_INFO (s->f)->supports_xi2)
-	{
-	  mask.mask = m = alloca (l);
-	  memset (m, 0, l);
-	  mask.mask_len = l;
-	  mask.deviceid = XIAllMasterDevices;
+        {
+          mask.mask = m = alloca (l);
+          memset (m, 0, l);
+          mask.mask_len = l;
+          mask.deviceid = XIAllMasterDevices;
 
-	  XISetMask (m, XI_Motion);
-	  XISetMask (m, XI_ButtonPress);
-	  XISetMask (m, XI_ButtonRelease);
-	  XISetMask (m, XI_Enter);
-	  XISetMask (m, XI_Leave);
+          XISetMask (m, XI_Motion);
+          XISetMask (m, XI_ButtonPress);
+          XISetMask (m, XI_ButtonRelease);
+          XISetMask (m, XI_Enter);
+          XISetMask (m, XI_Leave);
 #ifdef HAVE_XINPUT2_4
-	  if (FRAME_DISPLAY_INFO (s->f)->xi2_version >= 4)
-	    {
-	      XISetMask (m, XI_GesturePinchBegin);
-	      XISetMask (m, XI_GesturePinchUpdate);
-	      XISetMask (m, XI_GesturePinchEnd);
-	    }
+          if (FRAME_DISPLAY_INFO (s->f)->xi2_version >= 4)
+            {
+              XISetMask (m, XI_GesturePinchBegin);
+              XISetMask (m, XI_GesturePinchUpdate);
+              XISetMask (m, XI_GesturePinchEnd);
+            }
 #endif
-	  XISelectEvents (xv->dpy, xv->wdesc, &mask, 1);
-	}
+          XISelectEvents (xv->dpy, xv->wdesc, &mask, 1);
+        }
 #endif
       XLowerWindow (xv->dpy, xv->wdesc);
       XDefineCursor (xv->dpy, xv->wdesc, xv->cursor);
-      xv->cr_surface = cairo_xlib_surface_create (xv->dpy,
-						  xv->wdesc,
-						  FRAME_DISPLAY_INFO (s->f)->visual,
-						  clip_right - clip_left,
-						  clip_bottom - clip_top);
+      xv->cr_surface
+        = cairo_xlib_surface_create (xv->dpy, xv->wdesc,
+                                     FRAME_DISPLAY_INFO (s->f)
+                                       ->visual,
+                                     clip_right - clip_left,
+                                     clip_bottom - clip_top);
       xv->cr_context = cairo_create (xv->cr_surface);
       Fputhash (make_fixnum (xv->wdesc), xvw, x_window_to_xwv_map);
 
@@ -2885,63 +3252,66 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
   if (moved)
     {
 #ifdef HAVE_X_WINDOWS
-      XMoveResizeWindow (xv->dpy, xv->wdesc, x + clip_left, y + clip_top,
-			 clip_right - clip_left, clip_bottom - clip_top);
+      XMoveResizeWindow (xv->dpy, xv->wdesc, x + clip_left,
+                         y + clip_top, clip_right - clip_left,
+                         clip_bottom - clip_top);
       XFlush (xv->dpy);
-      cairo_xlib_surface_set_size (xv->cr_surface, clip_right - clip_left,
-				   clip_bottom - clip_top);
+      cairo_xlib_surface_set_size (xv->cr_surface,
+                                   clip_right - clip_left,
+                                   clip_bottom - clip_top);
 #elif defined HAVE_PGTK
       gtk_widget_set_size_request (xv->widget, clip_right - clip_left,
-				   clip_bottom - clip_top);
+                                   clip_bottom - clip_top);
       gtk_fixed_move (GTK_FIXED (FRAME_GTK_WIDGET (xv->frame)),
-		      xv->widget, x + clip_left, y + clip_top);
+                      xv->widget, x + clip_left, y + clip_top);
       gtk_widget_queue_allocate (xv->widget);
 #elif defined NS_IMPL_COCOA
       nsxwidget_move_view (xv, x + clip_left, y + clip_top);
 #endif
     }
 
-  /* Clip the widget window if some parts happen to be outside
-     drawable area.  An Emacs window is not a gtk window.  A gtk window
-     covers the entire frame.  Clipping might have changed even if we
-     haven't actually moved; try to figure out when we need to reclip
-     for real.  */
+    /* Clip the widget window if some parts happen to be outside
+       drawable area.  An Emacs window is not a gtk window.  A gtk
+       window covers the entire frame.  Clipping might have changed
+       even if we haven't actually moved; try to figure out when we
+       need to reclip for real.  */
 #ifndef HAVE_PGTK
-  if (xv->clip_right != clip_right
-      || xv->clip_bottom != clip_bottom
+  if (xv->clip_right != clip_right || xv->clip_bottom != clip_bottom
       || xv->clip_top != clip_top || xv->clip_left != clip_left)
 #endif
     {
 #ifdef USE_GTK
 #ifdef HAVE_X_WINDOWS
       if (!wdesc_was_none && !moved)
-	{
-	  if (clip_right - clip_left <= 0
-	      || clip_bottom - clip_top <= 0)
-	    {
-	      XUnmapWindow (xv->dpy, xv->wdesc);
-	      xv->hidden = true;
-	    }
-	  else
-	    {
-	      XResizeWindow (xv->dpy, xv->wdesc, clip_right - clip_left,
-			     clip_bottom - clip_top);
-	    }
-	  XFlush (xv->dpy);
-	  cairo_xlib_surface_set_size (xv->cr_surface, clip_right - clip_left,
-				       clip_bottom - clip_top);
-	}
+        {
+          if (clip_right - clip_left <= 0
+              || clip_bottom - clip_top <= 0)
+            {
+              XUnmapWindow (xv->dpy, xv->wdesc);
+              xv->hidden = true;
+            }
+          else
+            {
+              XResizeWindow (xv->dpy, xv->wdesc,
+                             clip_right - clip_left,
+                             clip_bottom - clip_top);
+            }
+          XFlush (xv->dpy);
+          cairo_xlib_surface_set_size (xv->cr_surface,
+                                       clip_right - clip_left,
+                                       clip_bottom - clip_top);
+        }
 #else
       gtk_widget_set_size_request (xv->widget, clip_right - clip_left,
-				   clip_bottom - clip_top);
+                                   clip_bottom - clip_top);
       gtk_fixed_move (GTK_FIXED (FRAME_GTK_WIDGET (xv->frame)),
-		      xv->widget, x + clip_left, y + clip_top);
+                      xv->widget, x + clip_left, y + clip_top);
       gtk_widget_queue_allocate (xv->widget);
 #endif
 #elif defined NS_IMPL_COCOA
-      nsxwidget_resize_view (xv, clip_right - clip_left,
-                             clip_bottom - clip_top);
-      nsxwidget_move_widget_in_view (xv, -clip_left, -clip_top);
+    nsxwidget_resize_view (xv, clip_right - clip_left,
+                           clip_bottom - clip_top);
+    nsxwidget_move_widget_in_view (xv, -clip_left, -clip_top);
 #endif
 
       xv->clip_right = clip_right;
@@ -2954,23 +3324,24 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
      a redraw.  It seems its possible to get out of sync with emacs
      redraws so emacs background sometimes shows up instead of the
      xwidgets background.  It's just a visual glitch though.  */
-  /* When xww->buffer is nil, that means the xwidget has been killed.  */
+  /* When xww->buffer is nil, that means the xwidget has been killed.
+   */
   if (!NILP (xww->buffer))
     {
       if (!xwidget_hidden (xv))
-	{
+        {
 #ifdef USE_GTK
-	  gtk_widget_queue_draw (xww->widget_osr);
+          gtk_widget_queue_draw (xww->widget_osr);
 #elif defined NS_IMPL_COCOA
-	  nsxwidget_set_needsdisplay (xv);
+          nsxwidget_set_needsdisplay (xv);
 #endif
-	}
+        }
     }
 #ifdef HAVE_X_WINDOWS
   else
     {
       XSetWindowBackground (xv->dpy, xv->wdesc,
-			    FRAME_BACKGROUND_PIXEL (s->f));
+                            FRAME_BACKGROUND_PIXEL (s->f));
     }
 #endif
 
@@ -2987,21 +3358,20 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
 #endif
 }
 
-#define CHECK_WEBKIT_WIDGET(xw)				\
-  if (NILP (xw->buffer) || !EQ (xw->type, Qwebkit))	\
-    error ("Not a WebKit widget")
+#define CHECK_WEBKIT_WIDGET(xw)                     \
+  if (NILP (xw->buffer) || !EQ (xw->type, Qwebkit)) \
+  error ("Not a WebKit widget")
 
 /* Macro that checks xwidget hold webkit web view first.  */
-#define WEBKIT_FN_INIT()						\
-  CHECK_LIVE_XWIDGET (xwidget);						\
-  struct xwidget *xw = XXWIDGET (xwidget);				\
+#define WEBKIT_FN_INIT()                   \
+  CHECK_LIVE_XWIDGET (xwidget);            \
+  struct xwidget *xw = XXWIDGET (xwidget); \
   CHECK_WEBKIT_WIDGET (xw)
 
-DEFUN ("xwidget-webkit-uri",
-       Fxwidget_webkit_uri, Sxwidget_webkit_uri,
-       1, 1, 0,
-       doc: /* Get the current URL of XWIDGET webkit.  */)
-  (Lisp_Object xwidget)
+DEFUN ("xwidget-webkit-uri", Fxwidget_webkit_uri, Sxwidget_webkit_uri,
+       1, 1, 0, doc
+       : /* Get the current URL of XWIDGET webkit.  */)
+(Lisp_Object xwidget)
 {
   WEBKIT_FN_INIT ();
 #ifdef USE_GTK
@@ -3015,11 +3385,10 @@ DEFUN ("xwidget-webkit-uri",
 #endif
 }
 
-DEFUN ("xwidget-webkit-title",
-       Fxwidget_webkit_title, Sxwidget_webkit_title,
-       1, 1, 0,
-       doc: /* Get the current title of XWIDGET webkit.  */)
-  (Lisp_Object xwidget)
+DEFUN ("xwidget-webkit-title", Fxwidget_webkit_title,
+       Sxwidget_webkit_title, 1, 1, 0, doc
+       : /* Get the current title of XWIDGET webkit.  */)
+(Lisp_Object xwidget)
 {
   WEBKIT_FN_INIT ();
 #ifdef USE_GTK
@@ -3036,13 +3405,14 @@ DEFUN ("xwidget-webkit-goto-uri",
        Fxwidget_webkit_goto_uri, Sxwidget_webkit_goto_uri,
        2, 2, 0,
        doc: /* Make the xwidget webkit instance referenced by XWIDGET browse URI.  */)
-  (Lisp_Object xwidget, Lisp_Object uri)
+(Lisp_Object xwidget, Lisp_Object uri)
 {
   WEBKIT_FN_INIT ();
   CHECK_STRING (uri);
   uri = ENCODE_FILE (uri);
 #ifdef USE_GTK
-  webkit_web_view_load_uri (WEBKIT_WEB_VIEW (xw->widget_osr), SSDATA (uri));
+  webkit_web_view_load_uri (WEBKIT_WEB_VIEW (xw->widget_osr),
+                            SSDATA (uri));
   catch_child_signal ();
 #elif defined NS_IMPL_COCOA
   nsxwidget_webkit_goto_uri (xw, SSDATA (uri));
@@ -3058,7 +3428,7 @@ DEFUN ("xwidget-webkit-goto-history",
 If REL-POS is 0, the widget will be just reload the current element in
 history.  If REL-POS is more or less than 0, the widget will load the
 REL-POSth element around the current spot in the load history. */)
-  (Lisp_Object xwidget, Lisp_Object rel_pos)
+(Lisp_Object xwidget, Lisp_Object rel_pos)
 {
   WEBKIT_FN_INIT ();
   CHECK_FIXNUM (rel_pos);
@@ -3073,10 +3443,11 @@ REL-POSth element around the current spot in the load history. */)
   else
     {
       list = webkit_web_view_get_back_forward_list (wkwv);
-      it = webkit_back_forward_list_get_nth_item (list, XFIXNUM (rel_pos));
+      it = webkit_back_forward_list_get_nth_item (list,
+                                                  XFIXNUM (rel_pos));
 
       if (!it)
-	error ("There is no item at this index");
+        error ("There is no item at this index");
 
       webkit_web_view_go_to_back_forward_list_item (wkwv, it);
     }
@@ -3090,17 +3461,19 @@ DEFUN ("xwidget-webkit-zoom",
        Fxwidget_webkit_zoom, Sxwidget_webkit_zoom,
        2, 2, 0,
        doc: /* Change the zoom factor of the xwidget webkit instance referenced by XWIDGET.  */)
-  (Lisp_Object xwidget, Lisp_Object factor)
+(Lisp_Object xwidget, Lisp_Object factor)
 {
   WEBKIT_FN_INIT ();
   if (FLOATP (factor))
     {
       double zoom_change = XFLOAT_DATA (factor);
 #ifdef USE_GTK
-      webkit_web_view_set_zoom_level
-        (WEBKIT_WEB_VIEW (xw->widget_osr),
-         webkit_web_view_get_zoom_level
-         (WEBKIT_WEB_VIEW (xw->widget_osr)) + zoom_change);
+      webkit_web_view_set_zoom_level (WEBKIT_WEB_VIEW (
+                                        xw->widget_osr),
+                                      webkit_web_view_get_zoom_level (
+                                        WEBKIT_WEB_VIEW (
+                                          xw->widget_osr))
+                                        + zoom_change);
 #elif defined NS_IMPL_COCOA
       nsxwidget_webkit_zoom (xw, zoom_change);
 #endif
@@ -3112,7 +3485,8 @@ DEFUN ("xwidget-webkit-zoom",
 /* Save script and fun in the script/callback save vector and return
    its index.  */
 static ptrdiff_t
-save_script_callback (struct xwidget *xw, Lisp_Object script, Lisp_Object fun)
+save_script_callback (struct xwidget *xw, Lisp_Object script,
+                      Lisp_Object fun)
 {
   Lisp_Object cbs = xw->script_callbacks;
   if (NILP (cbs))
@@ -3123,8 +3497,8 @@ save_script_callback (struct xwidget *xw, Lisp_Object script, Lisp_Object fun)
   for (idx = 0; !NILP (AREF (cbs, idx)); idx++)
     if (idx + 1 == ASIZE (cbs))
       {
-	xw->script_callbacks = cbs = larger_vector (cbs, 1, -1);
-	break;
+        xw->script_callbacks = cbs = larger_vector (cbs, 1, -1);
+        break;
       }
 
   ASET (cbs, idx, Fcons (make_mint_ptr (xlispstrdup (script)), fun));
@@ -3138,7 +3512,7 @@ DEFUN ("xwidget-webkit-execute-script",
        doc: /* Make the Webkit XWIDGET execute JavaScript SCRIPT.
 If FUN is provided, feed the JavaScript return value to the single
 argument procedure FUN.*/)
-  (Lisp_Object xwidget, Lisp_Object script, Lisp_Object fun)
+(Lisp_Object xwidget, Lisp_Object script, Lisp_Object fun)
 {
   WEBKIT_FN_INIT ();
   CHECK_STRING (script);
@@ -3157,19 +3531,63 @@ argument procedure FUN.*/)
   gchar *script_string
     = xmint_pointer (XCAR (AREF (xw->script_callbacks, idx)));
   webkit_web_view_run_javascript (WEBKIT_WEB_VIEW (xw->widget_osr),
-				  script_string,
+                                  script_string,
                                   NULL, /* cancelable */
                                   webkit_javascript_finished_cb,
-				  (gpointer) idx);
+                                  (gpointer) idx);
 #elif defined NS_IMPL_COCOA
   nsxwidget_webkit_execute_script (xw, SSDATA (script), fun);
 #endif
   return Qnil;
 }
 
+static bool
+xwidget_is_glarea (struct xwidget *xw)
+{
+#ifdef USE_GTK
+  return xw->widget_osr != NULL && EQ (xw->type, Qglarea);
+#else
+  return false;
+#endif
+}
+
+/* Macro that checks xwidget hold glarea first.  */
+#define GLAREA_FN_INIT()                                    \
+  CHECK_XWIDGET (xwidget);                                  \
+  struct xwidget *xw = XXWIDGET (xwidget);                  \
+  if (!xwidget_is_glarea (xw))                              \
+    {                                                       \
+      fputs ("ERROR xw->widget_osr does not hold a glarea " \
+             "instance\n",                                  \
+             stdout);                                       \
+      return Qnil;                                          \
+    }
+
+DEFUN ("xwidget-glarea-make-current", Fxwidget_glarea_make_current,
+       Sxwidget_glarea_make_current, 1, 1, 0, doc
+       : /* Make the GL context associated with XWIDGET current.  */)
+(Lisp_Object xwidget)
+{
+  GLAREA_FN_INIT ();
+
+#if USE_GTK
+  struct xwidget_view *xv = g_object_get_data (G_OBJECT (xw->widget_osr),XG_XWIDGET_VIEW);
+  GdkWindow *xwin = gtk_widget_get_window (xw->widgetwindow_osr);
+  GdkWindow *xwin_widget = gtk_widget_get_window (xv->widget);
+  GLXContext glcontext
+      = g_object_get_data (G_OBJECT (xv->widget), XG_GL_CONTEXT);
+
+  glXMakeCurrent (GDK_WINDOW_XDISPLAY (xwin),
+                    GDK_WINDOW_XID (xwin_widget), glcontext);
+#endif
+
+  return Qnil;
+}
+
 DEFUN ("xwidget-resize", Fxwidget_resize, Sxwidget_resize, 3, 3, 0,
-       doc: /* Resize XWIDGET to NEW_WIDTH, NEW_HEIGHT.  */ )
-  (Lisp_Object xwidget, Lisp_Object new_width, Lisp_Object new_height)
+       doc
+       : /* Resize XWIDGET to NEW_WIDTH, NEW_HEIGHT.  */)
+(Lisp_Object xwidget, Lisp_Object new_width, Lisp_Object new_height)
 {
   CHECK_LIVE_XWIDGET (xwidget);
   int w = check_integer_range (new_width, 0, INT_MAX);
@@ -3190,10 +3608,10 @@ DEFUN ("xwidget-resize", Fxwidget_resize, Sxwidget_resize, 3, 3, 0,
           if (XXWIDGET (xv->model) == xw)
             {
 #ifdef USE_GTK
-	      xv->just_resized = true;
-	      SET_FRAME_GARBAGED (xv->frame);
+              xv->just_resized = true;
+              SET_FRAME_GARBAGED (xv->frame);
 #else
-	      wset_redisplay (XWINDOW (xv->w));
+              wset_redisplay (XWINDOW (xv->w));
 #endif
             }
         }
@@ -3207,8 +3625,8 @@ DEFUN ("xwidget-resize", Fxwidget_resize, Sxwidget_resize, 3, 3, 0,
     {
       gtk_window_resize (GTK_WINDOW (xw->widgetwindow_osr), xw->width,
                          xw->height);
-      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr), xw->width,
-                                   xw->height);
+      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr),
+                                   xw->width, xw->height);
 
       gtk_widget_queue_allocate (GTK_WIDGET (xw->widget_osr));
     }
@@ -3220,8 +3638,31 @@ DEFUN ("xwidget-resize", Fxwidget_resize, Sxwidget_resize, 3, 3, 0,
   return Qnil;
 }
 
+DEFUN ("xwidget-queue-redraw", Fxwidget_queue_redraw,
+       Sxwidget_queue_redraw, 1, 1, 0, doc
+       : /* Queue a redraw event for XWIDGET.  */)
+(Lisp_Object xwidget)
+{
+  CHECK_XWIDGET (xwidget);
+  struct xwidget *xw = XXWIDGET (xwidget);
 
+  for (Lisp_Object tail = Vxwidget_view_list; CONSP (tail);
+       tail = XCDR (tail))
+    {
+      if (XWIDGET_VIEW_P (XCAR (tail)))
+        {
+          struct xwidget_view *xv = XXWIDGET_VIEW (XCAR (tail));
+          if (XXWIDGET (xv->model) == xw)
+            {
+#ifdef USE_GTK
+              gtk_widget_queue_draw (xv->widget);
+#endif
+            }
+        }
+    }
 
+  return Qnil;
+}
 
 DEFUN ("xwidget-size-request",
        Fxwidget_size_request, Sxwidget_size_request,
@@ -3229,47 +3670,40 @@ DEFUN ("xwidget-size-request",
        doc: /* Return the desired size of the XWIDGET.
 This can be used to read the xwidget desired size, and resizes the
 Emacs allocated area accordingly.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   CHECK_LIVE_XWIDGET (xwidget);
 #ifdef USE_GTK
   GtkRequisition requisition;
-  gtk_widget_size_request (XXWIDGET (xwidget)->widget_osr, &requisition);
+  gtk_widget_size_request (XXWIDGET (xwidget)->widget_osr,
+                           &requisition);
   return list2i (requisition.width, requisition.height);
 #elif defined NS_IMPL_COCOA
   return nsxwidget_get_size (XXWIDGET (xwidget));
 #endif
 }
 
-DEFUN ("xwidgetp",
-       Fxwidgetp, Sxwidgetp,
-       1, 1, 0,
-       doc: /* Return t if OBJECT is an xwidget.  */)
-  (Lisp_Object object)
-{
-  return XWIDGETP (object) ? Qt : Qnil;
-}
+DEFUN ("xwidgetp", Fxwidgetp, Sxwidgetp, 1, 1, 0, doc
+       : /* Return t if OBJECT is an xwidget.  */)
+(Lisp_Object object) { return XWIDGETP (object) ? Qt : Qnil; }
 
-DEFUN ("xwidget-view-p",
-       Fxwidget_view_p, Sxwidget_view_p,
-       1, 1, 0,
-       doc: /* Return t if OBJECT is an xwidget-view.  */)
-  (Lisp_Object object)
-{
-  return XWIDGET_VIEW_P (object) ? Qt : Qnil;
-}
+DEFUN ("xwidget-view-p", Fxwidget_view_p, Sxwidget_view_p, 1, 1, 0,
+       doc
+       : /* Return t if OBJECT is an xwidget-view.  */)
+(Lisp_Object object) { return XWIDGET_VIEW_P (object) ? Qt : Qnil; }
 
 DEFUN ("xwidget-info",
        Fxwidget_info, Sxwidget_info,
        1, 1, 0,
        doc: /* Return XWIDGET properties in a vector.
 Currently [TYPE TITLE WIDTH HEIGHT].  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   CHECK_LIVE_XWIDGET (xwidget);
   struct xwidget *xw = XXWIDGET (xwidget);
   return CALLN (Fvector, xw->type, xw->title,
-		make_fixed_natnum (xw->width), make_fixed_natnum (xw->height));
+                make_fixed_natnum (xw->width),
+                make_fixed_natnum (xw->height));
 }
 
 DEFUN ("xwidget-view-info",
@@ -3277,41 +3711,39 @@ DEFUN ("xwidget-view-info",
        1, 1, 0,
        doc: /* Return properties of XWIDGET-VIEW in a vector.
 Currently [X Y CLIP_RIGHT CLIP_BOTTOM CLIP_TOP CLIP_LEFT].  */)
-  (Lisp_Object xwidget_view)
+(Lisp_Object xwidget_view)
 {
   CHECK_XWIDGET_VIEW (xwidget_view);
   struct xwidget_view *xv = XXWIDGET_VIEW (xwidget_view);
   return CALLN (Fvector, make_fixnum (xv->x), make_fixnum (xv->y),
-		make_fixnum (xv->clip_right), make_fixnum (xv->clip_bottom),
-		make_fixnum (xv->clip_top), make_fixnum (xv->clip_left));
+                make_fixnum (xv->clip_right),
+                make_fixnum (xv->clip_bottom),
+                make_fixnum (xv->clip_top),
+                make_fixnum (xv->clip_left));
 }
 
-DEFUN ("xwidget-view-model",
-       Fxwidget_view_model, Sxwidget_view_model,
-       1, 1, 0,
-       doc:  /* Return the model associated with XWIDGET-VIEW.  */)
-  (Lisp_Object xwidget_view)
+DEFUN ("xwidget-view-model", Fxwidget_view_model, Sxwidget_view_model,
+       1, 1, 0, doc
+       : /* Return the model associated with XWIDGET-VIEW.  */)
+(Lisp_Object xwidget_view)
 {
   CHECK_XWIDGET_VIEW (xwidget_view);
   return XXWIDGET_VIEW (xwidget_view)->model;
 }
 
-DEFUN ("xwidget-view-window",
-       Fxwidget_view_window, Sxwidget_view_window,
-       1, 1, 0,
-       doc:  /* Return the window of XWIDGET-VIEW.  */)
-  (Lisp_Object xwidget_view)
+DEFUN ("xwidget-view-window", Fxwidget_view_window,
+       Sxwidget_view_window, 1, 1, 0, doc
+       : /* Return the window of XWIDGET-VIEW.  */)
+(Lisp_Object xwidget_view)
 {
   CHECK_XWIDGET_VIEW (xwidget_view);
   return XXWIDGET_VIEW (xwidget_view)->w;
 }
 
-
-DEFUN ("delete-xwidget-view",
-       Fdelete_xwidget_view, Sdelete_xwidget_view,
-       1, 1, 0,
-       doc:  /* Delete the XWIDGET-VIEW.  */)
-  (Lisp_Object xwidget_view)
+DEFUN ("delete-xwidget-view", Fdelete_xwidget_view,
+       Sdelete_xwidget_view, 1, 1, 0, doc
+       : /* Delete the XWIDGET-VIEW.  */)
+(Lisp_Object xwidget_view)
 {
   CHECK_XWIDGET_VIEW (xwidget_view);
   struct xwidget_view *xv = XXWIDGET_VIEW (xwidget_view);
@@ -3331,16 +3763,15 @@ DEFUN ("delete-xwidget-view",
 
   if (xv->last_crossing_window)
     g_signal_handler_disconnect (xv->last_crossing_window,
-				 xv->last_crossing_cursor_signal);
-  g_clear_pointer (&xv->last_crossing_window,
-		   g_object_unref);
+                                 xv->last_crossing_cursor_signal);
+  g_clear_pointer (&xv->last_crossing_window, g_object_unref);
 
   if (xv->passive_grab)
     {
+      g_signal_handler_disconnect (
+        xv->passive_grab, xv->passive_grab_destruction_signal);
       g_signal_handler_disconnect (xv->passive_grab,
-				   xv->passive_grab_destruction_signal);
-      g_signal_handler_disconnect (xv->passive_grab,
-				   xv->passive_grab_drag_signal);
+                                   xv->passive_grab_drag_signal);
       xv->passive_grab = NULL;
     }
 
@@ -3361,7 +3792,8 @@ DEFUN ("delete-xwidget-view",
   nsxwidget_delete_view (xv);
 #endif
 
-  internal_xwidget_view_list = Fdelq (xwidget_view, internal_xwidget_view_list);
+  internal_xwidget_view_list
+    = Fdelq (xwidget_view, internal_xwidget_view_list);
   Vxwidget_view_list = Fcopy_sequence (internal_xwidget_view_list);
   unblock_input ();
   return Qnil;
@@ -3373,7 +3805,7 @@ DEFUN ("xwidget-view-lookup",
        doc: /* Return the xwidget-view associated with XWIDGET in WINDOW.
 If WINDOW is unspecified or nil, use the selected window.
 Return nil if no association is found.  */)
-  (Lisp_Object xwidget, Lisp_Object window)
+(Lisp_Object xwidget, Lisp_Object window)
 {
   CHECK_XWIDGET (xwidget);
 
@@ -3393,31 +3825,27 @@ Return nil if no association is found.  */)
   return Qnil;
 }
 
-DEFUN ("xwidget-plist",
-       Fxwidget_plist, Sxwidget_plist,
-       1, 1, 0,
-       doc: /* Return the plist of XWIDGET.  */)
-  (Lisp_Object xwidget)
+DEFUN ("xwidget-plist", Fxwidget_plist, Sxwidget_plist, 1, 1, 0, doc
+       : /* Return the plist of XWIDGET.  */)
+(Lisp_Object xwidget)
 {
   CHECK_LIVE_XWIDGET (xwidget);
   return XXWIDGET (xwidget)->plist;
 }
 
-DEFUN ("xwidget-buffer",
-       Fxwidget_buffer, Sxwidget_buffer,
-       1, 1, 0,
-       doc: /* Return the buffer of XWIDGET.  */)
-  (Lisp_Object xwidget)
+DEFUN ("xwidget-buffer", Fxwidget_buffer, Sxwidget_buffer, 1, 1, 0,
+       doc
+       : /* Return the buffer of XWIDGET.  */)
+(Lisp_Object xwidget)
 {
   CHECK_XWIDGET (xwidget);
   return XXWIDGET (xwidget)->buffer;
 }
 
-DEFUN ("set-xwidget-buffer",
-       Fset_xwidget_buffer, Sset_xwidget_buffer,
-       2, 2, 0,
-       doc: /* Set XWIDGET's buffer to BUFFER.  */)
-  (Lisp_Object xwidget, Lisp_Object buffer)
+DEFUN ("set-xwidget-buffer", Fset_xwidget_buffer, Sset_xwidget_buffer,
+       2, 2, 0, doc
+       : /* Set XWIDGET's buffer to BUFFER.  */)
+(Lisp_Object xwidget, Lisp_Object buffer)
 {
   CHECK_LIVE_XWIDGET (xwidget);
   CHECK_BUFFER (buffer);
@@ -3431,7 +3859,7 @@ DEFUN ("set-xwidget-plist",
        2, 2, 0,
        doc: /* Replace the plist of XWIDGET with PLIST.
 Returns PLIST.  */)
-  (Lisp_Object xwidget, Lisp_Object plist)
+(Lisp_Object xwidget, Lisp_Object plist)
 {
   CHECK_LIVE_XWIDGET (xwidget);
   CHECK_LIST (plist);
@@ -3447,7 +3875,7 @@ DEFUN ("set-xwidget-query-on-exit-flag",
 If the second argument FLAG is non-nil, Emacs will query the user before
 exiting or killing a buffer if XWIDGET is running.
 This function returns FLAG.  */)
-  (Lisp_Object xwidget, Lisp_Object flag)
+(Lisp_Object xwidget, Lisp_Object flag)
 {
   CHECK_LIVE_XWIDGET (xwidget);
   XXWIDGET (xwidget)->kill_without_query = NILP (flag);
@@ -3458,7 +3886,7 @@ DEFUN ("xwidget-query-on-exit-flag",
        Fxwidget_query_on_exit_flag, Sxwidget_query_on_exit_flag,
        1, 1, 0,
        doc: /* Return the current value of the query-on-exit flag for XWIDGET.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   CHECK_LIVE_XWIDGET (xwidget);
   return (XXWIDGET (xwidget)->kill_without_query ? Qnil : Qt);
@@ -3481,8 +3909,8 @@ end of the widget's contents.
 It is OK to call this function even when a search is already in
 progress.  In that case, the previous search query will be replaced
 with QUERY.  */)
-  (Lisp_Object query, Lisp_Object xwidget, Lisp_Object case_insensitive,
-   Lisp_Object backwards, Lisp_Object wrap_around)
+(Lisp_Object query, Lisp_Object xwidget, Lisp_Object case_insensitive,
+ Lisp_Object backwards, Lisp_Object wrap_around)
 {
 #ifdef USE_GTK
   WebKitWebView *webview;
@@ -3531,7 +3959,7 @@ DEFUN ("xwidget-webkit-next-result", Fxwidget_webkit_next_result,
 XWIDGET should be an xwidget that currently has a search query.
 Before calling this function, you should start a search operation
 using `xwidget-webkit-search'.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   struct xwidget *xw;
 #ifdef USE_GTK
@@ -3564,7 +3992,7 @@ DEFUN ("xwidget-webkit-previous-result", Fxwidget_webkit_previous_result,
 XWIDGET should be an xwidget that currently has a search query.
 Before calling this function, you should start a search operation
 using `xwidget-webkit-search'.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   struct xwidget *xw;
 #ifdef USE_GTK
@@ -3597,7 +4025,7 @@ DEFUN ("xwidget-webkit-finish-search", Fxwidget_webkit_finish_search,
 XWIDGET should be an xwidget that currently has a search query.
 Before calling this function, you should start a search operation
 using `xwidget-webkit-search'.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   struct xwidget *xw;
 #ifdef USE_GTK
@@ -3634,7 +4062,7 @@ DEFUN ("kill-xwidget", Fkill_xwidget, Skill_xwidget,
        doc: /* Kill the specified XWIDGET.
 This releases all window system resources associated with XWIDGET,
 removes it from `xwidget-list', and detaches it from its buffer.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   struct xwidget *xw;
 
@@ -3657,7 +4085,7 @@ should be a string that will be displayed by XWIDGET as HTML markup.
 BASE-URI should be a string containing a URI that is used to locate
 resources with relative URLs, and if not specified, defaults
 to "about:blank".  */)
-  (Lisp_Object xwidget, Lisp_Object text, Lisp_Object base_uri)
+(Lisp_Object xwidget, Lisp_Object text, Lisp_Object base_uri)
 {
   struct xwidget *xw;
   WebKitWebView *webview;
@@ -3702,7 +4130,7 @@ navigation history.
 
 BACK and FORWARD will each not contain more elements than LIMIT.  If
 LIMIT is not specified or nil, it is treated as `50'.  */)
-  (Lisp_Object xwidget, Lisp_Object limit)
+(Lisp_Object xwidget, Lisp_Object limit)
 {
   struct xwidget *xw;
   Lisp_Object back, here, forward;
@@ -3736,41 +4164,48 @@ LIMIT is not specified or nil, it is treated as `50'.  */)
     {
       item_title = webkit_back_forward_list_item_get_title (item);
       item_uri = webkit_back_forward_list_item_get_uri (item);
-      here = list3 (make_fixnum (0),
-		    build_string_from_utf8 (item_title ? item_title : ""),
-		    build_string_from_utf8 (item_uri ? item_uri : ""));
+      here
+        = list3 (make_fixnum (0),
+                 build_string_from_utf8 (item_title ? item_title
+                                                    : ""),
+                 build_string_from_utf8 (item_uri ? item_uri : ""));
     }
-  parent = webkit_back_forward_list_get_back_list_with_limit (list, lim);
+  parent
+    = webkit_back_forward_list_get_back_list_with_limit (list, lim);
 
   if (parent)
     {
       for (i = 1, tem = parent; tem; tem = tem->next, ++i)
-	{
-	  item = tem->data;
-	  item_title = webkit_back_forward_list_item_get_title (item);
-	  item_uri = webkit_back_forward_list_item_get_uri (item);
-	  title = build_string_from_utf8 (item_title ? item_title : "");
-	  uri = build_string_from_utf8 (item_uri ? item_uri : "");
-	  back = Fcons (list3 (make_fixnum (-i), title, uri), back);
-	}
+        {
+          item = tem->data;
+          item_title = webkit_back_forward_list_item_get_title (item);
+          item_uri = webkit_back_forward_list_item_get_uri (item);
+          title
+            = build_string_from_utf8 (item_title ? item_title : "");
+          uri = build_string_from_utf8 (item_uri ? item_uri : "");
+          back = Fcons (list3 (make_fixnum (-i), title, uri), back);
+        }
     }
 
   back = Fnreverse (back);
   g_list_free (parent);
 
-  parent = webkit_back_forward_list_get_forward_list_with_limit (list, lim);
+  parent = webkit_back_forward_list_get_forward_list_with_limit (list,
+                                                                 lim);
 
   if (parent)
     {
       for (i = 1, tem = parent; tem; tem = tem->next, ++i)
-	{
-	  item = tem->data;
-	  item_title = webkit_back_forward_list_item_get_title (item);
-	  item_uri = webkit_back_forward_list_item_get_uri (item);
-	  title = build_string_from_utf8 (item_title ? item_title : "");
-	  uri = build_string_from_utf8 (item_uri ? item_uri : "");
-	  forward = Fcons (list3 (make_fixnum (i), title, uri), forward);
-	}
+        {
+          item = tem->data;
+          item_title = webkit_back_forward_list_item_get_title (item);
+          item_uri = webkit_back_forward_list_item_get_uri (item);
+          title
+            = build_string_from_utf8 (item_title ? item_title : "");
+          uri = build_string_from_utf8 (item_uri ? item_uri : "");
+          forward
+            = Fcons (list3 (make_fixnum (i), title, uri), forward);
+        }
     }
 
   forward = Fnreverse (forward);
@@ -3784,7 +4219,7 @@ DEFUN ("xwidget-webkit-estimated-load-progress",
        1, 1, 0, doc: /* Get the estimated load progress of XWIDGET, a WebKit widget.
 Return a value ranging from 0.0 to 1.0, based on how close XWIDGET
 is to completely loading its page.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
   struct xwidget *xw;
   WebKitWebView *webview;
@@ -3810,7 +4245,7 @@ DEFUN ("xwidget-webkit-set-cookie-storage-file",
 Cookies will be stored as plain text in FILE, which must be an
 absolute file name.  All xwidgets related to XWIDGET will also
 store cookies in FILE and load them from there.  */)
-  (Lisp_Object xwidget, Lisp_Object file)
+(Lisp_Object xwidget, Lisp_Object file)
 {
 #ifdef USE_GTK
   struct xwidget *xw;
@@ -3827,9 +4262,9 @@ store cookies in FILE and load them from there.  */)
   webview = WEBKIT_WEB_VIEW (xw->widget_osr);
   context = webkit_web_view_get_context (webview);
   manager = webkit_web_context_get_cookie_manager (context);
-  webkit_cookie_manager_set_persistent_storage (manager,
-						SSDATA (ENCODE_UTF_8 (file)),
-						WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT);
+  webkit_cookie_manager_set_persistent_storage (
+    manager, SSDATA (ENCODE_UTF_8 (file)),
+    WEBKIT_COOKIE_PERSISTENT_STORAGE_TEXT);
   unblock_input ();
 #endif
 
@@ -3841,7 +4276,7 @@ DEFUN ("xwidget-webkit-stop-loading", Fxwidget_webkit_stop_loading,
        1, 1, 0, doc: /* Stop loading data in the WebKit widget XWIDGET.
 This will stop any data transfer that may still be in progress inside
 XWIDGET as part of loading a page.  */)
-  (Lisp_Object xwidget)
+(Lisp_Object xwidget)
 {
 #ifdef USE_GTK
   struct xwidget *xw;
@@ -3879,6 +4314,7 @@ syms_of_xwidget (void)
   defsubr (&Sxwidget_view_lookup);
   defsubr (&Sxwidget_query_on_exit_flag);
   defsubr (&Sset_xwidget_query_on_exit_flag);
+  defsubr (&Sxwidget_queue_redraw);
 
   defsubr (&Sxwidget_webkit_uri);
   defsubr (&Sxwidget_webkit_title);
@@ -3887,6 +4323,16 @@ syms_of_xwidget (void)
   defsubr (&Sxwidget_webkit_zoom);
   defsubr (&Sxwidget_webkit_execute_script);
   DEFSYM (Qwebkit, "webkit");
+
+  defsubr (&Sxwidget_glarea_make_current);
+  DEFSYM (Qglarea, "glarea");
+  DEFSYM (Qpress, "press");
+  DEFSYM (Qrelease, "release");
+  DEFSYM (QCinit, ":init");
+  DEFSYM (QCrender, ":render");
+  DEFSYM (QCcursor_pos, ":cursor-pos");
+  DEFSYM (QCmouse_button, ":mouse-button");
+  DEFSYM (QCprivate, ":private");
 
   defsubr (&Sxwidget_size_request);
   defsubr (&Sdelete_xwidget_view);
@@ -3920,18 +4366,17 @@ syms_of_xwidget (void)
 
   DEFSYM (QCplist, ":plist");
 
-  DEFVAR_LISP ("xwidget-list", Vxwidget_list,
-               doc: /* List of all xwidgets that have not been killed.  */);
+  DEFVAR_LISP ("xwidget-list", Vxwidget_list, doc: /* List of all xwidgets that have not been killed.  */);
   Vxwidget_list = Qnil;
 
-  DEFVAR_LISP ("xwidget-view-list", Vxwidget_view_list,
-	       doc: /* List of all xwidget views.  */);
+  DEFVAR_LISP ("xwidget-view-list", Vxwidget_view_list, doc
+               : /* List of all xwidget views.  */);
   Vxwidget_view_list = Qnil;
 
   Fprovide (intern ("xwidget-internal"), Qnil);
 
-  id_to_xwidget_map = CALLN (Fmake_hash_table, QCtest, Qeq,
-			     QCweakness, Qvalue);
+  id_to_xwidget_map
+    = CALLN (Fmake_hash_table, QCtest, Qeq, QCweakness, Qvalue);
   staticpro (&id_to_xwidget_map);
 
   internal_xwidget_list = Qnil;
@@ -3944,27 +4389,25 @@ syms_of_xwidget (void)
 
   staticpro (&x_window_to_xwv_map);
 
-#if WEBKIT_CHECK_VERSION (2, 34, 0)
+#if WEBKIT_CHECK_VERSION(2, 34, 0)
   dummy_tooltip_string = build_string ("");
   staticpro (&dummy_tooltip_string);
 #endif
 #endif
 }
 
-
-/* Value is non-zero if OBJECT is a valid Lisp xwidget specification.  A
-   valid xwidget specification is a list whose car is the symbol
-   `xwidget', and whose rest is a property list.  The property list must
-   contain a value for key `:type'.  That value must be the name of a
-   supported xwidget type.  The rest of the property list depends on the
-   xwidget type.  */
+/* Value is non-zero if OBJECT is a valid Lisp xwidget specification.
+   A valid xwidget specification is a list whose car is the symbol
+   `xwidget', and whose rest is a property list.  The property list
+   must contain a value for key `:type'.  That value must be the name
+   of a supported xwidget type.  The rest of the property list depends
+   on the xwidget type.  */
 
 bool
 valid_xwidget_spec_p (Lisp_Object object)
 {
   return CONSP (object) && EQ (XCAR (object), Qxwidget);
 }
-
 
 /* Find a value associated with key in spec.  */
 static Lisp_Object
@@ -3974,16 +4417,15 @@ xwidget_spec_value (Lisp_Object spec, Lisp_Object key)
 
   eassert (valid_xwidget_spec_p (spec));
 
-  for (tail = XCDR (spec);
-       CONSP (tail) && CONSP (XCDR (tail)); tail = XCDR (XCDR (tail)))
+  for (tail = XCDR (spec); CONSP (tail) && CONSP (XCDR (tail));
+       tail = XCDR (XCDR (tail)))
     {
       if (EQ (XCAR (tail), key))
-	return XCAR (XCDR (tail));
+        return XCAR (XCDR (tail));
     }
 
   return Qnil;
 }
-
 
 void
 xwidget_view_delete_all_in_window (struct window *w)
@@ -4020,7 +4462,8 @@ lookup_xwidget (Lisp_Object spec)
 {
   /* When a xwidget lisp spec is found initialize the C struct that is
      used in the C code.  This is done by redisplay so values change
-     if the spec changes.  So, take special care of one-shot events.  */
+     if the spec changes.  So, take special care of one-shot events.
+   */
   Lisp_Object value;
   struct xwidget *xw;
 
@@ -4077,29 +4520,32 @@ xwidget_end_redisplay (struct window *w, struct glyph_matrix *matrix)
       struct glyph_row *row;
       row = MATRIX_ROW (matrix, i);
       if (row->enabled_p)
-	for (area = LEFT_MARGIN_AREA; area < LAST_AREA; ++area)
-	  {
-	    struct glyph *glyph = row->glyphs[area];
-	    struct glyph *glyph_end = glyph + row->used[area];
-	    for (; glyph < glyph_end; ++glyph)
-	      if (glyph->type == XWIDGET_GLYPH)
-		{
-		  /* The only call to xwidget_end_redisplay is in dispnew.
-		     xwidget_end_redisplay (w->current_matrix);  */
-		  struct xwidget_view *xv
-		    = xwidget_view_lookup (xwidget_from_id (glyph->u.xwidget), w);
+        for (area = LEFT_MARGIN_AREA; area < LAST_AREA; ++area)
+          {
+            struct glyph *glyph = row->glyphs[area];
+            struct glyph *glyph_end = glyph + row->used[area];
+            for (; glyph < glyph_end; ++glyph)
+              if (glyph->type == XWIDGET_GLYPH)
+                {
+                  /* The only call to xwidget_end_redisplay is in
+                     dispnew. xwidget_end_redisplay
+                     (w->current_matrix);  */
+                  struct xwidget_view *xv
+                    = xwidget_view_lookup (xwidget_from_id (
+                                             glyph->u.xwidget),
+                                           w);
 
-		  /* In NS xwidget, xv can be NULL for the second or
+                  /* In NS xwidget, xv can be NULL for the second or
                      later views for a model, the result of 1 to 1
-                     model view relation enforcement.  `xwidget_view_lookup'
-		     has also been observed to return NULL here on X-Windows
-		     at least once, so stay safe and only touch it if it's
-		     not NULL.  */
+                     model view relation enforcement.
+                     `xwidget_view_lookup' has also been observed to
+                     return NULL here on X-Windows at least once, so
+                     stay safe and only touch it if it's not NULL.  */
 
                   if (xv)
                     xwidget_touch (xv);
-		}
-	  }
+                }
+          }
     }
 
   for (Lisp_Object tail = internal_xwidget_view_list; CONSP (tail);
@@ -4145,7 +4591,7 @@ lower_frame_xwidget_views (struct frame *f)
     {
       xv = XXWIDGET_VIEW (XCAR (tail));
       if (xv->frame == f && xv->wdesc != None)
-	XLowerWindow (xv->dpy, xv->wdesc);
+        XLowerWindow (xv->dpy, xv->wdesc);
     }
 }
 #endif
@@ -4160,8 +4606,8 @@ kill_frame_xwidget_views (struct frame *f)
        tail = XCDR (tail))
     {
       if (XWIDGET_VIEW_P (XCAR (tail))
-	  && XXWIDGET_VIEW (XCAR (tail))->frame == f)
-	rem = Fcons (XCAR (tail), rem);
+          && XXWIDGET_VIEW (XCAR (tail))->frame == f)
+        rem = Fcons (XCAR (tail), rem);
     }
 
   for (; CONSP (rem); rem = XCDR (rem))
@@ -4191,13 +4637,14 @@ kill_xwidget (struct xwidget *xw)
 
   if (!NILP (xw->script_callbacks))
     {
-      for (ptrdiff_t idx = 0; idx < ASIZE (xw->script_callbacks); idx++)
-	{
-	  Lisp_Object cb = AREF (xw->script_callbacks, idx);
-	  if (!NILP (cb))
-	    xfree (xmint_pointer (XCAR (cb)));
-	  ASET (xw->script_callbacks, idx, Qnil);
-	}
+      for (ptrdiff_t idx = 0; idx < ASIZE (xw->script_callbacks);
+           idx++)
+        {
+          Lisp_Object cb = AREF (xw->script_callbacks, idx);
+          if (!NILP (cb))
+            xfree (xmint_pointer (XCAR (cb)));
+          ASET (xw->script_callbacks, idx, Qnil);
+        }
     }
 
   xw->widget_osr = NULL;
@@ -4215,14 +4662,15 @@ void
 kill_buffer_xwidgets (Lisp_Object buffer)
 {
   Lisp_Object tail, xwidget;
-  for (tail = Fget_buffer_xwidgets (buffer); CONSP (tail); tail = XCDR (tail))
+  for (tail = Fget_buffer_xwidgets (buffer); CONSP (tail);
+       tail = XCDR (tail))
     {
       xwidget = XCAR (tail);
       {
         CHECK_LIVE_XWIDGET (xwidget);
         struct xwidget *xw = XXWIDGET (xwidget);
 
-	kill_xwidget (xw);
+        kill_xwidget (xw);
       }
     }
 
