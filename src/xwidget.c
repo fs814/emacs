@@ -323,7 +323,7 @@ fails.  */)
   CHECK_FIXNAT (width);
   CHECK_FIXNAT (height);
 
-  if (!EQ (type, Qwebkit))
+  if (!EQ (type, Qwebkit) && !EQ (type,Qglarea))
     error ("Bad xwidget type");
 
   Frequire (Qxwidget, Qnil, Qnil);
@@ -495,6 +495,30 @@ fails.  */)
       g_signal_connect (G_OBJECT (xw->widgetwindow_osr),
                         "damage-event",
                         G_CALLBACK (offscreen_damage_event), xw);
+
+      unblock_input ();
+    } else if (EQ (xw->type, Qglarea)) {
+      block_input ();
+
+      /* Create a window for GL context. */
+      xw->widgetwindow_osr = gtk_window_new (GTK_WINDOW_TOPLEVEL);
+      gtk_window_resize (GTK_WINDOW (xw->widgetwindow_osr), xw->width,
+                         xw->height);
+
+      xw->widget_osr = gtk_gl_area_new ();
+      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr), xw->width,
+                                   xw->height);
+
+      gtk_container_add (GTK_CONTAINER (xw->widgetwindow_osr),
+                         GTK_WIDGET (GTK_GL_AREA (xw->widget_osr)));
+
+      gtk_widget_show_all (xw->widgetwindow_osr);
+      gtk_widget_hide (xw->widgetwindow_osr);
+
+      /* Store some xwidget data in the gtk widgets for convenient
+         retrieval in the event handlers.  */
+      g_object_set_data (G_OBJECT (xw->widget_osr), XG_XWIDGET, xw);
+      g_object_set_data (G_OBJECT (xw->widgetwindow_osr), XG_XWIDGET, xw);
 
       unblock_input ();
     }
@@ -2765,6 +2789,32 @@ webkit_script_dialog_cb (WebKitWebView *webview,
 }
 //#endif /* USE_GTK */
 
+static void
+glarea_render_frame (void)
+{
+  glClearColor (0.5, 0.5, 0.5, 1.0);
+  glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+  glMatrixMode (GL_PROJECTION);
+  glLoadIdentity ();
+  glOrtho (-1., 1., -1., 1., 1., 20.);
+
+  glMatrixMode (GL_MODELVIEW);
+  glLoadIdentity ();
+  gluLookAt (0., 0., 10., 0., 0., 0., 0., 1., 0.);
+
+  glBegin (GL_QUADS);
+  glColor3f (1., 0., 0.);
+  glVertex3f (-.75, -.75, 0.);
+  glColor3f (0., 1., 0.);
+  glVertex3f (.75, -.75, 0.);
+  glColor3f (0., 0., 1.);
+  glVertex3f (.75, .75, 0.);
+  glColor3f (1., 1., 0.);
+  glVertex3f (-.75, .75, 0.);
+  glEnd ();
+}
+
 /* For gtk3 offscreen rendered widgets.  */
 static gboolean
 xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
@@ -2776,6 +2826,8 @@ xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
 
   if (EQ (xw->type, Qglarea))
     {
+      error("error in xwidget_osr_draw_cb");
+
       GdkWindow *xwin = gtk_widget_get_window (xw->widgetwindow_osr);
       GdkWindow *xwin_widget = gtk_widget_get_window (xv->widget);
       GLXContext glcontext
@@ -2788,6 +2840,7 @@ xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
       if (glXMakeCurrent (GDK_WINDOW_XDISPLAY (xwin),
                           GDK_WINDOW_XID (xwin_widget), glcontext))
         {
+          error("error in xwidget_osr_draw_cb glx");
           if (!NILP (xw->init_func))
             {
               call3 (xw->init_func, make_fixed_natnum (xw->width),
@@ -2798,6 +2851,8 @@ xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
 
           if (!NILP (xw->render_func))
             call1 (xw->render_func, xw->private_data);
+
+          glarea_render_frame ();
 
           glXSwapBuffers (GDK_WINDOW_XDISPLAY (xwin),
                           GDK_WINDOW_XID (xwin_widget));
@@ -3571,14 +3626,15 @@ DEFUN ("xwidget-glarea-make-current", Fxwidget_glarea_make_current,
   GLAREA_FN_INIT ();
 
 #if USE_GTK
-  struct xwidget_view *xv = g_object_get_data (G_OBJECT (xw->widget_osr),XG_XWIDGET_VIEW);
+  struct xwidget_view *xv
+    = g_object_get_data (G_OBJECT (xw->widget_osr), XG_XWIDGET_VIEW);
   GdkWindow *xwin = gtk_widget_get_window (xw->widgetwindow_osr);
   GdkWindow *xwin_widget = gtk_widget_get_window (xv->widget);
   GLXContext glcontext
-      = g_object_get_data (G_OBJECT (xv->widget), XG_GL_CONTEXT);
+    = g_object_get_data (G_OBJECT (xv->widget), XG_GL_CONTEXT);
 
   glXMakeCurrent (GDK_WINDOW_XDISPLAY (xwin),
-                    GDK_WINDOW_XID (xwin_widget), glcontext);
+                  GDK_WINDOW_XID (xwin_widget), glcontext);
 #endif
 
   return Qnil;
