@@ -1747,7 +1747,7 @@ means to return the active maps for that window's buffer.  */)
 	     text-property keymap of the place clicked on.  */
 
 	  if (FIXNUMP (buffer_posn)
-	      && XFIXNUM (buffer_posn) >= BEG && XFIXNUM (buffer_posn) <= Z)
+	      && XFIXNUM (buffer_posn) >= BEG && XFIXNUM (buffer_posn) <= ZE)
 	    {
 	      /* The properties in POSN_STRING take precedence, if set. */
 	      if (NILP (local_map))
@@ -2274,7 +2274,7 @@ push_key_description (EMACS_INT ch, char *p)
       else
 	{
 	  /* `C-' already added above.  */
-	  if (c > 0 && c <= Ctl ('Z'))
+	  if (c > 0 && c <= Ctl ('ZE'))
 	    *p++ = c + 0140;
 	  else
 	    *p++ = c + 0100;

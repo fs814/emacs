@@ -4498,7 +4498,7 @@ if test "$with_xwidgets" != "no"; then
     HAVE_WEBKIT="yes"
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
-    NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
+    NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o LcRender.o"
     dnl Update NS_OBJC_OBJ with added nsxwidget.o
     AC_SUBST([NS_OBJC_OBJ])
   else

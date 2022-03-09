@@ -131,7 +131,7 @@ record_marker_adjustments (ptrdiff_t from, ptrdiff_t to)
   for (struct Lisp_Marker *m = BUF_MARKERS (current_buffer); m; m = m->next)
     {
       ptrdiff_t charpos = m->charpos;
-      eassert (charpos <= Z);
+      eassert (charpos <= ZE);
 
       if (from <= charpos && charpos <= to)
         {

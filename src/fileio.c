@@ -83,7 +83,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #ifdef DOS_NT
 /* On Windows, drive letters must be alphabetic - on DOS, the Netware
-   redirector allows the six letters between 'Z' and 'a' as well.  */
+   redirector allows the six letters between 'ZE' and 'a' as well.  */
 #ifdef MSDOS
 #define IS_DRIVE(x) ((x) >= 'A' && (x) <= 'z')
 #endif
@@ -3866,8 +3866,8 @@ decide_coding_unwind (Lisp_Object unwind_data)
   /* We're about to "delete" the text by moving it back into the gap.
      So move markers that set-auto-coding might have created to BEG,
      just in case.  */
-  adjust_markers_for_delete (BEG, BEG_BYTE, Z, Z_BYTE);
-  adjust_overlays_for_delete (BEG, Z - BEG);
+  adjust_markers_for_delete (BEG, BEG_BYTE, ZE, ZE_BYTE);
+  adjust_overlays_for_delete (BEG, ZE - BEG);
   set_buffer_intervals (current_buffer, NULL);
   TEMP_SET_PT_BOTH (BEG, BEG_BYTE);
 
@@ -3885,11 +3885,11 @@ decide_coding_unwind (Lisp_Object unwind_data)
      this can't move more bytes than were moved during the execution
      of Vset_auto_coding_function, which is normally 0 (because it
      normally doesn't modify the buffer).  */
-  move_gap_both (Z, Z_BYTE);
-  ptrdiff_t inserted = Z_BYTE - BEG_BYTE;
+  move_gap_both (ZE, ZE_BYTE);
+  ptrdiff_t inserted = ZE_BYTE - BEG_BYTE;
   GAP_SIZE += inserted;
-  ZV = Z = GPT = BEG;
-  ZV_BYTE = Z_BYTE = GPT_BYTE = BEG_BYTE;
+  ZV = ZE = GPT = BEG;
+  ZV_BYTE = ZE_BYTE = GPT_BYTE = BEG_BYTE;
 
   /* Pass the new `inserted` back.  */
   XSETCAR (unwind_data, make_fixnum (inserted));
@@ -4025,7 +4025,7 @@ restore_window_points (Lisp_Object window_markers, ptrdiff_t inserted,
       }
 }
 
-/* Make sure the gap is at Z_BYTE.  This is required to treat buffer
+/* Make sure the gap is at ZE_BYTE.  This is required to treat buffer
    text as a linear C char array.  */
 static void
 maybe_move_gap (struct buffer *b)
@@ -4035,7 +4035,7 @@ maybe_move_gap (struct buffer *b)
       struct buffer *cb = current_buffer;
 
       set_buffer_internal (b);
-      move_gap_both (Z, Z_BYTE);
+      move_gap_both (ZE, ZE_BYTE);
       set_buffer_internal (cb);
     }
 }
@@ -4124,7 +4124,7 @@ by calling `format-decode', which see.  */)
      keeping it.  It's typically when we first fill a file-buffer.  */
   bool empty_undo_list_p
     = (!NILP (visit) && NILP (BVAR (current_buffer, undo_list))
-       && BEG == Z);
+       && BEG == ZE);
   Lisp_Object old_Vdeactivate_mark = Vdeactivate_mark;
   bool we_locked_file = false;
   Lisp_Object window_markers = Qnil;
@@ -4175,7 +4175,7 @@ by calling `format-decode', which see.  */)
     {
       if (!NILP (beg) || !NILP (end))
 	error ("Attempt to visit less than an entire file");
-      if (BEG < Z && NILP (replace))
+      if (BEG < ZE && NILP (replace))
 	error ("Cannot do file visiting in a non-empty buffer");
     }
 
@@ -4289,7 +4289,7 @@ by calling `format-decode', which see.  */)
   if (beg_offset < likely_end)
     {
       ptrdiff_t buf_bytes
-	= Z_BYTE - (!NILP (replace) ? ZV_BYTE - BEGV_BYTE  : 0);
+	= ZE_BYTE - (!NILP (replace) ? ZV_BYTE - BEGV_BYTE  : 0);
       ptrdiff_t buf_growth_max = BUF_BYTES_MAX - buf_bytes;
       off_t likely_growth = likely_end - beg_offset;
       if (buf_growth_max < likely_growth)
@@ -4309,7 +4309,7 @@ by calling `format-decode', which see.  */)
       /* Ensure we set Vlast_coding_system_used.  */
       set_coding_system = true;
     }
-  else if (BEG < Z)
+  else if (BEG < ZE)
     {
       /* Decide the coding system to use for reading the file now
          because we can't use an optimized method for handling
@@ -4644,7 +4644,7 @@ by calling `format-decode', which see.  */)
 	  end_offset = endpos - (ZV_BYTE - same_at_end);
 	  eassert (beg_offset <= end_offset);
 
-          if (!NILP (visit) && BEG == BEGV && Z == ZV)
+          if (!NILP (visit) && BEG == BEGV && ZE == ZV)
             /* This binding is to avoid ask-user-about-supersession-threat
 	       being called in insert_from_buffer or del_range_bytes (via
 	       prepare_to_modify_buffer).
@@ -4775,7 +4775,7 @@ by calling `format-decode', which see.  */)
 	  /* Truncate the buffer to the size of the file.  */
 	  if (same_at_start != same_at_end)
 	    {
-              if (!NILP (visit) && BEG == BEGV && Z == ZV)
+              if (!NILP (visit) && BEG == BEGV && ZE == ZV)
 		/* See previous specbind for the reason behind this.  */
 		specbind (Qbuffer_file_name, Qnil);
 	      del_range_byte (same_at_start, same_at_end);
@@ -4825,7 +4825,7 @@ by calling `format-decode', which see.  */)
 	 we are taking from the decoded string.  */
       inserted -= (ZV_BYTE - same_at_end) + (same_at_start - BEGV_BYTE);
 
-      if (!NILP (visit) && BEG == BEGV && Z == ZV)
+      if (!NILP (visit) && BEG == BEGV && ZE == ZV)
         /* See previous specbind for the reason behind this.  */
         specbind (Qbuffer_file_name, Qnil);
       if (same_at_end != same_at_start)
@@ -5022,7 +5022,7 @@ by calling `format-decode', which see.  */)
 
 	 Note that we can get here only if the buffer was empty
 	 before the insertion.  */
-      eassert (Z == BEG);
+      eassert (ZE == BEG);
 
       if (!NILP (Vcoding_system_for_read))
 	coding_system = Vcoding_system_for_read;
@@ -5159,7 +5159,7 @@ by calling `format-decode', which see.  */)
 
       SAVE_MODIFF = MODIFF;
       BUF_AUTOSAVE_MODIFF (current_buffer) = MODIFF;
-      XSETFASTINT (BVAR (current_buffer, save_length), Z - BEG);
+      XSETFASTINT (BVAR (current_buffer, save_length), ZE - BEG);
       if (NILP (handler))
 	{
 	  if (!NILP (BVAR (current_buffer, file_truename)))
@@ -5318,11 +5318,11 @@ by calling `format-decode', which see.  */)
   if (current_buffer->base_buffer && current_buffer->base_buffer->newline_cache)
     invalidate_region_cache (current_buffer->base_buffer,
                              current_buffer->base_buffer->newline_cache,
-                             PT - BEG, Z - PT - inserted);
+                             PT - BEG, ZE - PT - inserted);
   else if (current_buffer->newline_cache)
     invalidate_region_cache (current_buffer,
                              current_buffer->newline_cache,
-                             PT - BEG, Z - PT - inserted);
+                             PT - BEG, ZE - PT - inserted);
 
   if (read_quit)
     quit ();
@@ -5572,7 +5572,7 @@ write_region (Lisp_Object start, Lisp_Object end, Lisp_Object filename,
       if (visiting)
 	{
 	  SAVE_MODIFF = MODIFF;
-	  XSETFASTINT (BVAR (current_buffer, save_length), Z - BEG);
+	  XSETFASTINT (BVAR (current_buffer, save_length), ZE - BEG);
 	  bset_filename (current_buffer, visit_file);
 	}
 
@@ -5589,7 +5589,7 @@ write_region (Lisp_Object start, Lisp_Object end, Lisp_Object filename,
 	 if we save "the buffer" vs "a region".
 	 This is useful in tar-mode.  --Stef
       XSETFASTINT (start, BEG);
-      XSETFASTINT (end, Z); */
+      XSETFASTINT (end, ZE); */
       Fwiden ();
     }
 
@@ -5839,7 +5839,7 @@ write_region (Lisp_Object start, Lisp_Object end, Lisp_Object filename,
   if (visiting)
     {
       SAVE_MODIFF = MODIFF;
-      XSETFASTINT (BVAR (current_buffer, save_length), Z - BEG);
+      XSETFASTINT (BVAR (current_buffer, save_length), ZE - BEG);
       bset_filename (current_buffer, visit_file);
       update_mode_lines = 14;
       if (auto_saving_into_visited_file)
@@ -6478,7 +6478,7 @@ A non-nil CURRENT-ONLY argument means save only current buffer.  */)
 	    internal_condition_case (auto_save_1, Qt, auto_save_error);
 	    auto_saved = 1;
 	    BUF_AUTOSAVE_MODIFF (b) = BUF_MODIFF (b);
-	    XSETFASTINT (BVAR (current_buffer, save_length), Z - BEG);
+	    XSETFASTINT (BVAR (current_buffer, save_length), ZE - BEG);
 	    set_buffer_internal (old);
 
 	    after_time = current_timespec ();
@@ -6524,7 +6524,7 @@ No auto-save file will be written until the buffer changes again.  */)
   /* FIXME: This should not be called in indirect buffers, since
      they're not autosaved.  */
   BUF_AUTOSAVE_MODIFF (current_buffer) = MODIFF;
-  XSETFASTINT (BVAR (current_buffer, save_length), Z - BEG);
+  XSETFASTINT (BVAR (current_buffer, save_length), ZE - BEG);
   current_buffer->auto_save_failure_time = 0;
   return Qnil;
 }

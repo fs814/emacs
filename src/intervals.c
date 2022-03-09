@@ -898,7 +898,7 @@ adjust_intervals_for_insertion (INTERVAL tree,
     }
 
   /* If we are positioned between intervals, check the stickiness of
-     both of them.  We have to do this too, if we are at BEG or Z.  */
+     both of them.  We have to do this too, if we are at BEG or ZE.  */
   if (position == i->position || eobp)
     {
       register INTERVAL prev;
@@ -2412,5 +2412,5 @@ set_intervals_multibyte (bool multi_flag)
   INTERVAL i = buffer_intervals (current_buffer);
 
   if (i)
-    set_intervals_multibyte_1 (i, multi_flag, BEG, BEG_BYTE, Z, Z_BYTE);
+    set_intervals_multibyte_1 (i, multi_flag, BEG, BEG_BYTE, ZE, ZE_BYTE);
 }

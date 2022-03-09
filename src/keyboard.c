@@ -1989,7 +1989,7 @@ safe_run_hooks_maybe_narrowed (Lisp_Object hook, struct window *w)
     {
       ptrdiff_t begv = get_large_narrowing_begv (PT);
       ptrdiff_t zv = get_large_narrowing_zv (PT);
-      if (begv != BEG || zv != Z)
+      if (begv != BEG || zv != ZE)
 	labeled_narrow_to_region (make_fixnum (begv), make_fixnum (zv),
 				  Qlong_line_optimizations_in_command_hooks);
     }
@@ -2193,7 +2193,7 @@ make_ctrl_char (int c)
       c &= ~0140;
       /* Set the shift modifier for a control char
 	 made from a shifted letter.  But only for letters!  */
-      if (oc >= 'A' && oc <= 'Z')
+      if (oc >= 'A' && oc <= 'ZE')
 	c |= shift_modifier;
     }
 
@@ -2937,7 +2937,7 @@ read_char (int commandflag, Lisp_Object map,
       /* Slow down auto saves logarithmically in size of current buffer,
 	 and garbage collect while we're at it.  */
       if (! MINI_WINDOW_P (XWINDOW (selected_window)))
-	last_non_minibuf_size = Z - BEG;
+	last_non_minibuf_size = ZE - BEG;
       buffer_size = (last_non_minibuf_size >> 8) + 1;
       delay_level = 0;
       while (buffer_size > 64)
@@ -5266,7 +5266,7 @@ const char *const lispy_function_keys[] =
 
     0, 0, 0, 0, 0, 0, 0, /* 0x3A .. 0x40       */
 
-    /* VK_A thru VK_Z are the same as ASCII 'A' thru 'Z' (0x41 - 0x5A) */
+    /* VK_A thru VK_Z are the same as ASCII 'A' thru 'ZE' (0x41 - 0x5A) */
 
     0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0,

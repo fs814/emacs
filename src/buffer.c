@@ -1029,7 +1029,7 @@ free_buffer_overlays (struct buffer *b)
 static void
 set_overlays_multibyte (bool multibyte)
 {
-  if (! current_buffer->overlays || Z == Z_BYTE)
+  if (! current_buffer->overlays || ZE == ZE_BYTE)
     return;
 
   struct itree_node **nodes = NULL;
@@ -1058,10 +1058,10 @@ set_overlays_multibyte (bool multibyte)
 
           /* This models the behavior of markers.  (The behavior of
              text-intervals differs slightly.) */
-          while (begin < Z_BYTE
+          while (begin < ZE_BYTE
                  && !CHAR_HEAD_P (FETCH_BYTE (begin)))
             begin++;
-          while (end < Z_BYTE
+          while (end < ZE_BYTE
                  && !CHAR_HEAD_P (FETCH_BYTE (end)))
             end++;
           itree_node_set_region (tree, node, BYTE_TO_CHAR (begin),
@@ -2476,7 +2476,7 @@ so the buffer is truly empty after this.  */)
   labeled_restrictions_remove_in_current_buffer ();
   Fwiden ();
 
-  del_range (BEG, Z);
+  del_range (BEG, ZE);
 
   current_buffer->last_window_start = 1;
   /* Prevent warnings, or suspension of auto saving, that would happen
@@ -2742,7 +2742,7 @@ current buffer is cleared.  */)
   struct Lisp_Marker *tail, *markers;
   Lisp_Object btail, other;
   ptrdiff_t begv, zv;
-  bool narrowed = (BEG != BEGV || Z != ZV);
+  bool narrowed = (BEG != BEGV || ZE != ZV);
   bool modified_p = !NILP (Fbuffer_modified_p (Qnil));
   Lisp_Object old_undo = BVAR (current_buffer, undo_list);
 
@@ -2782,7 +2782,7 @@ current buffer is cleared.  */)
 
       bset_enable_multibyte_characters (current_buffer, Qnil);
 
-      Z = Z_BYTE;
+      ZE = ZE_BYTE;
       BEGV = BEGV_BYTE;
       ZV = ZV_BYTE;
       GPT = GPT_BYTE;
@@ -2800,10 +2800,10 @@ current buffer is cleared.  */)
 	{
 	  if (pos == stop)
 	    {
-	      if (pos == Z)
+	      if (pos == ZE)
 		break;
 	      p = GAP_END_ADDR;
-	      stop = Z;
+	      stop = ZE;
 	    }
 	  if (ASCII_CHAR_P (*p))
 	    p++, pos++;
@@ -2822,7 +2822,7 @@ current buffer is cleared.  */)
 		begv -= bytes;
 	      if (zv > pos)
 		zv -= bytes;
-	      stop = Z;
+	      stop = ZE;
 	    }
 	  else
 	    {
@@ -2842,7 +2842,7 @@ current buffer is cleared.  */)
 	     to: "...abc _GAP_ \302\241def..."  */
 
       if (EQ (flag, Qt)
-	  && GPT_BYTE > 1 && GPT_BYTE < Z_BYTE
+	  && GPT_BYTE > 1 && GPT_BYTE < ZE_BYTE
 	  && ! CHAR_HEAD_P (*(GAP_END_ADDR)))
 	{
 	  unsigned char *q = GPT_ADDR - 1;
@@ -2868,11 +2868,11 @@ current buffer is cleared.  */)
 
 	  if (pos == stop)
 	    {
-	      if (pos == Z)
+	      if (pos == ZE)
 		break;
 	      p = GAP_END_ADDR;
 	      pend = Z_ADDR;
-	      stop = Z;
+	      stop = ZE;
 	    }
 
 	  if (ASCII_CHAR_P (*p))
@@ -2901,7 +2901,7 @@ current buffer is cleared.  */)
 	      if (pos <= pt)
 		pt += bytes;
 	      pend = Z_ADDR;
-	      stop = Z;
+	      stop = ZE;
 	    }
 	}
 
@@ -2915,7 +2915,7 @@ current buffer is cleared.  */)
       GPT_BYTE = advance_to_char_boundary (GPT_BYTE);
       GPT = chars_in_text (BEG_ADDR, GPT_BYTE - BEG_BYTE) + BEG;
 
-      Z = chars_in_text (GAP_END_ADDR, Z_BYTE - GPT_BYTE) + GPT;
+      ZE = chars_in_text (GAP_END_ADDR, ZE_BYTE - GPT_BYTE) + GPT;
 
       BEGV_BYTE = advance_to_char_boundary (BEGV_BYTE);
       if (BEGV_BYTE > GPT_BYTE)
@@ -3065,7 +3065,7 @@ the normal hook `change-major-mode-hook'.  */)
    Return the number found, and store them in a vector in *VEC_PTR.
    Store in *LEN_PTR the size allocated for the vector.
    Store in *NEXT_PTR the next position after POS where an overlay starts,
-     or Z if there are no more overlays after POS.
+     or ZE if there are no more overlays after POS.
    NEXT_PTR may be 0, meaning don't store that info.
 
    *VEC_PTR and *LEN_PTR should contain a valid vector and size
@@ -3084,13 +3084,13 @@ overlays_in (ptrdiff_t beg, ptrdiff_t end, bool extend,
 {
   ptrdiff_t idx = 0;
   ptrdiff_t len = *len_ptr;
-  ptrdiff_t next = Z;
+  ptrdiff_t next = ZE;
   Lisp_Object *vec = *vec_ptr;
   struct itree_node *node;
 
-  /* Extend the search range if overlays beginning at Z are wanted.  */
-  ptrdiff_t search_end = Z;
-  if (end >= Z && (empty || trailing))
+  /* Extend the search range if overlays beginning at ZE are wanted.  */
+  ptrdiff_t search_end = ZE;
+  if (end >= ZE && (empty || trailing))
     ++search_end;
 
   ITREE_FOREACH (node, current_buffer->overlays, beg, search_end,
@@ -3104,7 +3104,7 @@ overlays_in (ptrdiff_t beg, ptrdiff_t end, bool extend,
       else if (node->begin == end)
         {
           next = node->begin;
-          if ((! empty || end < Z) && beg < end)
+          if ((! empty || end < ZE) && beg < end)
             break;
           if (empty && node->begin != node->end)
             continue;
@@ -3126,7 +3126,7 @@ overlays_in (ptrdiff_t beg, ptrdiff_t end, bool extend,
       idx++;
     }
   if (next_ptr)
-    *next_ptr = next ? next : Z;
+    *next_ptr = next ? next : ZE;
 
   return idx;
 }
@@ -4008,7 +4008,7 @@ However, the overlays you get are the real objects that the buffer uses. */)
   Lisp_Object overlays = Qnil;
   struct itree_node *node;
 
-  ITREE_FOREACH (node, current_buffer->overlays, BEG, Z, DESCENDING)
+  ITREE_FOREACH (node, current_buffer->overlays, BEG, ZE, DESCENDING)
     overlays = Fcons (node->data, overlays);
 
   return Fcons (overlays, Qnil);
@@ -5193,7 +5193,7 @@ A string is printed verbatim in the mode line except for %-constructs:
         window, separated by `-', or `All'.
   %s -- print process status.
   %z -- print mnemonics of keyboard, terminal, and buffer coding systems.
-  %Z -- like %z, but including the end-of-line format.
+  %ZE -- like %z, but including the end-of-line format.
   %& -- print * if the buffer is modified, otherwise hyphen.
   %+ -- print *, % or hyphen (modified, read-only, neither).
   %* -- print %, * or hyphen (read-only, modified, neither).

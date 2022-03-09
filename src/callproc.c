@@ -1043,7 +1043,7 @@ create_temp_file (ptrdiff_t nargs, Lisp_Object *args,
 
     specbind (Qcoding_system_for_write, val);
     /* POSIX lets mk[s]temp use "."; don't invoke jka-compr if we
-       happen to get a ".Z" suffix.  */
+       happen to get a ".ZE" suffix.  */
     specbind (Qfile_name_handler_alist, Qnil);
     write_region (start, end, filename_string, Qnil, Qlambda, Qnil, Qnil, fd);
 
@@ -1109,7 +1109,7 @@ usage: (call-process-region START END PROGRAM &optional DELETE BUFFER DISPLAY &r
   if (STRINGP (start))
     empty_input = SCHARS (start) == 0;
   else if (NILP (start))
-    empty_input = BEG == Z;
+    empty_input = BEG == ZE;
   else
     {
       validate_region (&args[0], &args[1]);
@@ -1137,7 +1137,7 @@ usage: (call-process-region START END PROGRAM &optional DELETE BUFFER DISPLAY &r
              anyway.  */
           labeled_restrictions_remove_in_current_buffer ();
           Fwiden ();
-          del_range (BEG, Z);
+          del_range (BEG, ZE);
         }
       else
         Fdelete_region (start, end);
