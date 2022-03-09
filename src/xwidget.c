@@ -323,7 +323,8 @@ fails.  */)
   CHECK_FIXNAT (width);
   CHECK_FIXNAT (height);
 
-  if (!EQ (type, Qwebkit) && !EQ (type,Qglarea))
+  if (!EQ (type, Qwebkit) && !EQ (type, Qglarea)
+      && !EQ (type, Qmetal))
     error ("Bad xwidget type");
 
   Frequire (Qxwidget, Qnil, Qnil);
@@ -497,7 +498,9 @@ fails.  */)
                         G_CALLBACK (offscreen_damage_event), xw);
 
       unblock_input ();
-    } else if (EQ (xw->type, Qglarea)) {
+    }
+  else if (EQ (xw->type, Qglarea))
+    {
       block_input ();
 
       /* Create a window for GL context. */
@@ -506,8 +509,8 @@ fails.  */)
                          xw->height);
 
       xw->widget_osr = gtk_gl_area_new ();
-      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr), xw->width,
-                                   xw->height);
+      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr),
+                                   xw->width, xw->height);
 
       gtk_container_add (GTK_CONTAINER (xw->widgetwindow_osr),
                          GTK_WIDGET (GTK_GL_AREA (xw->widget_osr)));
@@ -518,7 +521,8 @@ fails.  */)
       /* Store some xwidget data in the gtk widgets for convenient
          retrieval in the event handlers.  */
       g_object_set_data (G_OBJECT (xw->widget_osr), XG_XWIDGET, xw);
-      g_object_set_data (G_OBJECT (xw->widgetwindow_osr), XG_XWIDGET, xw);
+      g_object_set_data (G_OBJECT (xw->widgetwindow_osr), XG_XWIDGET,
+                         xw);
 
       unblock_input ();
     }
@@ -2826,7 +2830,7 @@ xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
 
   if (EQ (xw->type, Qglarea))
     {
-      error("error in xwidget_osr_draw_cb");
+      error ("error in xwidget_osr_draw_cb");
 
       GdkWindow *xwin = gtk_widget_get_window (xw->widgetwindow_osr);
       GdkWindow *xwin_widget = gtk_widget_get_window (xv->widget);
@@ -2840,7 +2844,7 @@ xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
       if (glXMakeCurrent (GDK_WINDOW_XDISPLAY (xwin),
                           GDK_WINDOW_XID (xwin_widget), glcontext))
         {
-          error("error in xwidget_osr_draw_cb glx");
+          error ("error in xwidget_osr_draw_cb glx");
           if (!NILP (xw->init_func))
             {
               call3 (xw->init_func, make_fixed_natnum (xw->width),
@@ -4380,6 +4384,8 @@ syms_of_xwidget (void)
   defsubr (&Sxwidget_webkit_execute_script);
   DEFSYM (Qwebkit, "webkit");
 
+  DEFSYM (Qmetal, "metal");
+
   defsubr (&Sxwidget_glarea_make_current);
   DEFSYM (Qglarea, "glarea");
   DEFSYM (Qpress, "press");
@@ -4425,8 +4431,7 @@ syms_of_xwidget (void)
   DEFVAR_LISP ("xwidget-list", Vxwidget_list, doc: /* List of all xwidgets that have not been killed.  */);
   Vxwidget_list = Qnil;
 
-  DEFVAR_LISP ("xwidget-view-list", Vxwidget_view_list, doc
-               : /* List of all xwidget views.  */);
+  DEFVAR_LISP ("xwidget-view-list", Vxwidget_view_list, doc: /* List of all xwidget views.  */);
   Vxwidget_view_list = Qnil;
 
   Fprovide (intern ("xwidget-internal"), Qnil);

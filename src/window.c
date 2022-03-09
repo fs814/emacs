@@ -4213,7 +4213,7 @@ temp_output_buffer_show (register Lisp_Object buf)
   Fset_buffer (buf);
   BUF_SAVE_MODIFF (XBUFFER (buf)) = MODIFF;
   BEGV = BEG;
-  ZV = Z;
+  ZV = ZE;
   SET_PT (BEG);
   set_buffer_internal (old);
 

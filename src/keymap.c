@@ -1709,7 +1709,7 @@ like in the respective argument of `key-binding'.  */)
 	    {
 	      Lisp_Object pos = POSN_BUFFER_POSN (position);
 	      if (FIXNUMP (pos)
-		  && XFIXNUM (pos) >= BEG && XFIXNUM (pos) <= Z)
+		  && XFIXNUM (pos) >= BEG && XFIXNUM (pos) <= ZE)
 		{
 		  local_map = get_local_map (XFIXNUM (pos),
 					     current_buffer, Qlocal_map);

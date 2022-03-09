@@ -3442,12 +3442,12 @@ if test "$with_xwidgets" != "no"; then
   elif test "${NS_IMPL_COCOA}" = "yes"; then
     dnl FIXME: Check framework WebKit2
     dnl WEBKIT_REQUIRED=M.m.p
-    WEBKIT_LIBS="-Wl,-framework -Wl,WebKit"
-    WEBKIT_CFLAGS="-I/System/Library/Frameworks/WebKit.framework/Headers"
+    WEBKIT_LIBS="-Wl,-framework -Wl,WebKit -Wl,-framework -Wl,Metal -Wl,-framework -Wl,MetalKit"
+    WEBKIT_CFLAGS="-I/System/Library/Frameworks/WebKit.framework/Headers -I/System/Library/Frameworks/Metal.framework/Headers -I/System/Library/Frameworks/MetalKit.framework/Headers"
     HAVE_WEBKIT="yes"
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
-    NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
+    NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o LcRender.o"
     dnl Update NS_OBJC_OBJ with added nsxwidget.o
     AC_SUBST(NS_OBJC_OBJ)
   else

@@ -2298,7 +2298,7 @@ so the buffer is truly empty after this.  */)
 {
   Fwiden ();
 
-  del_range (BEG, Z);
+  del_range (BEG, ZE);
 
   current_buffer->last_window_start = 1;
   /* Prevent warnings, or suspension of auto saving, that would happen
@@ -2540,7 +2540,7 @@ current buffer is cleared.  */)
   struct Lisp_Marker *tail, *markers;
   Lisp_Object btail, other;
   ptrdiff_t begv, zv;
-  bool narrowed = (BEG != BEGV || Z != ZV);
+  bool narrowed = (BEG != BEGV || ZE != ZV);
   bool modified_p = !NILP (Fbuffer_modified_p (Qnil));
   Lisp_Object old_undo = BVAR (current_buffer, undo_list);
 
@@ -2579,7 +2579,7 @@ current buffer is cleared.  */)
 
       bset_enable_multibyte_characters (current_buffer, Qnil);
 
-      Z = Z_BYTE;
+      ZE = ZE_BYTE;
       BEGV = BEGV_BYTE;
       ZV = ZV_BYTE;
       GPT = GPT_BYTE;
@@ -2597,10 +2597,10 @@ current buffer is cleared.  */)
 	{
 	  if (pos == stop)
 	    {
-	      if (pos == Z)
+	      if (pos == ZE)
 		break;
 	      p = GAP_END_ADDR;
-	      stop = Z;
+	      stop = ZE;
 	    }
 	  if (ASCII_CHAR_P (*p))
 	    p++, pos++;
@@ -2619,7 +2619,7 @@ current buffer is cleared.  */)
 		begv -= bytes;
 	      if (zv > pos)
 		zv -= bytes;
-	      stop = Z;
+	      stop = ZE;
 	    }
 	  else
 	    {
@@ -2639,7 +2639,7 @@ current buffer is cleared.  */)
 	     to: "...abc _GAP_ \302\241def..."  */
 
       if (EQ (flag, Qt)
-	  && GPT_BYTE > 1 && GPT_BYTE < Z_BYTE
+	  && GPT_BYTE > 1 && GPT_BYTE < ZE_BYTE
 	  && ! CHAR_HEAD_P (*(GAP_END_ADDR)))
 	{
 	  unsigned char *q = GPT_ADDR - 1;
@@ -2665,11 +2665,11 @@ current buffer is cleared.  */)
 
 	  if (pos == stop)
 	    {
-	      if (pos == Z)
+	      if (pos == ZE)
 		break;
 	      p = GAP_END_ADDR;
 	      pend = Z_ADDR;
-	      stop = Z;
+	      stop = ZE;
 	    }
 
 	  if (ASCII_CHAR_P (*p))
@@ -2698,7 +2698,7 @@ current buffer is cleared.  */)
 	      if (pos <= pt)
 		pt += bytes;
 	      pend = Z_ADDR;
-	      stop = Z;
+	      stop = ZE;
 	    }
 	}
 
@@ -2712,7 +2712,7 @@ current buffer is cleared.  */)
       GPT_BYTE = advance_to_char_boundary (GPT_BYTE);
       GPT = chars_in_text (BEG_ADDR, GPT_BYTE - BEG_BYTE) + BEG;
 
-      Z = chars_in_text (GAP_END_ADDR, Z_BYTE - GPT_BYTE) + GPT;
+      ZE = chars_in_text (GAP_END_ADDR, ZE_BYTE - GPT_BYTE) + GPT;
 
       BEGV_BYTE = advance_to_char_boundary (BEGV_BYTE);
       if (BEGV_BYTE > GPT_BYTE)

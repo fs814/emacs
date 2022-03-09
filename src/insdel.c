@@ -252,7 +252,7 @@ adjust_markers_for_delete (ptrdiff_t from, ptrdiff_t from_byte,
   for (m = BUF_MARKERS (current_buffer); m; m = m->next)
     {
       charpos = m->charpos;
-      eassert (charpos <= Z);
+      eassert (charpos <= ZE);
 
       /* If the marker is after the deletion,
 	 relocate by number of chars / bytes deleted.  */
@@ -292,7 +292,7 @@ adjust_markers_for_insert (ptrdiff_t from, ptrdiff_t from_byte,
   for (m = BUF_MARKERS (current_buffer); m; m = m->next)
     {
       eassert (m->bytepos >= m->charpos
-	       && m->bytepos - m->charpos <= Z_BYTE - Z);
+	       && m->bytepos - m->charpos <= ZE_BYTE - ZE);
 
       if (m->bytepos == from_byte)
 	{
@@ -377,8 +377,8 @@ adjust_markers_for_replace (ptrdiff_t from, ptrdiff_t from_byte,
 static ptrdiff_t
 count_bytes (ptrdiff_t pos, ptrdiff_t bytepos, ptrdiff_t endpos)
 {
-  eassert (BEG_BYTE <= bytepos && bytepos <= Z_BYTE
-	   && BEG <= endpos && endpos <= Z);
+  eassert (BEG_BYTE <= bytepos && bytepos <= ZE_BYTE
+	   && BEG <= endpos && endpos <= ZE);
 
   if (pos <= endpos)
     for ( ; pos < endpos; pos++)
@@ -408,7 +408,7 @@ adjust_markers_bytepos (ptrdiff_t from, ptrdiff_t from_byte,
 
   adjust_suspend_auto_hscroll (from, to);
 
-  if (Z == Z_BYTE || (!to_z && to == to_byte))
+  if (ZE == ZE_BYTE || (!to_z && to == to_byte))
     {
       /* Make sure each affected marker's bytepos is equal to
 	 its charpos.  */
@@ -460,7 +460,7 @@ make_gap_larger (ptrdiff_t nbytes_added)
   ptrdiff_t real_gap_loc;
   ptrdiff_t real_gap_loc_byte;
   ptrdiff_t old_gap_size;
-  ptrdiff_t current_size = Z_BYTE - BEG_BYTE + GAP_SIZE;
+  ptrdiff_t current_size = ZE_BYTE - BEG_BYTE + GAP_SIZE;
 
   if (BUF_BYTES_MAX - current_size < nbytes_added)
     buffer_overflow ();
@@ -483,8 +483,8 @@ make_gap_larger (ptrdiff_t nbytes_added)
   old_gap_size = GAP_SIZE;
 
   /* Call the newly allocated space a gap at the end of the whole space.  */
-  GPT = Z + GAP_SIZE;
-  GPT_BYTE = Z_BYTE + GAP_SIZE;
+  GPT = ZE + GAP_SIZE;
+  GPT_BYTE = ZE_BYTE + GAP_SIZE;
   GAP_SIZE = nbytes_added;
 
   /* Move the new gap down to be consecutive with the end of the old one.  */
@@ -583,7 +583,7 @@ make_gap (ptrdiff_t nbytes_added)
      * a non-empty buffer (e.g. use buffer-swap-text instead).
      * We chose /64 because it already brings almost the best performance while
      * limiting the potential wasted memory to 1.5%.  */
-    make_gap_larger (max (nbytes_added, (Z - BEG) / 64));
+    make_gap_larger (max (nbytes_added, (ZE - BEG) / 64));
 #if defined USE_MMAP_FOR_BUFFERS || defined REL_ALLOC || defined DOUG_LEA_MALLOC
   else
     make_gap_smaller (-nbytes_added);
@@ -917,17 +917,17 @@ insert_1_both (const char *string,
   GAP_SIZE -= nbytes;
   GPT += nchars;
   ZV += nchars;
-  Z += nchars;
+  ZE += nchars;
   GPT_BYTE += nbytes;
   ZV_BYTE += nbytes;
-  Z_BYTE += nbytes;
+  ZE_BYTE += nbytes;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
 
   eassert (GPT <= GPT_BYTE);
 
   /* The insert may have been in the unchanged region, so check again.  */
-  if (Z - GPT < END_UNCHANGED)
-    END_UNCHANGED = Z - GPT;
+  if (ZE - GPT < END_UNCHANGED)
+    END_UNCHANGED = ZE - GPT;
 
   adjust_overlays_for_insert (PT, nchars);
   adjust_markers_for_insert (PT, PT_BYTE,
@@ -1043,17 +1043,17 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
   GAP_SIZE -= outgoing_nbytes;
   GPT += nchars;
   ZV += nchars;
-  Z += nchars;
+  ZE += nchars;
   GPT_BYTE += outgoing_nbytes;
   ZV_BYTE += outgoing_nbytes;
-  Z_BYTE += outgoing_nbytes;
+  ZE_BYTE += outgoing_nbytes;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
 
   eassert (GPT <= GPT_BYTE);
 
   /* The insert may have been in the unchanged region, so check again.  */
-  if (Z - GPT < END_UNCHANGED)
-    END_UNCHANGED = Z - GPT;
+  if (ZE - GPT < END_UNCHANGED)
+    END_UNCHANGED = ZE - GPT;
 
   adjust_overlays_for_insert (PT, nchars);
   adjust_markers_for_insert (PT, PT_BYTE, PT + nchars,
@@ -1095,9 +1095,9 @@ insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes, bool text_at_gap_tail)
       GPT_BYTE += nbytes;
     }
   ZV += nchars;
-  Z += nchars;
+  ZE += nchars;
   ZV_BYTE += nbytes;
-  Z_BYTE += nbytes;
+  ZE_BYTE += nbytes;
 
   /* Put an anchor to ensure multi-byte form ends at gap.  */
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0;
@@ -1256,17 +1256,17 @@ insert_from_buffer_1 (struct buffer *buf,
   GAP_SIZE -= outgoing_nbytes;
   GPT += nchars;
   ZV += nchars;
-  Z += nchars;
+  ZE += nchars;
   GPT_BYTE += outgoing_nbytes;
   ZV_BYTE += outgoing_nbytes;
-  Z_BYTE += outgoing_nbytes;
+  ZE_BYTE += outgoing_nbytes;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
 
   eassert (GPT <= GPT_BYTE);
 
   /* The insert may have been in the unchanged region, so check again.  */
-  if (Z - GPT < END_UNCHANGED)
-    END_UNCHANGED = Z - GPT;
+  if (ZE - GPT < END_UNCHANGED)
+    END_UNCHANGED = ZE - GPT;
 
   adjust_overlays_for_insert (PT, nchars);
   adjust_markers_for_insert (PT, PT_BYTE, PT + nchars,
@@ -1317,8 +1317,8 @@ adjust_after_replace (ptrdiff_t from, ptrdiff_t from_byte,
 
   /* Update various buffer positions for the new text.  */
   GAP_SIZE -= len_byte;
-  ZV += len; Z += len;
-  ZV_BYTE += len_byte; Z_BYTE += len_byte;
+  ZV += len; ZE += len;
+  ZV_BYTE += len_byte; ZE_BYTE += len_byte;
   GPT += len; GPT_BYTE += len_byte;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
 
@@ -1344,8 +1344,8 @@ adjust_after_replace (ptrdiff_t from, ptrdiff_t from_byte,
     adjust_point (len - nchars_del, len_byte - nbytes_del);
 
   /* As byte combining will decrease Z, we must check this again.  */
-  if (Z - GPT < END_UNCHANGED)
-    END_UNCHANGED = Z - GPT;
+  if (ZE - GPT < END_UNCHANGED)
+    END_UNCHANGED = ZE - GPT;
 
   check_markers ();
 
@@ -1371,7 +1371,7 @@ adjust_after_insert (ptrdiff_t from, ptrdiff_t from_byte,
   GAP_SIZE += len_byte;
   GPT -= len; GPT_BYTE -= len_byte;
   ZV -= len; ZV_BYTE -= len_byte;
-  Z -= len; Z_BYTE -= len_byte;
+  ZE -= len; ZE_BYTE -= len_byte;
   adjust_after_replace (from, from_byte, Qnil, newlen, len_byte);
 }
 
@@ -1451,9 +1451,9 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
 
   GAP_SIZE += nbytes_del;
   ZV -= nchars_del;
-  Z -= nchars_del;
+  ZE -= nchars_del;
   ZV_BYTE -= nbytes_del;
-  Z_BYTE -= nbytes_del;
+  ZE_BYTE -= nbytes_del;
   GPT = from;
   GPT_BYTE = from_byte;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
@@ -1462,8 +1462,8 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
 
   if (GPT - BEG < BEG_UNCHANGED)
     BEG_UNCHANGED = GPT - BEG;
-  if (Z - GPT < END_UNCHANGED)
-    END_UNCHANGED = Z - GPT;
+  if (ZE - GPT < END_UNCHANGED)
+    END_UNCHANGED = ZE - GPT;
 
   if (GAP_SIZE < outgoing_insbytes)
     make_gap (outgoing_insbytes - GAP_SIZE);
@@ -1498,10 +1498,10 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   GAP_SIZE -= outgoing_insbytes;
   GPT += inschars;
   ZV += inschars;
-  Z += inschars;
+  ZE += inschars;
   GPT_BYTE += outgoing_insbytes;
   ZV_BYTE += outgoing_insbytes;
-  Z_BYTE += outgoing_insbytes;
+  ZE_BYTE += outgoing_insbytes;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
 
   eassert (GPT <= GPT_BYTE);
@@ -1595,9 +1595,9 @@ replace_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
 
   GAP_SIZE += nbytes_del;
   ZV -= nchars_del;
-  Z -= nchars_del;
+  ZE -= nchars_del;
   ZV_BYTE -= nbytes_del;
-  Z_BYTE -= nbytes_del;
+  ZE_BYTE -= nbytes_del;
   GPT = from;
   GPT_BYTE = from_byte;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
@@ -1606,8 +1606,8 @@ replace_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
 
   if (GPT - BEG < BEG_UNCHANGED)
     BEG_UNCHANGED = GPT - BEG;
-  if (Z - GPT < END_UNCHANGED)
-    END_UNCHANGED = Z - GPT;
+  if (ZE - GPT < END_UNCHANGED)
+    END_UNCHANGED = ZE - GPT;
 
   if (GAP_SIZE < insbytes)
     make_gap (insbytes - GAP_SIZE);
@@ -1629,10 +1629,10 @@ replace_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
   GAP_SIZE -= insbytes;
   GPT += inschars;
   ZV += inschars;
-  Z += inschars;
+  ZE += inschars;
   GPT_BYTE += insbytes;
   ZV_BYTE += insbytes;
-  Z_BYTE += insbytes;
+  ZE_BYTE += insbytes;
   if (GAP_SIZE > 0) *(GPT_ADDR) = 0; /* Put an anchor.  */
 
   eassert (GPT <= GPT_BYTE);
@@ -1748,7 +1748,7 @@ del_range_byte (ptrdiff_t from_byte, ptrdiff_t to_byte)
   to = BYTE_TO_CHAR (to_byte);
 
   {
-    ptrdiff_t old_from = from, old_to = Z - to;
+    ptrdiff_t old_from = from, old_to = ZE - to;
     ptrdiff_t range_length = to - from;
     prepare_to_modify_buffer (from, to, &from);
     to = from + range_length;
@@ -1760,7 +1760,7 @@ del_range_byte (ptrdiff_t from_byte, ptrdiff_t to_byte)
 	to = ZV;
 	to_byte = ZV_BYTE;
       }
-    else if (old_to == Z - to)
+    else if (old_to == ZE - to)
       to_byte = CHAR_TO_BYTE (to);
   }
 
@@ -1792,7 +1792,7 @@ del_range_both (ptrdiff_t from, ptrdiff_t from_byte,
 
   if (prepare)
     {
-      ptrdiff_t old_from = from, old_to = Z - to;
+      ptrdiff_t old_from = from, old_to = ZE - to;
       ptrdiff_t range_length = to - from;
       prepare_to_modify_buffer (from, to, &from);
       to = from + range_length;
@@ -1804,7 +1804,7 @@ del_range_both (ptrdiff_t from, ptrdiff_t from_byte,
 	  to = ZV;
 	  to_byte = ZV_BYTE;
 	}
-      else if (old_to == Z - to)
+      else if (old_to == ZE - to)
 	to_byte = CHAR_TO_BYTE (to);
     }
 
@@ -1871,9 +1871,9 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
 
   GAP_SIZE += nbytes_del;
   ZV_BYTE -= nbytes_del;
-  Z_BYTE -= nbytes_del;
+  ZE_BYTE -= nbytes_del;
   ZV -= nchars_del;
-  Z -= nchars_del;
+  ZE -= nchars_del;
   GPT = from;
   GPT_BYTE = from_byte;
   if (GAP_SIZE > 0 && !current_buffer->text->inhibit_shrinking)
@@ -1885,8 +1885,8 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte,
 
   if (GPT - BEG < BEG_UNCHANGED)
     BEG_UNCHANGED = GPT - BEG;
-  if (Z - GPT < END_UNCHANGED)
-    END_UNCHANGED = Z - GPT;
+  if (ZE - GPT < END_UNCHANGED)
+    END_UNCHANGED = ZE - GPT;
 
   check_markers ();
 
@@ -2230,7 +2230,7 @@ signal_after_change (ptrdiff_t charpos, ptrdiff_t lendel, ptrdiff_t lenins)
 	  && current_buffer != XBUFFER (combine_after_change_buffer))
 	Fcombine_after_change_execute ();
 
-      elt = list3i (charpos - BEG, Z - (charpos - lendel + lenins),
+      elt = list3i (charpos - BEG, ZE - (charpos - lendel + lenins),
 		    lenins - lendel);
       combine_after_change_list
 	= Fcons (elt, combine_after_change_list);
@@ -2322,7 +2322,7 @@ DEFUN ("combine-after-change-execute", Fcombine_after_change_execute,
   Fset_buffer (combine_after_change_buffer);
 
   /* # chars unchanged at beginning of buffer.  */
-  beg = Z - BEG;
+  beg = ZE - BEG;
   /* # chars unchanged at end of buffer.  */
   end = beg;
   /* Total amount of insertion (negative for deletion).  */
@@ -2363,7 +2363,7 @@ DEFUN ("combine-after-change-execute", Fcombine_after_change_execute,
   /* Get the current start and end positions of the range
      that was changed.  */
   begpos = BEG + beg;
-  endpos = Z - end;
+  endpos = ZE - end;
 
   /* We are about to handle these, so discard them.  */
   combine_after_change_list = Qnil;

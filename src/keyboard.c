@@ -2804,7 +2804,7 @@ read_char (int commandflag, Lisp_Object map,
       /* Slow down auto saves logarithmically in size of current buffer,
 	 and garbage collect while we're at it.  */
       if (! MINI_WINDOW_P (XWINDOW (selected_window)))
-	last_non_minibuf_size = Z - BEG;
+	last_non_minibuf_size = ZE - BEG;
       buffer_size = (last_non_minibuf_size >> 8) + 1;
       delay_level = 0;
       while (buffer_size > 64)

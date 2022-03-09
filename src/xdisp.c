@@ -2956,8 +2956,8 @@ static void
 adjust_window_ends (struct window *w, struct glyph_row *row, bool current)
 {
   eassert (w);
-  w->window_end_pos = Z - MATRIX_ROW_END_CHARPOS (row);
-  w->window_end_bytepos = Z_BYTE - MATRIX_ROW_END_BYTEPOS (row);
+  w->window_end_pos = ZE - MATRIX_ROW_END_CHARPOS (row);
+  w->window_end_bytepos = ZE_BYTE - MATRIX_ROW_END_BYTEPOS (row);
   w->window_end_vpos
     = MATRIX_ROW_VPOS (row, current ? w->current_matrix : w->desired_matrix);
 }
@@ -4309,7 +4309,7 @@ handle_fontified_prop (struct it *it)
 	  prop = Fget_char_property (pos, Qfontified, Qnil),
 	  /* Ignore the special cased nil value always present at EOB since
 	     no amount of fontifying will be able to change it.  */
-	  NILP (prop) && IT_CHARPOS (*it) < Z))
+	  NILP (prop) && IT_CHARPOS (*it) < ZE))
     {
       specpdl_ref count = SPECPDL_INDEX ();
       Lisp_Object val;
@@ -10660,7 +10660,7 @@ move_it_past_eol (struct it *it)
 {
   enum move_it_result rc;
 
-  rc = move_it_in_display_line_to (it, Z, 0, MOVE_TO_POS);
+  rc = move_it_in_display_line_to (it, ZE, 0, MOVE_TO_POS);
   if (rc == MOVE_NEWLINE_OR_CR)
     set_iterator_to_next (it, false);
 }
@@ -11415,16 +11415,16 @@ message_dolog (const char *m, ptrdiff_t nbytes, bool nlflag, bool multibyte)
       oldzv = message_dolog_marker3;
       set_marker_restricted_both (oldzv, Qnil, ZV, ZV_BYTE);
 
-      if (PT == Z)
+      if (PT == ZE)
 	point_at_end = 1;
-      if (ZV == Z)
+      if (ZV == ZE)
 	zv_at_end = 1;
 
       BEGV = BEG;
       BEGV_BYTE = BEG_BYTE;
-      ZV = Z;
-      ZV_BYTE = Z_BYTE;
-      TEMP_SET_PT_BOTH (Z, Z_BYTE);
+      ZV = ZE;
+      ZV_BYTE = ZE_BYTE;
+      TEMP_SET_PT_BOTH (ZE, ZE_BYTE);
 
       /* Insert the string--maybe converting multibyte to single byte
 	 or vice versa, so that all the text fits the buffer.  */
@@ -11472,7 +11472,7 @@ message_dolog (const char *m, ptrdiff_t nbytes, bool nlflag, bool multibyte)
 
 	  insert_1_both ("\n", 1, 1, true, false, false);
 
-	  scan_newline (Z, Z_BYTE, BEG, BEG_BYTE, -2, false);
+	  scan_newline (ZE, ZE_BYTE, BEG, BEG_BYTE, -2, false);
 	  this_bol = PT;
 	  this_bol_byte = PT_BYTE;
 
@@ -11499,7 +11499,7 @@ message_dolog (const char *m, ptrdiff_t nbytes, bool nlflag, bool multibyte)
 			 change message_log_check_duplicate.  */
 		      int duplen = sprintf (dupstr, " [%"PRIdMAX" times]",
 					    dups);
-		      TEMP_SET_PT_BOTH (Z - 1, Z_BYTE - 1);
+		      TEMP_SET_PT_BOTH (ZE - 1, ZE_BYTE - 1);
 		      insert_1_both (dupstr, duplen, duplen,
 				     true, false, true);
 		    }
@@ -11512,7 +11512,7 @@ message_dolog (const char *m, ptrdiff_t nbytes, bool nlflag, bool multibyte)
 
 	  if (FIXNATP (Vmessage_log_max))
 	    {
-	      scan_newline (Z, Z_BYTE, BEG, BEG_BYTE,
+	      scan_newline (ZE, ZE_BYTE, BEG, BEG_BYTE,
 			    -XFIXNAT (Vmessage_log_max) - 1, false);
 	      del_range_both (BEG, BEG_BYTE, PT, PT_BYTE, false);
 	    }
@@ -11524,8 +11524,8 @@ message_dolog (const char *m, ptrdiff_t nbytes, bool nlflag, bool multibyte)
 
       if (zv_at_end)
 	{
-	  ZV = Z;
-	  ZV_BYTE = Z_BYTE;
+	  ZV = ZE;
+	  ZV_BYTE = ZE_BYTE;
 	}
       else
 	{
@@ -11534,7 +11534,7 @@ message_dolog (const char *m, ptrdiff_t nbytes, bool nlflag, bool multibyte)
 	}
 
       if (point_at_end)
-	TEMP_SET_PT_BOTH (Z, Z_BYTE);
+	TEMP_SET_PT_BOTH (ZE, ZE_BYTE);
       else
 	/* We can't do Fgoto_char (oldpoint) because it will run some
            Lisp code.  */
@@ -11572,7 +11572,7 @@ static intmax_t
 message_log_check_duplicate (ptrdiff_t prev_bol_byte, ptrdiff_t this_bol_byte)
 {
   ptrdiff_t i;
-  ptrdiff_t len = Z_BYTE - 1 - this_bol_byte;
+  ptrdiff_t len = ZE_BYTE - 1 - this_bol_byte;
   bool seen_dots = false;
   unsigned char *p1 = BUF_BYTE_ADDRESS (current_buffer, prev_bol_byte);
   unsigned char *p2 = BUF_BYTE_ADDRESS (current_buffer, this_bol_byte);
@@ -11986,16 +11986,16 @@ with_echo_area_buffer (struct window *w, int which,
   specbind (Qinhibit_read_only, Qt);
   specbind (Qinhibit_modification_hooks, Qt);
 
-  if (clear_buffer_p && Z > BEG)
-    del_range (BEG, Z);
+  if (clear_buffer_p && ZE > BEG)
+    del_range (BEG, ZE);
 
   eassert (BEGV >= BEG);
-  eassert (ZV <= Z && ZV >= BEGV);
+  eassert (ZV <= ZE && ZV >= BEGV);
 
   rc = fn (a1, a2);
 
   eassert (BEGV >= BEG);
-  eassert (ZV <= Z && ZV >= BEGV);
+  eassert (ZV <= ZE && ZV >= BEGV);
 
   unbind_to (count, Qnil);
   return rc;
@@ -12105,12 +12105,12 @@ setup_echo_area_for_printing (bool multibyte_p)
       set_buffer_internal (XBUFFER (echo_area_buffer[0]));
       bset_truncate_lines (current_buffer, Qnil);
 
-      if (Z > BEG)
+      if (ZE > BEG)
 	{
 	  specpdl_ref count = SPECPDL_INDEX ();
 	  specbind (Qinhibit_read_only, Qt);
 	  /* Note that undo recording is always disabled.  */
-	  del_range (BEG, Z);
+	  del_range (BEG, ZE);
 	  unbind_to (count, Qnil);
 	}
       TEMP_SET_PT_BOTH (BEG, BEG_BYTE);
@@ -12447,8 +12447,8 @@ current_message_1 (void *a1, Lisp_Object a2)
 {
   Lisp_Object *msg = a1;
 
-  if (Z > BEG)
-    *msg = make_buffer_string (BEG, Z, true);
+  if (ZE > BEG)
+    *msg = make_buffer_string (BEG, ZE, true);
   else
     *msg = Qnil;
   return false;
@@ -12537,9 +12537,9 @@ static bool
 truncate_message_1 (void *a1, Lisp_Object a2)
 {
   intptr_t nchars = (intptr_t) a1;
-  if (BEG + nchars < Z)
-    del_range (BEG + nchars, Z);
-  if (Z == BEG)
+  if (BEG + nchars < ZE)
+    del_range (BEG + nchars, ZE);
+  if (ZE == BEG)
     echo_area_buffer[0] = Qnil;
   return false;
 }
@@ -15656,7 +15656,7 @@ text_outside_line_unchanged_p (struct window *w,
   if (window_outdated (w))
     {
       /* Gap in the line?  */
-      if (GPT < start || Z - GPT < end)
+      if (GPT < start || ZE - GPT < end)
 	unchanged_p = false;
 
       /* Changes start in front of the line, or end after it?  */
@@ -15686,7 +15686,7 @@ text_outside_line_unchanged_p (struct window *w,
 	      && overlay_touches_p (start))
 	    unchanged_p = false;
 	  if (END_UNCHANGED == end
-	      && overlay_touches_p (Z - end))
+	      && overlay_touches_p (ZE - end))
 	    unchanged_p = false;
 	}
 
@@ -16257,7 +16257,7 @@ redisplay_internal (void)
       && !w->optional_new_start
       /* Point must be on the line that we have info recorded about.  */
       && PT >= CHARPOS (tlbufpos)
-      && PT <= Z - CHARPOS (tlendpos)
+      && PT <= ZE - CHARPOS (tlendpos)
       /* FIXME: The following condition is only needed when
 	 significant parts of the buffer are hidden (e.g., under
 	 hs-minor-mode), but there doesn't seem to be a simple way of
@@ -16349,10 +16349,10 @@ redisplay_internal (void)
 		     when the line ends in a newline or the end of the
 		     buffer's accessible portion.  But both cases did
 		     the same, so they were collapsed.  */
-		  delta = (Z
+		  delta = (ZE
 			   - CHARPOS (tlendpos)
 			   - MATRIX_ROW_START_CHARPOS (row));
-		  delta_bytes = (Z_BYTE
+		  delta_bytes = (ZE_BYTE
 				 - BYTEPOS (tlendpos)
 				 - MATRIX_ROW_START_BYTEPOS (row));
 
@@ -17695,9 +17695,9 @@ set_cursor_from_row (struct window *w, struct glyph_row *row,
 	    = MATRIX_ROW_START_BYTEPOS (row) + delta_bytes;
 
 	  CHARPOS (this_line_end_pos)
-	    = Z - (MATRIX_ROW_END_CHARPOS (row) + delta);
+	    = ZE - (MATRIX_ROW_END_CHARPOS (row) + delta);
 	  BYTEPOS (this_line_end_pos)
-	    = Z_BYTE - (MATRIX_ROW_END_BYTEPOS (row) + delta_bytes);
+	    = ZE_BYTE - (MATRIX_ROW_END_BYTEPOS (row) + delta_bytes);
 
 	  this_line_y = w->cursor.y;
 	  this_line_pixel_height = row->height;
@@ -18988,7 +18988,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
 
   /* Some sanity checks.  */
   CHECK_WINDOW_END (w);
-  if (Z == Z_BYTE && CHARPOS (opoint) != BYTEPOS (opoint))
+  if (ZE == ZE_BYTE && CHARPOS (opoint) != BYTEPOS (opoint))
     emacs_abort ();
   if (BYTEPOS (opoint) < CHARPOS (opoint))
     emacs_abort ();
@@ -19038,7 +19038,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
 
 	  if (buf->base_buffer)
 	    buf = buf->base_buffer;
-          invalidate_region_cache (buf, buf->width_run_cache, BEG, Z);
+          invalidate_region_cache (buf, buf->width_run_cache, BEG, ZE);
           recompute_width_table (current_buffer, disptab);
         }
     }
@@ -19366,7 +19366,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
 	  && NILP (track_mouse)
       	  && CHARPOS (startp) > BEGV
 	  && CHARPOS (startp) > BEG + beg_unchanged
-	  && CHARPOS (startp) <= Z - end_unchanged
+	  && CHARPOS (startp) <= ZE - end_unchanged
 	  /* Even if w->start_at_line_beg is nil, a new window may
 	     start at a line_beg, since that's how set_buffer_window
 	     sets it.  So, we need to check the return value of
@@ -19649,7 +19649,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
      line.)  */
   if (w->cursor.vpos < 0)
     {
-      if (w->window_end_valid && PT >= Z - w->window_end_pos)
+      if (w->window_end_valid && PT >= ZE - w->window_end_pos)
 	{
 	  clear_glyph_matrix (w->desired_matrix);
 	  move_it_by_lines (&it, 1);
@@ -19967,7 +19967,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
   if (CHARPOS (opoint) < BEGV)
     TEMP_SET_PT_BOTH (BEGV, BEGV_BYTE);
   else if (CHARPOS (opoint) > ZV)
-    TEMP_SET_PT_BOTH (Z, Z_BYTE);
+    TEMP_SET_PT_BOTH (ZE, ZE_BYTE);
   else
     TEMP_SET_PT_BOTH (CHARPOS (opoint), BYTEPOS (opoint));
 
@@ -20054,7 +20054,7 @@ try_window (Lisp_Object window, struct text_pos pos, int flags)
     }
 
   /* If bottom moved off end of frame, change mode line percentage.  */
-  if (w->window_end_pos <= 0 && Z != it_charpos)
+  if (w->window_end_pos <= 0 && ZE != it_charpos)
     w->update_mode_line = true;
 
   /* Set window_end_pos to the offset of the last character displayed
@@ -20070,8 +20070,8 @@ try_window (Lisp_Object window, struct text_pos pos, int flags)
     }
   else
     {
-      w->window_end_bytepos = Z_BYTE - ZV_BYTE;
-      w->window_end_pos = Z - ZV;
+      w->window_end_bytepos = ZE_BYTE - ZV_BYTE;
+      w->window_end_pos = ZE - ZV;
       w->window_end_vpos = 0;
     }
 
@@ -20325,8 +20325,8 @@ try_window_reusing_current_matrix (struct window *w)
       else
 	{
 	  /* This window must be completely empty.  */
-	  w->window_end_bytepos = Z_BYTE - ZV_BYTE;
-	  w->window_end_pos = Z - ZV;
+	  w->window_end_bytepos = ZE_BYTE - ZV_BYTE;
+	  w->window_end_pos = ZE - ZV;
 	  w->window_end_vpos = 0;
 	}
       w->window_end_valid = false;
@@ -20678,8 +20678,8 @@ find_first_unchanged_at_end_row (struct window *w,
       struct glyph_row *first_text_row
 	= MATRIX_FIRST_TEXT_ROW (w->current_matrix);
 
-      *delta = Z - Z_old;
-      *delta_bytes = Z_BYTE - Z_BYTE_old;
+      *delta = ZE - Z_old;
+      *delta_bytes = ZE_BYTE - Z_BYTE_old;
 
       /* Set last_unchanged_pos to the buffer position of the last
 	 character in the buffer that has not been changed.  Z is the
@@ -20687,7 +20687,7 @@ find_first_unchanged_at_end_row (struct window *w,
 	 subtracting END_UNCHANGED we get the index of the last
 	 unchanged character, and we have to add BEG to get its buffer
 	 position.  */
-      last_unchanged_pos = Z - END_UNCHANGED + BEG;
+      last_unchanged_pos = ZE - END_UNCHANGED + BEG;
       last_unchanged_pos_old = last_unchanged_pos - *delta;
 
       /* Search backward from ROW for a row displaying a line that
@@ -21009,17 +21009,17 @@ try_window_id (struct window *w)
      set end_unchanged to 0 in that case.  */
   if (MODIFF > SAVE_MODIFF
       /* This seems to happen sometimes after saving a buffer.  */
-      || BEG_UNCHANGED + END_UNCHANGED > Z_BYTE)
+      || BEG_UNCHANGED + END_UNCHANGED > ZE_BYTE)
     {
       if (GPT - BEG < BEG_UNCHANGED)
 	BEG_UNCHANGED = GPT - BEG;
-      if (Z - GPT < END_UNCHANGED)
-	END_UNCHANGED = Z - GPT;
+      if (ZE - GPT < END_UNCHANGED)
+	END_UNCHANGED = ZE - GPT;
     }
 
   /* The position of the first and last character that has been changed.  */
   first_changed_charpos = BEG + BEG_UNCHANGED;
-  last_changed_charpos  = Z - END_UNCHANGED;
+  last_changed_charpos  = ZE - END_UNCHANGED;
 
   /* If window starts after a line end, and the last change is in
      front of that newline, then changes don't affect the display.
@@ -21040,8 +21040,8 @@ try_window_id (struct window *w)
 	 from the buffer.  */
       Z_old = MATRIX_ROW_END_CHARPOS (row) + w->window_end_pos;
       Z_BYTE_old = MATRIX_ROW_END_BYTEPOS (row) + w->window_end_bytepos;
-      Z_delta = Z - Z_old;
-      Z_delta_bytes = Z_BYTE - Z_BYTE_old;
+      Z_delta = ZE - Z_old;
+      Z_delta_bytes = ZE_BYTE - Z_BYTE_old;
 
       /* Give up if PT is not in the window.  Note that it already has
 	 been checked at the start of try_window_id that PT is not in
@@ -21107,8 +21107,8 @@ try_window_id (struct window *w)
 	{
 	  /* We have to compute the window end anew since text
 	     could have been added/removed after it.  */
-	  w->window_end_pos = Z - MATRIX_ROW_END_CHARPOS (row);
-	  w->window_end_bytepos = Z_BYTE - MATRIX_ROW_END_BYTEPOS (row);
+	  w->window_end_pos = ZE - MATRIX_ROW_END_CHARPOS (row);
+	  w->window_end_bytepos = ZE_BYTE - MATRIX_ROW_END_BYTEPOS (row);
 
 	  /* Set the cursor.  */
 	  row = row_containing_pos (w, PT, r0, NULL, 0);
@@ -21244,7 +21244,7 @@ try_window_id (struct window *w)
 		      + delta);
 	  first_unchanged_at_end_vpos
 	    = MATRIX_ROW_VPOS (first_unchanged_at_end_row, current_matrix);
-	  eassert (stop_pos >= Z - END_UNCHANGED);
+	  eassert (stop_pos >= ZE - END_UNCHANGED);
 	}
     }
   else if (last_unchanged_at_beg_row == NULL)
@@ -21611,8 +21611,8 @@ try_window_id (struct window *w)
 	}
 
       w->window_end_vpos = vpos + 1;
-      w->window_end_pos = Z - MATRIX_ROW_END_CHARPOS (row);
-      w->window_end_bytepos = Z_BYTE - MATRIX_ROW_END_BYTEPOS (row);
+      w->window_end_pos = ZE - MATRIX_ROW_END_CHARPOS (row);
+      w->window_end_bytepos = ZE_BYTE - MATRIX_ROW_END_BYTEPOS (row);
       eassert (w->window_end_bytepos >= 0);
       IF_DEBUG (debug_method_add (w, "C"));
     }
@@ -23523,7 +23523,7 @@ static ptrdiff_t
 display_count_lines_logically (ptrdiff_t start_byte, ptrdiff_t limit_byte,
 			       ptrdiff_t count, ptrdiff_t *byte_pos_ptr)
 {
-  if (!display_line_numbers_widen || (BEGV == BEG && ZV == Z))
+  if (!display_line_numbers_widen || (BEGV == BEG && ZV == ZE))
     return display_count_lines (start_byte, limit_byte, count, byte_pos_ptr);
 
   ptrdiff_t val;
@@ -23607,7 +23607,7 @@ maybe_produce_line_number (struct it *it)
     line_numbers_wide = display_line_numbers_widen;
 
   beg_byte = line_numbers_wide ? BEG_BYTE : BEGV_BYTE;
-  z_byte = line_numbers_wide ? Z_BYTE : ZV_BYTE;
+  z_byte = line_numbers_wide ? ZE_BYTE : ZV_BYTE;
 
   if (EQ (Vdisplay_line_numbers, Qvisual))
     this_line = display_count_lines_visually (it);
@@ -23624,7 +23624,7 @@ maybe_produce_line_number (struct it *it)
 		 line numbers that disregard narrowing, or if the
 		 buffer's narrowing has just changed.  */
 	      && !(line_numbers_wide
-		   && (BEG_BYTE != BEGV_BYTE || Z_BYTE != ZV_BYTE))
+		   && (BEG_BYTE != BEGV_BYTE || ZE_BYTE != ZV_BYTE))
 	      && !current_buffer->clip_changed)
 	    {
 	      start_from = CHAR_TO_BYTE (it->w->base_line_pos);
@@ -34553,7 +34553,7 @@ note_mouse_highlight (struct frame *f, int x, int y)
       obegv = BEGV;
       ozv = ZV;
       BEGV = BEG;
-      ZV = Z;
+      ZV = ZE;
 
       /* Is this char mouse-active or does it have help-echo?  */
       position = make_fixnum (pos);

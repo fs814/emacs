@@ -1078,7 +1078,7 @@ usage: (call-process-region START END PROGRAM &optional DELETE BUFFER DISPLAY &r
   if (STRINGP (start))
     empty_input = SCHARS (start) == 0;
   else if (NILP (start))
-    empty_input = BEG == Z;
+    empty_input = BEG == ZE;
   else
     {
       validate_region (&args[0], &args[1]);
@@ -1105,7 +1105,7 @@ usage: (call-process-region START END PROGRAM &optional DELETE BUFFER DISPLAY &r
           /* No need to save restrictions since we delete everything
              anyway.  */
           Fwiden ();
-          del_range (BEG, Z);
+          del_range (BEG, ZE);
         }
       else
         Fdelete_region (start, end);
