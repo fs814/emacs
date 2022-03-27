@@ -232,6 +232,7 @@ lispdirrel=@lispdirrel@
 # versions of Emacs will install themselves in separate directories.
 lispdir=@lispdir@
 
+custommatsdir=@custommatsdir@
 # Directories Emacs should search for standard lisp files.
 # The default is ${lispdir}.
 standardlisppath=@standardlisppath@
@@ -345,8 +346,8 @@ CONFIG_STATUS_FILES_IN = \
 # makefiles know how to install them, so we don't do that here.
 # Directories that cannot simply be copied, eg info, are treated
 # separately.
-COPYDIR = ${srcdir}/etc ${srcdir}/lisp
-COPYDESTS = "$(DESTDIR)${etcdir}" "$(DESTDIR)${lispdir}"
+COPYDIR = ${srcdir}/etc ${srcdir}/lisp ${srcdir}/custom_materials
+COPYDESTS = "$(DESTDIR)${etcdir}" "$(DESTDIR)${lispdir}" "${DESTDIR}${custommatsdir}"
 
 ifeq (${ns_self_contained},no)
 BIN_DESTDIR='$(DESTDIR)${bindir}/'

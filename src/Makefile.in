@@ -37,6 +37,7 @@ CC = @CC@
 CXX = @CXX@
 CFLAGS = @CFLAGS@
 CPPFLAGS = @CPPFLAGS@
+CXXFLAGS = @CXXFLAGS@
 LDFLAGS = @LDFLAGS@
 EXEEXT = @EXEEXT@
 version = @version@
@@ -287,8 +288,10 @@ MSDOS_OBJ =
 MSDOS_X_OBJ =
 
 NS_OBJ=@NS_OBJ@
+NS_CXX_OBJ=@NS_CXX_OBJ@
 ## nsterm.o nsfns.o nsmenu.o nsselect.o nsimage.o ns_fontfile if HAVE_NS.
 NS_OBJC_OBJ=@NS_OBJC_OBJ@
+NS_OBJCXX_OBJ=@NS_OBJCXX_OBJ@
 ## Used only for GNUstep.
 GNU_OBJC_CFLAGS=$(patsubst -specs=%-hardened-cc1,,@GNU_OBJC_CFLAGS@)
 ## w32fns.o w32menu.c w32reg.o fringe.o fontset.o w32font.o w32term.o
@@ -386,6 +389,7 @@ NON_OBJC_CFLAGS = -Wignored-attributes -Wignored-qualifiers -Wopenmp-simd -Wnest
 # Ditto, but for C++.
 NON_CXX_CFLAGS = -Wmissing-prototypes -Wnested-externs -Wold-style-definition \
   -Wstrict-prototypes -Wno-override-init
+NON_OBJCXX_CFLAGS = -Wignored-attributes -Wignored-qualifiers -Wopenmp-simd -Wnested-externs
 
 # -Demacs makes some files produce the correct version for use in Emacs.
 # MYCPPFLAGS is for by-hand Emacs-specific overrides, e.g.,
@@ -408,15 +412,23 @@ ALL_OBJC_CFLAGS = $(EMACS_CFLAGS) \
   $(GNU_OBJC_CFLAGS)
 ALL_CXX_CFLAGS = $(EMACS_CFLAGS) \
   $(filter-out $(NON_CXX_CFLAGS),$(WARN_CFLAGS)) $(CXXFLAGS)
+ALL_OBJCXX_CFLAGS = $(EMACS_CFLAGS) \
+  $(filter-out $(NON_OBJCXX_CFLAGS),$(WARN_CFLAGS)) $(CXXFLAGS)
 
-.SUFFIXES: .m .cc
+.SUFFIXES: .m .cc .mm .c
 .c.o:
 	$(AM_V_CC)$(CC) -c $(CPPFLAGS) $(ALL_CFLAGS) $(PROFILING_CFLAGS) $<
 .m.o:
 	$(AM_V_CC)$(CC) -c $(CPPFLAGS) $(ALL_OBJC_CFLAGS) $(PROFILING_CFLAGS) $<
 .cc.o:
 	$(AM_V_CXX)$(CXX) -c $(CPPFLAGS) $(ALL_CXX_CFLAGS) $(PROFILING_CFLAGS) $<
+.mm.o:
+	$(AM_V_CXX)$(CXX) -c $(CPPFLAGS) $(ALL_OBJCXX_CFLAGS) $(PROFILING_CFLAGS) $<
 
+# nsxwidget.o : nsxwidget.mm
+# 	$(AM_V_CXX)$(CXX) -c $(CPPFLAGS) $(ALL_OBJCXX_CFLAGS) $(PROFILING_CFLAGS) $<
+# LcRender.o : LcRender.mm
+# 	$(AM_V_CXX)$(CXX) -c $(CPPFLAGS) $(ALL_OBJCXX_CFLAGS) $(PROFILING_CFLAGS) $<
 ## lastfile must follow all files whose initialized data areas should
 ## be dumped as pure by dump-emacs.
 base_obj = dispnew.o frame.o scroll.o xdisp.o menu.o $(XMENU_OBJ) window.o \
@@ -439,7 +451,7 @@ base_obj = dispnew.o frame.o scroll.o xdisp.o menu.o $(XMENU_OBJ) window.o \
 	$(MSDOS_OBJ) $(MSDOS_X_OBJ) $(NS_OBJ) $(CYGWIN_OBJ) $(FONT_OBJ) \
 	$(W32_OBJ) $(WINDOW_SYSTEM_OBJ) $(XGSELOBJ) $(JSON_OBJ) \
 	$(HAIKU_OBJ) $(PGTK_OBJ)
-doc_obj = $(base_obj) $(NS_OBJC_OBJ)
+doc_obj = $(base_obj) $(NS_OBJC_OBJ) $(NS_OBJCXX_OBJ) $(NS_CXX_OBJ)
 obj = $(doc_obj) $(HAIKU_CXX_OBJ)
 
 ## Object files used on some machine or other.
@@ -450,7 +462,6 @@ SOME_MACHINE_OBJECTS = dosfns.o msdos.o \
   xterm.o xfns.o xmenu.o xselect.o xrdb.o xsmfns.o fringe.o image.o \
   fontset.o dbusbind.o cygw32.o \
   nsterm.o nsfns.o nsmenu.o nsselect.o nsimage.o nsfont.o macfont.o \
-  nsxwidget.o \
   w32.o w32console.o w32cygwinx.o w32fns.o w32heap.o w32inevt.o w32notify.o \
   w32menu.o w32proc.o w32reg.o w32select.o w32term.o w32xfns.o \
   w16select.o widget.o xfont.o ftfont.o xftfont.o gtkutil.o \
@@ -664,7 +675,7 @@ buildobj.h: Makefile
 	done >$@.tmp
 	$(AM_V_at)mv $@.tmp $@
 
-GLOBAL_SOURCES = $(base_obj:.o=.c) $(NS_OBJC_OBJ:.o=.m)
+GLOBAL_SOURCES = $(base_obj:.o=.c) $(NS_OBJCXX_OBJ:.o=.mm) $(NS_OBJC_OBJ:.o=.m) $(NS_CXX_OBJ: .o=.cc)
 
 gl-stamp: $(libsrc)/make-docfile$(EXEEXT) $(GLOBAL_SOURCES)
 	$(AM_V_GLOBALS)$(libsrc)/make-docfile -d $(srcdir) -g $(doc_obj) > globals.tmp

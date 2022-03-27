@@ -28,12 +28,15 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "xwidget.h"
 
 #import <AppKit/AppKit.h>
+#import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
 #import <WebKit/WebKit.h>
 #import <simd/simd.h>
 
-#import "LcShaderTypes.h"
 #import "LcRender.h"
+#import "LcShaderTypes.h"
+
+#import "FilamentDelegate.h"
 /* Thoughts on NS Cocoa xwidget and webkit2:
 
    Webkit2 process architecture seems to be very hostile for offscreen
@@ -343,13 +346,72 @@ AAPLRenderer *_mRenderer;
 }
 @end
 
+NSString *XwFilamentViewDidSizeChange = @"XwFilamentViewDidSizeChange";
+
+@interface XwFilamentView : MTKView
+//@property(nonatomic, strong) id<MTLTexture> texture;
+@property struct xwidget *xw;
+@end
+
+@implementation XwFilamentView : MTKView
+NSPoint _mClickStart;
+FilamentDelegate *filamentDelegate;
+NSSize _viewSize;
+
+- (id)initWithFrame:(CGRect)frameRect
+             device:(nullable id<MTLDevice>)device
+            xwidget:(struct xwidget *)xw {
+  self = [super initWithFrame:frameRect device:device];
+  if (self) {
+    self.xw = xw;
+    _mRenderer = [[FilamentDelegate alloc] initWithFilamentView:self];
+    [self setDelegate:_mRenderer];
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [super dealloc];
+  [_mRenderer release];
+}
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+- (void)mouseDown:(NSEvent *)event {
+  [self.xw->xv->emacswindow mouseDown:event];
+  [super mouseUp:event];
+  _mClickStart = [self convertPoint:[event locationInWindow] fromView:nil];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+  [self.xw->xv->emacswindow mouseUp:event];
+  [super mouseUp:event];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+  NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+  NSLog(@"Mousedrag delta %f %f", p.x - _mClickStart.x, p.y - _mClickStart.y);
+}
+
+- (void)keyDown:(NSEvent *)event {
+  NSString *c = [event charactersIgnoringModifiers];
+  if ([c isEqual:@"q"]) {
+    NSLog(@"keyDown q key");
+  } else {
+    [super keyDown:event];
+  }
+}
+@end
+
 /* Xwidget webkit commands.  */
 
 bool nsxwidget_is_web_view(struct xwidget *xw) {
   return xw->xwWidget != NULL && [xw->xwWidget isKindOfClass:WKWebView.class];
 }
 
-bool nsxwidget_is_metal_view(struct xwidget* xw){
+bool nsxwidget_is_metal_view(struct xwidget *xw) {
   return xw->xwWidget != NULL && [xw->xwWidget isKindOfClass:MTKView.class];
 }
 
@@ -488,6 +550,11 @@ void nsxwidget_init(struct xwidget *xw) {
         [[XwMetalView alloc] initWithFrame:rect
                                     device:MTLCreateSystemDefaultDevice()
                                    xwidget:xw];
+  } else if (EQ(xw->type, Qfilament)) {
+    xw->xwWidget =
+        [[XwFilamentView alloc] initWithFrame:rect
+                                       device:MTLCreateSystemDefaultDevice()
+                                      xwidget:xw];
   }
   xw->xwWindow = [[XwWindow alloc] initWithFrame:rect];
   [xw->xwWindow addSubview:xw->xwWidget];
@@ -497,9 +564,9 @@ void nsxwidget_init(struct xwidget *xw) {
 
 void nsxwidget_kill(struct xwidget *xw) {
   if (xw) {
-    if(EQ(xw->type, Qwebkit)){
+    if (EQ(xw->type, Qwebkit)) {
       WKUserContentController *scriptor =
-        ((XwWebView *)xw->xwWidget).configuration.userContentController;
+          ((XwWebView *)xw->xwWidget).configuration.userContentController;
       [scriptor removeAllUserScripts];
       [scriptor removeScriptMessageHandlerForName:@"keyDown"];
       [scriptor release];
@@ -563,8 +630,7 @@ void nsxwidget_init_view(struct xwidget_view *xv, struct xwidget *xw,
   xv->emacswindow = FRAME_NS_VIEW(s->f);
   [xv->emacswindow addSubview:xv->xvWindow];
 
-
-  //if(EQ(xw->type, Qmetal)){
+  // if(EQ(xw->type, Qmetal)){
   //  nsxwidget_set_needsdisplay(xv);
   //}
 }

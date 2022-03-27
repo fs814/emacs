@@ -323,8 +323,8 @@ fails.  */)
   CHECK_FIXNAT (width);
   CHECK_FIXNAT (height);
 
-  if (!EQ (type, Qwebkit) && !EQ (type, Qglarea)
-      && !EQ (type, Qmetal))
+  if (!EQ (type, Qwebkit) && !EQ (type, Qglarea) && !EQ (type, Qmetal)
+      && !EQ (type, Qfilament))
     error ("Bad xwidget type");
 
   Frequire (Qxwidget, Qnil, Qnil);
@@ -4385,6 +4385,7 @@ syms_of_xwidget (void)
   DEFSYM (Qwebkit, "webkit");
 
   DEFSYM (Qmetal, "metal");
+  DEFSYM (Qfilament, "filament");
 
   defsubr (&Sxwidget_glarea_make_current);
   DEFSYM (Qglarea, "glarea");
@@ -4431,7 +4432,8 @@ syms_of_xwidget (void)
   DEFVAR_LISP ("xwidget-list", Vxwidget_list, doc: /* List of all xwidgets that have not been killed.  */);
   Vxwidget_list = Qnil;
 
-  DEFVAR_LISP ("xwidget-view-list", Vxwidget_view_list, doc: /* List of all xwidget views.  */);
+  DEFVAR_LISP ("xwidget-view-list", Vxwidget_view_list, doc
+               : /* List of all xwidget views.  */);
   Vxwidget_view_list = Qnil;
 
   Fprovide (intern ("xwidget-internal"), Qnil);

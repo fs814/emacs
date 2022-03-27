@@ -25,20 +25,21 @@
 
     _device = mtkView.device;
 
-    NSString *myFile = [NSString
-        stringWithContentsOfFile:
-            @"/Users/fs814/sourcecode/editor/emacs-fswork/src/LcShaders.metal"
-                        encoding:NSUTF8StringEncoding
-                           error:&error];
+    NSString *myFile =
+        [NSString stringWithContentsOfFile:@"/Users/fs814/sourcecode/editor/"
+                                           @"emacs-fswork/src/LcShaders.metal"
+                                  encoding:NSUTF8StringEncoding
+                                     error:&error];
     if (error) {
       NSLog(@"ERROR while loading from file: %@", error);
     }
 
-    // NSString *myPath = [[NSBundle mainBundle]pathForResource:@"LcShaders"
-    // ofType:@"metal"]; NSString *myFile = [[NSString
-    // alloc]initWithContentsOfFile:myPath encoding:NSUTF8StringEncoding
-    // error:nil];
-    // NSLog(@"Our file contains this: %@", myFile);
+    // NSString *myPath = [[NSBundle
+    // mainBundle]pathForResource:@"LcShaders" ofType:@"metal"];
+    // NSString *myFile = [[NSString
+    // alloc]initWithContentsOfFile:myPath
+    // encoding:NSUTF8StringEncoding error:nil]; NSLog(@"Our file
+    // contains this: %@", myFile);
 
     id<MTLLibrary> defaultLibrary =
         [_device newLibraryWithSource:myFile options:nil error:&error];
@@ -82,16 +83,16 @@
   id<MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
   commandBuffer.label = @"MyCommand";
 
-  // The render pass descriptor references the texture into which Metal should
-  // draw
+  // The render pass descriptor references the texture into which
+  // Metal should draw
   MTLRenderPassDescriptor *renderPassDescriptor =
       view.currentRenderPassDescriptor;
   if (renderPassDescriptor == nil) {
     return;
   }
 
-  // Create a render pass and immediately end encoding, causing the drawable to
-  // be cleared
+  // Create a render pass and immediately end encoding, causing the
+  // drawable to be cleared
   id<MTLRenderCommandEncoder> renderEncoder =
       [commandBuffer renderCommandEncoderWithDescriptor:renderPassDescriptor];
   renderEncoder.label = @"MyRenderEncoder";
@@ -100,8 +101,8 @@
   //视口是具有x和y偏移，宽度和高度以及近和远平面的3D区域
   //为管道分配自定义视口需要通过调用setViewport：方法将MTLViewport结构编码为渲染命令编码器。
   //如果未指定视口，Metal会设置一个默认视口，其大小与用于创建渲染命令编码器的drawable相同
-  MTLViewport viewport = {0.0,  0.0, _viewportSize.x, _viewportSize.y,
-                          -1.0, 1.0};
+  MTLViewport viewport = {
+      0.0, 0.0, (double)_viewportSize.x, (double)_viewportSize.y, -1.0, 1.0};
   [renderEncoder setViewport:viewport];
 
   [renderEncoder setRenderPipelineState:_pipelineState];
@@ -146,8 +147,8 @@
 
   id<MTLDrawable> drawable = view.currentDrawable;
 
-  // Request that the drawable texture be presented by the windowing system once
-  // drawing is done
+  // Request that the drawable texture be presented by the windowing
+  // system once drawing is done
   [commandBuffer presentDrawable:drawable];
 
   [commandBuffer commit];
