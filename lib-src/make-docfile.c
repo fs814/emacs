@@ -16,7 +16,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 
 /* The arguments given to this program are all the C files
@@ -27,11 +27,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
  The results, which go to standard output or to a file
  specified with -a or -o (-a to append, -o to start from nothing),
- are entries containing function or variable names and their documentation.
- Each entry starts with a ^_ character.
- Then comes F for a function or V for a variable.
- Then comes the function or variable name, terminated with a newline.
- Then comes the documentation for that function or variable.
+ are entries containing function or variable names and their
+ documentation. Each entry starts with a ^_ character. Then comes F
+ for a function or V for a variable. Then comes the function or
+ variable name, terminated with a newline. Then comes the
+ documentation for that function or variable.
  */
 
 #include <config.h>
@@ -61,8 +61,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 /* Defined to be sys_chdir in ms-w32.h, but only #ifdef emacs, so this
    is really just insurance.
 
-   Similarly, msdos defines this as sys_chdir, but we're not linking with the
-   file where that function is defined.  */
+   Similarly, msdos defines this as sys_chdir, but we're not linking
+   with the file where that function is defined.  */
 #undef chdir
 #endif /* not DOS_NT */
 
@@ -83,7 +83,7 @@ static bool generate_globals;
 /* Print error message.  Args are like vprintf.  */
 
 static void ATTRIBUTE_FORMAT_PRINTF (1, 0)
-verror (char const *m, va_list ap)
+  verror (char const *m, va_list ap)
 {
   fprintf (stderr, "%s: ", progname);
   vfprintf (stderr, m, ap);
@@ -92,8 +92,7 @@ verror (char const *m, va_list ap)
 
 /* Print error message.  Args are like printf.  */
 
-static void ATTRIBUTE_FORMAT_PRINTF (1, 2)
-error (char const *m, ...)
+static void ATTRIBUTE_FORMAT_PRINTF (1, 2) error (char const *m, ...)
 {
   va_list ap;
   va_start (ap, m);
@@ -104,7 +103,7 @@ error (char const *m, ...)
 /* Print error message and exit.  Args are like printf.  */
 
 static _Noreturn void ATTRIBUTE_FORMAT_PRINTF (1, 2)
-fatal (char const *m, ...)
+  fatal (char const *m, ...)
 {
   va_list ap;
   va_start (ap, m);
@@ -121,7 +120,7 @@ memory_exhausted (void)
 
 /* Like malloc but get fatal error if memory is exhausted.  */
 
-static void * ATTRIBUTE_MALLOC
+static void *ATTRIBUTE_MALLOC
 xmalloc (ptrdiff_t size)
 {
   void *result = malloc (size);
@@ -141,7 +140,6 @@ xrealloc (void *arg, ptrdiff_t size)
   return result;
 }
 
-
 int
 main (int argc, char **argv)
 {
@@ -153,29 +151,29 @@ main (int argc, char **argv)
   i = 1;
   if (argc > i + 1 && streq (argv[i], "-o"))
     {
-      if (! freopen (argv[i + 1], "w", stdout))
-	{
-	  perror (argv[i + 1]);
-	  return EXIT_FAILURE;
-	}
+      if (!freopen (argv[i + 1], "w", stdout))
+        {
+          perror (argv[i + 1]);
+          return EXIT_FAILURE;
+        }
       i += 2;
     }
   if (argc > i + 1 && streq (argv[i], "-a"))
     {
-      if (! freopen (argv[i + 1], "a", stdout))
-	{
-	  perror (argv[i + 1]);
-	  return EXIT_FAILURE;
-	}
+      if (!freopen (argv[i + 1], "a", stdout))
+        {
+          perror (argv[i + 1]);
+          return EXIT_FAILURE;
+        }
       i += 2;
     }
   if (argc > i + 1 && streq (argv[i], "-d"))
     {
       if (chdir (argv[i + 1]) != 0)
-	{
-	  perror (argv[i + 1]);
-	  return EXIT_FAILURE;
-	}
+        {
+          perror (argv[i + 1]);
+          return EXIT_FAILURE;
+        }
       i += 2;
     }
   if (argc > i && streq (argv[i], "-g"))
@@ -224,7 +222,7 @@ put_filename (char *filename)
   for (tmp = filename; *tmp; tmp++)
     {
       if (IS_DIRECTORY_SEP (*tmp))
-	filename = tmp + 1;
+        filename = tmp + 1;
     }
 
   printf ("\037S%s\n", filename);
@@ -248,13 +246,14 @@ start_globals (void)
   puts ("/* DO NOT EDIT.  */");
   puts ("struct emacs_globals {");
 }
-
+
 static char input_buffer[128];
 
 /* Some state during the execution of `read_c_string_or_comment'.  */
 struct rcsoc_state
 {
-  /* A count of spaces and newlines that have been read, but not output.  */
+  /* A count of spaces and newlines that have been read, but not
+   * output.  */
   intmax_t pending_spaces, pending_newlines;
 
   /* Where we're reading from.  */
@@ -287,20 +286,20 @@ put_char (char ch, struct rcsoc_state *state)
   do
     {
       if (state->pending_newlines > 0)
-	{
-	  state->pending_newlines--;
-	  out_ch = '\n';
-	}
+        {
+          state->pending_newlines--;
+          out_ch = '\n';
+        }
       else if (state->pending_spaces > 0)
-	{
-	  state->pending_spaces--;
-	  out_ch = ' ';
-	}
+        {
+          state->pending_spaces--;
+          out_ch = ' ';
+        }
       else
-	out_ch = ch;
+        out_ch = ch;
 
       if (state->out_file)
-	putc (out_ch, state->out_file);
+        putc (out_ch, state->out_file);
       if (state->buf_ptr)
 	{
 	  *state->buf_ptr++ = out_ch;
@@ -320,72 +319,70 @@ put_char (char ch, struct rcsoc_state *state)
 static void
 scan_keyword_or_put_char (char ch, struct rcsoc_state *state)
 {
-  if (state->keyword
-      && *state->cur_keyword_ptr == ch
+  if (state->keyword && *state->cur_keyword_ptr == ch
       && (state->cur_keyword_ptr > state->keyword
-	  || state->pending_newlines > 0))
+          || state->pending_newlines > 0))
     /* We might be looking at STATE->keyword at some point.
        Keep looking until we know for sure.  */
     {
       if (*++state->cur_keyword_ptr == '\0')
-	/* Saw the whole keyword.  Set SAW_KEYWORD flag to true.  */
-	{
-	  state->saw_keyword = true;
+        /* Saw the whole keyword.  Set SAW_KEYWORD flag to true.  */
+        {
+          state->saw_keyword = true;
 
-	  /* Reset the scanning pointer.  */
-	  state->cur_keyword_ptr = state->keyword;
+          /* Reset the scanning pointer.  */
+          state->cur_keyword_ptr = state->keyword;
 
-	  /* Canonicalize whitespace preceding a usage string.  */
-	  state->pending_newlines = 2;
-	  state->pending_spaces = 0;
+          /* Canonicalize whitespace preceding a usage string.  */
+          state->pending_newlines = 2;
+          state->pending_spaces = 0;
 
-	  /* Skip any spaces and newlines between the keyword and the
-	     usage string.  */
-	  int c;
-	  do
-	    c = getc (state->in_file);
-	  while (c == ' ' || c == '\n');
+          /* Skip any spaces and newlines between the keyword and the
+             usage string.  */
+          int c;
+          do
+            c = getc (state->in_file);
+          while (c == ' ' || c == '\n');
 
-	  /* Output the open-paren we just read.  */
-	  if (c != '(')
-	    fatal ("Missing '(' after keyword");
-	  put_char (c, state);
+          /* Output the open-paren we just read.  */
+          if (c != '(')
+            fatal ("Missing '(' after keyword");
+          put_char (c, state);
 
-	  /* Skip the function name and replace it with `fn'.  */
-	  do
-	    {
-	      c = getc (state->in_file);
-	      if (c == EOF)
-		fatal ("Unexpected EOF after keyword");
-	    }
-	  while (c != ' ' && c != ')');
+          /* Skip the function name and replace it with `fn'.  */
+          do
+            {
+              c = getc (state->in_file);
+              if (c == EOF)
+                fatal ("Unexpected EOF after keyword");
+            }
+          while (c != ' ' && c != ')');
 
-	  put_char ('f', state);
-	  put_char ('n', state);
+          put_char ('f', state);
+          put_char ('n', state);
 
-	  /* Put back the last character.  */
-	  ungetc (c, state->in_file);
-	}
+          /* Put back the last character.  */
+          ungetc (c, state->in_file);
+        }
     }
   else
     {
       if (state->keyword && state->cur_keyword_ptr > state->keyword)
-	/* We scanned the beginning of a potential usage
-	   keyword, but it was a false alarm.  Output the
-	   part we scanned.  */
-	{
-	  const char *p;
+        /* We scanned the beginning of a potential usage
+           keyword, but it was a false alarm.  Output the
+           part we scanned.  */
+        {
+          const char *p;
 
-	  for (p = state->keyword; p < state->cur_keyword_ptr; p++)
-	    put_char (*p, state);
+          for (p = state->keyword; p < state->cur_keyword_ptr; p++)
+            put_char (*p, state);
 
-	  state->cur_keyword_ptr = state->keyword;
-	}
+          state->cur_keyword_ptr = state->keyword;
+        }
 
       put_char (ch, state);
     }
 }
-
 
 /* Skip a C string or C-style comment from INFILE, and return the
    byte that follows, or EOF.  COMMENT means skip a comment.
@@ -393,13 +390,13 @@ scan_keyword_or_put_char (char ch, struct rcsoc_state *state)
    If PRINTFLAG is positive, output string contents to stdout.  If it is
    negative, store contents in buf.  Convert escape sequences \n and
    \t to newline and tab; discard \ followed by newline.
-   If SAW_USAGE is non-null, then any occurrences of the string "usage:"
-   at the beginning of a line will be removed, and *SAW_USAGE set to
-   true if any were encountered.  */
+   If SAW_USAGE is non-null, then any occurrences of the string
+   "usage:" at the beginning of a line will be removed, and *SAW_USAGE
+   set to true if any were encountered.  */
 
 static int
 read_c_string_or_comment (FILE *infile, int printflag, bool comment,
-			  bool *saw_usage)
+                          bool *saw_usage)
 {
   int c;
   struct rcsoc_state state;
@@ -422,54 +419,59 @@ read_c_string_or_comment (FILE *infile, int printflag, bool comment,
   while (c != EOF)
     {
       while (c != EOF && (comment ? c != '*' : c != '"'))
-	{
-	  if (c == '\\')
-	    {
-	      c = getc (infile);
-	      switch (c)
-		{
-		case '\n': case '\r':
-		  c = getc (infile);
-		  continue;
-		case 'n': c = '\n'; break;
-		case 't': c = '\t'; break;
-		}
-	    }
+        {
+          if (c == '\\')
+            {
+              c = getc (infile);
+              switch (c)
+                {
+                case '\n':
+                case '\r':
+                  c = getc (infile);
+                  continue;
+                case 'n':
+                  c = '\n';
+                  break;
+                case 't':
+                  c = '\t';
+                  break;
+                }
+            }
 
-	  if (c == ' ')
-	    state.pending_spaces++;
-	  else if (c == '\n')
-	    {
-	      state.pending_newlines++;
-	      state.pending_spaces = 0;
-	    }
-	  else
-	    scan_keyword_or_put_char (c, &state);
+          if (c == ' ')
+            state.pending_spaces++;
+          else if (c == '\n')
+            {
+              state.pending_newlines++;
+              state.pending_spaces = 0;
+            }
+          else
+            scan_keyword_or_put_char (c, &state);
 
-	  c = getc (infile);
-	}
+          c = getc (infile);
+        }
 
       if (c != EOF)
-	c = getc (infile);
+        c = getc (infile);
 
       if (comment)
-	{
-	  if (c == '/')
-	    {
-	      c = getc (infile);
-	      break;
-	    }
+        {
+          if (c == '/')
+            {
+              c = getc (infile);
+              break;
+            }
 
-	  scan_keyword_or_put_char ('*', &state);
-	}
+          scan_keyword_or_put_char ('*', &state);
+        }
       else
-	{
-	  if (c != '"')
-	    break;
+        {
+          if (c != '"')
+            break;
 
-	  /* If we had a "", concatenate the two strings.  */
-	  c = getc (infile);
-	}
+          /* If we had a "", concatenate the two strings.  */
+          c = getc (infile);
+        }
     }
 
   if (printflag < 0)
@@ -481,10 +483,9 @@ read_c_string_or_comment (FILE *infile, int printflag, bool comment,
   return c;
 }
 
-
-
-/* Write to stdout the argument names of function FUNC, whose text is in BUF.
-   MINARGS and MAXARGS are the minimum and maximum number of arguments.  */
+/* Write to stdout the argument names of function FUNC, whose text is
+   in BUF. MINARGS and MAXARGS are the minimum and maximum number of
+   arguments.  */
 
 static void
 write_c_args (char *buf, int minargs, int maxargs)
@@ -504,23 +505,22 @@ write_c_args (char *buf, int minargs, int maxargs)
       char c = *p;
 
       /* Notice when a new identifier starts.  */
-      if ((c_isalnum (c) || c == '_')
-	  != in_ident)
-	{
-	  if (!in_ident)
-	    {
-	      in_ident = true;
-	      ident_start = p;
-	    }
-	  else
-	    {
-	      in_ident = false;
-	      ident_length = p - ident_start;
-	    }
-	}
+      if ((c_isalnum (c) || c == '_') != in_ident)
+        {
+          if (!in_ident)
+            {
+              in_ident = true;
+              ident_start = p;
+            }
+          else
+            {
+              in_ident = false;
+              ident_length = p - ident_start;
+            }
+        }
 
       /* Found the end of an argument, write out the last seen
-	 identifier.  */
+         identifier.  */
       if (c == ',' || c == ')')
 	{
 	  if (ident_length == 0)
@@ -529,13 +529,13 @@ write_c_args (char *buf, int minargs, int maxargs)
 	  if (ident_length == 4 && memeq (ident_start, "void", 4))
 	    continue;
 
-	  putchar (' ');
+          putchar (' ');
 
-	  if (minargs == 0 && maxargs > 0)
-	    fputs ("&optional ", stdout);
+          if (minargs == 0 && maxargs > 0)
+            fputs ("&optional ", stdout);
 
-	  minargs--;
-	  maxargs--;
+          minargs--;
+          maxargs--;
 
 	  /* In C code, `default' is a reserved word, so we spell it
 	     `defalt'; demangle that here.  */
@@ -557,10 +557,10 @@ write_c_args (char *buf, int minargs, int maxargs)
 
   putchar (')');
 }
-
-/* The types of globals.  These are sorted roughly in decreasing alignment
-   order to avoid allocation gaps, except that symbols and functions
-   are last.  */
+
+/* The types of globals.  These are sorted roughly in decreasing
+   alignment order to avoid allocation gaps, except that symbols and
+   functions are last.  */
 enum global_type
 {
   INVALID,
@@ -601,34 +601,37 @@ static struct global *globals;
 
 static struct global *
 add_global (enum global_type type, char const *name, int value,
-	    char const *svalue)
+            char const *svalue)
 {
   /* Ignore the one non-symbol that can occur.  */
   if (!streq (name, "..."))
     {
       if (num_globals == num_globals_allocated)
-	{
-	  ptrdiff_t num_globals_max = (min (PTRDIFF_MAX, SIZE_MAX)
-				       / sizeof *globals);
-	  if (num_globals_allocated == num_globals_max)
-	    memory_exhausted ();
-	  if (num_globals_allocated < num_globals_max / 2)
-	    num_globals_allocated = 2 * num_globals_allocated + 1;
-	  else
-	    num_globals_allocated = num_globals_max;
-	  globals = xrealloc (globals, num_globals_allocated * sizeof *globals);
-	}
+        {
+          ptrdiff_t num_globals_max
+            = (min (PTRDIFF_MAX, SIZE_MAX) / sizeof *globals);
+          if (num_globals_allocated == num_globals_max)
+            memory_exhausted ();
+          if (num_globals_allocated < num_globals_max / 2)
+            num_globals_allocated = 2 * num_globals_allocated + 1;
+          else
+            num_globals_allocated = num_globals_max;
+          globals = xrealloc (globals, num_globals_allocated
+                                         * sizeof *globals);
+        }
 
       ++num_globals;
 
       ptrdiff_t namesize = strlen (name) + 1;
-      char *buf = xmalloc (namesize + (svalue ? strlen (svalue) + 1 : 0));
+      char *buf
+        = xmalloc (namesize + (svalue ? strlen (svalue) + 1 : 0));
       globals[num_globals - 1].type = type;
       globals[num_globals - 1].name = strcpy (buf, name);
       if (svalue)
-	globals[num_globals - 1].v.svalue = strcpy (buf + namesize, svalue);
+        globals[num_globals - 1].v.svalue
+          = strcpy (buf + namesize, svalue);
       else
-	globals[num_globals - 1].v.value = value;
+        globals[num_globals - 1].v.value = value;
       globals[num_globals - 1].flags = 0;
       return globals + num_globals - 1;
     }
@@ -645,8 +648,9 @@ compare_globals (const void *a, const void *b)
     return ga->type - gb->type;
 
   /* Consider "nil" to be the least, so that iQnil is zero.  That
-     way, Qnil's internal representation is zero, which is a bit faster.
-     Similarly, consider "t" to be the second-least, and so forth.  */
+     way, Qnil's internal representation is zero, which is a bit
+     faster. Similarly, consider "t" to be the second-least, and so
+     forth.  */
   if (ga->type == SYMBOL)
     {
       /* Common symbols in decreasing popularity order.  */
@@ -688,7 +692,8 @@ write_globals (void)
   bool seen_defun = false;
   ptrdiff_t symnum = 0;
   ptrdiff_t num_symbols = 0;
-  qsort (globals, num_globals, sizeof (struct global), compare_globals);
+  qsort (globals, num_globals, sizeof (struct global),
+         compare_globals);
 
   j = 0;
   for (i = 0; i < num_globals; i++)
@@ -713,54 +718,54 @@ write_globals (void)
       char const *type = 0;
 
       switch (globals[i].type)
-	{
-	case EMACS_INTEGER:
-	  type = "intmax_t";
-	  break;
-	case BOOLEAN:
-	  type = "bool";
-	  break;
-	case LISP_OBJECT:
-	  type = "Lisp_Object";
-	  break;
-	case SYMBOL:
-	case FUNCTION:
-	  if (!seen_defun)
-	    {
-	      close_emacs_globals (num_symbols);
-	      putchar ('\n');
-	      seen_defun = true;
-	    }
-	  break;
-	default:
-	  fatal ("not a recognized DEFVAR_");
-	}
+        {
+        case EMACS_INTEGER:
+          type = "intmax_t";
+          break;
+        case BOOLEAN:
+          type = "bool";
+          break;
+        case LISP_OBJECT:
+          type = "Lisp_Object";
+          break;
+        case SYMBOL:
+        case FUNCTION:
+          if (!seen_defun)
+            {
+              close_emacs_globals (num_symbols);
+              putchar ('\n');
+              seen_defun = true;
+            }
+          break;
+        default:
+          fatal ("not a recognized DEFVAR_");
+        }
 
       if (type)
-	{
-	  printf ("  %s f_%s;\n", type, globals[i].name);
-	  printf ("#define %s globals.f_%s\n",
-		  globals[i].name, globals[i].name);
-	}
+        {
+          printf ("  %s f_%s;\n", type, globals[i].name);
+          printf ("#define %s globals.f_%s\n", globals[i].name,
+                  globals[i].name);
+        }
       else if (globals[i].type == SYMBOL)
-	printf (("#define i%s %td\n"
-		 "DEFINE_LISP_SYMBOL (%s)\n"),
-		globals[i].name, symnum++, globals[i].name);
+        printf (("#define i%s %td\n"
+                 "DEFINE_LISP_SYMBOL (%s)\n"),
+                globals[i].name, symnum++, globals[i].name);
       else
-	{
-	  if (globals[i].flags & DEFUN_noreturn)
-	    fputs ("_Noreturn ", stdout);
-	  if (globals[i].flags & DEFUN_noinline)
-	    fputs ("NO_INLINE ", stdout);
+        {
+          if (globals[i].flags & DEFUN_noreturn)
+            fputs ("_Noreturn ", stdout);
+          if (globals[i].flags & DEFUN_noinline)
+            fputs ("NO_INLINE ", stdout);
 
-	  printf ("EXFUN (%s, ", globals[i].name);
-	  if (globals[i].v.value == -1)
-	    fputs ("MANY", stdout);
-	  else if (globals[i].v.value == -2)
-	    fputs ("UNEVALLED", stdout);
-	  else
-	    printf ("%d", globals[i].v.value);
-	  putchar (')');
+          printf ("EXFUN (%s, ", globals[i].name);
+          if (globals[i].v.value == -1)
+            fputs ("MANY", stdout);
+          else if (globals[i].v.value == -2)
+            fputs ("UNEVALLED", stdout);
+          else
+            printf ("%d", globals[i].v.value);
+          putchar (')');
 
 	  if (globals[i].flags & DEFUN_noreturn)
 	    fputs (" ATTRIBUTE_COLD", stdout);
@@ -769,8 +774,8 @@ write_globals (void)
 	  if (globals[i].flags & DEFUN_pure)
 	    fputs (" ATTRIBUTE_PURE", stdout);
 
-	  puts (";");
-	}
+          puts (";");
+        }
     }
 
   if (!seen_defun)
@@ -790,15 +795,15 @@ write_globals (void)
   for (ptrdiff_t i = 0; i < num_globals; i++)
     if (globals[i].type == SYMBOL && num_symbols++ != 0)
       printf ("# define %s builtin_lisp_symbol (%td)\n",
-	      globals[i].name, num_symbols - 1);
+              globals[i].name, num_symbols - 1);
   puts ("#endif");
 }
 
-
 /* Read through a c file.  If a .o file is named,
    the corresponding .c or .m file is read instead.
    Looks for DEFUN constructs such as are defined in ../src/lisp.h.
-   Accepts any word starting DEF... so it finds DEFSIMPLE and DEFPRED.  */
+   Accepts any word starting DEF... so it finds DEFSIMPLE and DEFPRED.
+ */
 
 static void
 scan_c_file (char *filename, const char *mode)
@@ -817,7 +822,25 @@ scan_c_file (char *filename, const char *mode)
       filename[strlen (filename) - 1] = 'm';
       infile = fopen (filename, mode);
       if (infile == NULL)
-        filename[strlen (filename) - 1] = 'c'; /* Don't confuse people.  */
+        filename[strlen (filename) - 1]
+          = 'c'; /* Don't confuse people.  */
+    }
+
+  if (infile == NULL)
+    {
+      char *newfilename = malloc (strlen (filename));
+      strcpy (newfilename, filename);
+      newfilename[strlen (filename)] = 'm';
+      newfilename[strlen (filename) - 1] = 'm';
+      infile = fopen (newfilename, mode);
+      if (infile != NULL)
+        return;
+      else
+        {
+          newfilename[strlen (filename)] = 'c';
+          newfilename[strlen (filename) - 1] = 'c';
+          infile = fopen (newfilename, mode);
+        }
     }
 
   if (infile == NULL)
@@ -841,9 +864,9 @@ stream_match (FILE *infile, const char *p)
     {
       int c = getc (infile);
       if (c == EOF)
-       return -1;
+        return -1;
       if (c != *p)
-       return 0;
+        return 0;
     }
   return 1;
 }
@@ -864,246 +887,247 @@ scan_c_stream (FILE *infile)
       static char name[sizeof input_buffer];
 
       if (c != '\n' && c != '\r')
-	{
-	  c = getc (infile);
-	  continue;
-	}
+        {
+          c = getc (infile);
+          continue;
+        }
       c = getc (infile);
       if (c == ' ')
-	{
-	  while (c == ' ')
-	    c = getc (infile);
-	  if (c != 'D')
-	    continue;
-	  c = getc (infile);
-	  if (c != 'E')
-	    continue;
-	  c = getc (infile);
-	  if (c != 'F')
-	    continue;
-	  c = getc (infile);
-	  if (c == 'S')
-	    {
-	      c = getc (infile);
-	      if (c != 'Y')
-		continue;
-	      c = getc (infile);
-	      if (c != 'M')
-		continue;
-	      c = getc (infile);
-	      if (c != ' ' && c != '\t' && c != '(')
-		continue;
-	      type = SYMBOL;
-	    }
-	  else if (c == 'V')
-	    {
-	      c = getc (infile);
-	      if (c != 'A')
-		continue;
-	      c = getc (infile);
-	      if (c != 'R')
-		continue;
-	      c = getc (infile);
-	      if (c != '_')
-		continue;
+        {
+          while (c == ' ')
+            c = getc (infile);
+          if (c != 'D')
+            continue;
+          c = getc (infile);
+          if (c != 'E')
+            continue;
+          c = getc (infile);
+          if (c != 'F')
+            continue;
+          c = getc (infile);
+          if (c == 'S')
+            {
+              c = getc (infile);
+              if (c != 'Y')
+                continue;
+              c = getc (infile);
+              if (c != 'M')
+                continue;
+              c = getc (infile);
+              if (c != ' ' && c != '\t' && c != '(')
+                continue;
+              type = SYMBOL;
+            }
+          else if (c == 'V')
+            {
+              c = getc (infile);
+              if (c != 'A')
+                continue;
+              c = getc (infile);
+              if (c != 'R')
+                continue;
+              c = getc (infile);
+              if (c != '_')
+                continue;
 
-	      defvarflag = true;
+              defvarflag = true;
 
-	      c = getc (infile);
-	      defvarperbufferflag = (c == 'P');
-	      if (generate_globals)
-		{
-		  if (c == 'I')
-		    type = EMACS_INTEGER;
-		  else if (c == 'L')
-		    type = LISP_OBJECT;
-		  else if (c == 'B')
-		    type = BOOLEAN;
-		}
+              c = getc (infile);
+              defvarperbufferflag = (c == 'P');
+              if (generate_globals)
+                {
+                  if (c == 'I')
+                    type = EMACS_INTEGER;
+                  else if (c == 'L')
+                    type = LISP_OBJECT;
+                  else if (c == 'B')
+                    type = BOOLEAN;
+                }
 
-	      c = getc (infile);
-	      /* We need to distinguish between DEFVAR_BOOL and
-		 DEFVAR_BUFFER_DEFAULTS.  */
-	      if (generate_globals && type == BOOLEAN && c != 'O')
-		type = INVALID;
-	    }
-	  else
-	    continue;
-	}
+              c = getc (infile);
+              /* We need to distinguish between DEFVAR_BOOL and
+                 DEFVAR_BUFFER_DEFAULTS.  */
+              if (generate_globals && type == BOOLEAN && c != 'O')
+                type = INVALID;
+            }
+          else
+            continue;
+        }
       else if (c == 'D')
-	{
-	  c = getc (infile);
-	  if (c != 'E')
-	    continue;
-	  c = getc (infile);
-	  if (c != 'F')
-	    continue;
-	  c = getc (infile);
-	  defunflag = c == 'U';
-	}
-      else continue;
+        {
+          c = getc (infile);
+          if (c != 'E')
+            continue;
+          c = getc (infile);
+          if (c != 'F')
+            continue;
+          c = getc (infile);
+          defunflag = c == 'U';
+        }
+      else
+        continue;
 
       if (generate_globals
-	  && (!defvarflag || defvarperbufferflag || type == INVALID)
-	  && !defunflag && type != SYMBOL)
-	continue;
+          && (!defvarflag || defvarperbufferflag || type == INVALID)
+          && !defunflag && type != SYMBOL)
+        continue;
 
       while (c != '(')
-	{
-	  if (c < 0)
-	    goto eof;
-	  c = getc (infile);
-	}
+        {
+          if (c < 0)
+            goto eof;
+          c = getc (infile);
+        }
 
       if (type != SYMBOL)
-	{
-	  /* Lisp variable or function name.  */
-	  c = getc (infile);
-	  if (c != '"')
-	    continue;
-	  c = read_c_string_or_comment (infile, -1, false, 0);
-	}
+        {
+          /* Lisp variable or function name.  */
+          c = getc (infile);
+          if (c != '"')
+            continue;
+          c = read_c_string_or_comment (infile, -1, false, 0);
+        }
 
       if (generate_globals)
-	{
-	  ptrdiff_t i = 0;
-	  char const *svalue = 0;
+        {
+          ptrdiff_t i = 0;
+          char const *svalue = 0;
 
-	  /* Skip "," and whitespace.  */
-	  do
-	    {
-	      c = getc (infile);
-	    }
-	  while (c == ',' || c_isspace (c));
+          /* Skip "," and whitespace.  */
+          do
+            {
+              c = getc (infile);
+            }
+          while (c == ',' || c_isspace (c));
 
-	  /* Read in the identifier.  */
-	  do
-	    {
-	      if (c < 0)
-		goto eof;
-	      input_buffer[i++] = c;
-	      if (sizeof input_buffer <= i)
-		fatal ("identifier too long");
-	      c = getc (infile);
-	    }
-	  while (! (c == ',' || c_isspace (c)));
+          /* Read in the identifier.  */
+          do
+            {
+              if (c < 0)
+                goto eof;
+              input_buffer[i++] = c;
+              if (sizeof input_buffer <= i)
+                fatal ("identifier too long");
+              c = getc (infile);
+            }
+          while (!(c == ',' || c_isspace (c)));
 
-	  input_buffer[i] = '\0';
-	  memcpy (name, input_buffer, i + 1);
+          input_buffer[i] = '\0';
+          memcpy (name, input_buffer, i + 1);
 
-	  if (type == SYMBOL)
-	    {
-	      do
-		c = getc (infile);
-	      while (c_isspace (c));
+          if (type == SYMBOL)
+            {
+              do
+                c = getc (infile);
+              while (c_isspace (c));
 
-	      if (c != '"')
-		continue;
-	      c = read_c_string_or_comment (infile, -1, false, 0);
-	      svalue = input_buffer;
-	    }
+              if (c != '"')
+                continue;
+              c = read_c_string_or_comment (infile, -1, false, 0);
+              svalue = input_buffer;
+            }
 
-	  if (!defunflag)
-	    {
-	      add_global (type, name, 0, svalue);
-	      continue;
-	    }
-	}
+          if (!defunflag)
+            {
+              add_global (type, name, 0, svalue);
+              continue;
+            }
+        }
 
       if (type == SYMBOL)
-	continue;
+        continue;
 
       /* DEFVAR_LISP ("name", addr, "doc")
-	 DEFVAR_LISP ("name", addr /\* doc *\/)
-	 DEFVAR_LISP ("name", addr, doc: /\* doc *\/)  */
+         DEFVAR_LISP ("name", addr /\* doc *\/)
+         DEFVAR_LISP ("name", addr, doc: /\* doc *\/)  */
 
       if (defunflag)
-	commas = generate_globals ? 4 : 5;
+        commas = generate_globals ? 4 : 5;
       else if (defvarperbufferflag)
-	commas = 3;
+        commas = 3;
       else if (defvarflag)
-	commas = 1;
-      else  /* For DEFSIMPLE and DEFPRED.  */
-	commas = 2;
+        commas = 1;
+      else /* For DEFSIMPLE and DEFPRED.  */
+        commas = 2;
 
       while (commas)
-	{
-	  if (c == ',')
-	    {
-	      commas--;
+        {
+          if (c == ',')
+            {
+              commas--;
 
-	      if (defunflag && (commas == 1 || commas == 2))
-		{
-		  int scanned = 0;
-		  do
-		    c = getc (infile);
-		  while (c_isspace (c));
+              if (defunflag && (commas == 1 || commas == 2))
+                {
+                  int scanned = 0;
+                  do
+                    c = getc (infile);
+                  while (c_isspace (c));
 
-		  if (c < 0)
-		    goto eof;
-		  ungetc (c, infile);
-		  if (commas == 2) /* Pick up minargs.  */
-		    scanned = fscanf (infile, "%d", &minargs);
-		  else /* Pick up maxargs.  */
-		    if (c == 'M' || c == 'U') /* MANY || UNEVALLED */
-		      {
-			if (generate_globals)
-			  maxargs = (c == 'M') ? -1 : -2;
-			else
-			  maxargs = -1;
-		      }
-		    else
-		      scanned = fscanf (infile, "%d", &maxargs);
-		  if (scanned < 0)
-		    goto eof;
-		}
-	    }
+                  if (c < 0)
+                    goto eof;
+                  ungetc (c, infile);
+                  if (commas == 2) /* Pick up minargs.  */
+                    scanned = fscanf (infile, "%d", &minargs);
+                  else                        /* Pick up maxargs.  */
+                    if (c == 'M' || c == 'U') /* MANY || UNEVALLED */
+                    {
+                      if (generate_globals)
+                        maxargs = (c == 'M') ? -1 : -2;
+                      else
+                        maxargs = -1;
+                    }
+                  else
+                    scanned = fscanf (infile, "%d", &maxargs);
+                  if (scanned < 0)
+                    goto eof;
+                }
+            }
 
-	  if (c == EOF)
-	    goto eof;
-	  c = getc (infile);
-	}
+          if (c == EOF)
+            goto eof;
+          c = getc (infile);
+        }
 
       if (generate_globals)
-	{
-	  struct global *g = add_global (FUNCTION, name, maxargs, 0);
-	  if (!g)
-	    continue;
+        {
+          struct global *g = add_global (FUNCTION, name, maxargs, 0);
+          if (!g)
+            continue;
 
-	  /* The following code tries to recognize function attributes
-	     specified after the docstring, e.g.:
+          /* The following code tries to recognize function
+             attributes specified after the docstring, e.g.:
 
-	     DEFUN ("foo", Ffoo, Sfoo, X, Y, Z,
-		   doc: /\* doc *\/
-		   attributes: attribute1 attribute2 ...)
-	       (Lisp_Object arg...)
+             DEFUN ("foo", Ffoo, Sfoo, X, Y, Z,
+                   doc: /\* doc *\/
+                   attributes: attribute1 attribute2 ...)
+               (Lisp_Object arg...)
 
 	     Now only 'const', 'noinline', 'noreturn', and 'pure' attributes
 	     are used.  */
 
-	  /* Advance to the end of docstring.  */
-	  c = getc (infile);
-	  if (c == EOF)
-	    goto eof;
-	  int d = getc (infile);
-	  if (d == EOF)
-	    goto eof;
-	  while (true)
-	    {
-	      if (c == '*' && d == '/')
-		break;
-	      c = d, d = getc (infile);
-	      if (d == EOF)
-		goto eof;
-	    }
-	  /* Skip spaces, if any.  */
-	  do
-	    {
-	      c = getc (infile);
-	      if (c == EOF)
-		goto eof;
-	    }
-	  while (c_isspace (c));
+          /* Advance to the end of docstring.  */
+          c = getc (infile);
+          if (c == EOF)
+            goto eof;
+          int d = getc (infile);
+          if (d == EOF)
+            goto eof;
+          while (true)
+            {
+              if (c == '*' && d == '/')
+                break;
+              c = d, d = getc (infile);
+              if (d == EOF)
+                goto eof;
+            }
+          /* Skip spaces, if any.  */
+          do
+            {
+              c = getc (infile);
+              if (c == EOF)
+                goto eof;
+            }
+          while (c_isspace (c));
 
 	  /* Check for 'attributes:' token.  */
 	  if (c == 'a' && stream_match (infile, "ttributes:"))
@@ -1129,69 +1153,70 @@ scan_c_stream (FILE *infile)
 	      if (strstr (input_buffer, "pure"))
 		g->flags |= DEFUN_pure;
 
-	      /* Although the noinline attribute is no longer used,
-		 leave its support in, in case it's needed later.  */
-	      if (strstr (input_buffer, "noinline"))
-		g->flags |= DEFUN_noinline;
-	    }
-	  continue;
-	}
+              /* Although the noinline attribute is no longer used,
+                 leave its support in, in case it's needed later. */
+              if (strstr (input_buffer, "noinline"))
+                g->flags |= DEFUN_noinline;
+            }
+          continue;
+        }
 
       while (c_isspace (c))
-	c = getc (infile);
+        c = getc (infile);
 
       if (c == '"')
-	c = read_c_string_or_comment (infile, 0, false, 0);
+        c = read_c_string_or_comment (infile, 0, false, 0);
 
       while (c != EOF && c != ',' && c != '/')
-	c = getc (infile);
+        c = getc (infile);
       if (c == ',')
-	{
-	  do
-	    c = getc (infile);
-	  while (c_isspace (c));
+        {
+          do
+            c = getc (infile);
+          while (c_isspace (c));
 
-	  while (c_isalpha (c))
-	    c = getc (infile);
-	  if (c == ':')
-	    {
-	      doc_keyword = true;
-	      do
-		c = getc (infile);
-	      while (c_isspace (c));
-	    }
-	}
+          while (c_isalpha (c))
+            c = getc (infile);
+          if (c == ':')
+            {
+              doc_keyword = true;
+              do
+                c = getc (infile);
+              while (c_isspace (c));
+            }
+        }
 
       bool comment = c == '/' && (c = getc (infile)) == '*';
       if (comment || c == '"')
 	{
 	  bool saw_usage;
 
-	  printf ("\037%c%s\n", defvarflag ? 'V' : 'F', input_buffer);
+          printf ("\037%c%s\n", defvarflag ? 'V' : 'F', input_buffer);
 
 	  c = read_c_string_or_comment (infile, 1, comment, &saw_usage);
 
-	  /* If this is a defun, find the arguments and print them.  If
-	     this function takes MANY or UNEVALLED args, then the C source
-	     won't give the names of the arguments, so we shouldn't bother
-	     trying to find them.
+          /* If this is a defun, find the arguments and print them.
+             If this function takes MANY or UNEVALLED args, then the
+             C source won't give the names of the arguments, so we
+             shouldn't bother trying to find them.
 
-	     Various doc-string styles:
-	      0: DEFUN (..., "DOC") (args)            [!comment]
-	      1: DEFUN (..., /\* DOC *\/ (args))      [comment && !doc_keyword]
-	      2: DEFUN (..., doc: /\* DOC *\/) (args) [comment && doc_keyword]
-	  */
-	  if (defunflag && maxargs != -1 && !saw_usage)
-	    {
-	      char argbuf[1024], *p = argbuf;
+             Various doc-string styles:
+              0: DEFUN (..., "DOC") (args)            [!comment]
+              1: DEFUN (..., /\* DOC *\/ (args))      [comment &&
+             !doc_keyword] 2: DEFUN (..., doc: /\* DOC *\/) (args)
+             [comment && doc_keyword]
+          */
+          if (defunflag && maxargs != -1 && !saw_usage)
+            {
+              char argbuf[1024], *p = argbuf;
 
-	      if (!comment || doc_keyword)
-		while (c != ')')
-		  {
-		    if (c < 0)
-		      goto eof;
-		    c = getc (infile);
-		  }
+              if (!comment || doc_keyword)
+                while (c != ')')
+                  {
+                    if (c < 0)
+                      goto eof;
+                    c = getc (infile);
+                  }
 
 	      /* Skip into arguments.  */
 	      while (c != '(')
@@ -1224,7 +1249,7 @@ scan_c_stream (FILE *infile)
 		     input_buffer);
 	}
     }
- eof:
+eof:
   if (ferror (infile) || fclose (infile) != 0)
     fatal ("read error");
 }

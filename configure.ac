@@ -2934,6 +2934,7 @@ if test "${HAVE_NS}" = yes; then
      infodir="\${ns_appresdir}/info"
      mandir="\${ns_appresdir}/man"
      lispdir="\${ns_appresdir}/lisp"
+     custommatsdir="\${ns_appresdir}/custom_materials"
      lispdirrel="\${ns_appresdir}/lisp"
      test "$locallisppathset" = no && locallisppath="\${ns_appresdir}/site-lisp"
      INSTALL_ARCH_INDEP_EXTRA=
@@ -4498,7 +4499,10 @@ if test "$with_xwidgets" != "no"; then
     HAVE_WEBKIT="yes"
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
-    NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o LcRender.o"
+    NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
+    NS_OBJCXX_OBJ="LcRender.o FilamentDelegate.o"
+    #NS_CXX_OBJ="FilamentRender.o"
+    CXXFLAGS="$CXXFLAGS -std=c++17"
     dnl Update NS_OBJC_OBJ with added nsxwidget.o
     AC_SUBST([NS_OBJC_OBJ])
   else

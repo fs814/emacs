@@ -1,0 +1,50 @@
+material {
+    name : custom_texture,
+    requires : [
+        uv0
+    ],
+    shadingModel : lit,
+    parameters : [
+        {
+            type : sampler2d,
+            name : albedo
+        }
+        // {
+        //     type : sampler2d,
+        //     name : albedo1
+        // }
+    ],
+    customSurfaceShading : true
+}
+
+fragment {
+    void material(inout MaterialInputs material) {
+        prepareMaterial(material);
+        // material.baseColor.rgb = materialParams.baseColor;
+        vec4 color0 = texture(materialParams_albedo, getUV0());
+        // vec4 color1 = texture(materialParams_albedo1, getUV0());
+        material.baseColor = color0*0.3;//+color1*0.3;
+    }
+
+    vec3 surfaceShading(
+            const MaterialInputs materialInputs,
+            const ShadingData shadingData,
+            const LightData lightData
+    ) {
+        // // Number of visible shade transitions
+        // const float shades = 5.0;
+        // // Ambient intensity
+        // const float ambient = 0.1;
+
+        // float toon = max(ceil(lightData.NdotL * shades) / shades, ambient);
+
+        // // Shadowing and attenuation
+        // toon *= lightData.visibility * lightData.attenuation;
+
+        // // Color and intensity
+        // vec3 light = lightData.colorIntensity.rgb * lightData.colorIntensity.w;
+        // return shadingData.diffuseColor;
+        return materialInputs.baseColor.rgb;
+        // return shadingData.diffuseColor * light * toon;
+    }
+}
