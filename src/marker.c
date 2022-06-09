@@ -766,7 +766,7 @@ DEFUN ("buffer-has-markers-at", Fbuffer_has_markers_at, Sbuffer_has_markers_at,
   register struct Lisp_Marker *tail;
   register ptrdiff_t charpos;
 
-  charpos = clip_to_bounds (BEG, XFIXNUM (position), Z);
+  charpos = clip_to_bounds (BEG, XFIXNUM (position), ZE);
 
   for (tail = BUF_MARKERS (current_buffer); tail; tail = tail->next)
     if (tail->charpos == charpos)

@@ -1003,9 +1003,9 @@ coding_alloc_by_making_gap (struct coding_system *coding,
       ptrdiff_t add = GAP_SIZE;
 
       GPT += gap_head_used, GPT_BYTE += gap_head_used;
-      GAP_SIZE = 0; ZV += add; Z += add; ZV_BYTE += add; Z_BYTE += add;
+      GAP_SIZE = 0; ZV += add; ZE += add; ZV_BYTE += add; ZE_BYTE += add;
       make_gap (bytes);
-      GAP_SIZE += add; ZV -= add; Z -= add; ZV_BYTE -= add; Z_BYTE -= add;
+      GAP_SIZE += add; ZV -= add; ZE -= add; ZV_BYTE -= add; ZE_BYTE -= add;
       GPT -= gap_head_used, GPT_BYTE -= gap_head_used;
     }
   else
@@ -8005,7 +8005,7 @@ decode_coding_gap (struct coding_system *coding, ptrdiff_t bytes)
 
   if (! NILP (CODING_ATTR_POST_READ (attrs)))
     {
-      ptrdiff_t prev_Z = Z, prev_Z_BYTE = Z_BYTE;
+      ptrdiff_t prev_Z = ZE, prev_Z_BYTE = ZE_BYTE;
       Lisp_Object val;
       Lisp_Object undo_list = BVAR (current_buffer, undo_list);
 
@@ -8016,8 +8016,8 @@ decode_coding_gap (struct coding_system *coding, ptrdiff_t bytes)
       val = call1 (CODING_ATTR_POST_READ (attrs),
 		   make_fixnum (coding->produced_char));
       CHECK_FIXNAT (val);
-      coding->produced_char += Z - prev_Z;
-      coding->produced += Z_BYTE - prev_Z_BYTE;
+      coding->produced_char += ZE - prev_Z;
+      coding->produced += ZE_BYTE - prev_Z_BYTE;
     }
 
   unbind_to (count, Qnil);
@@ -8156,7 +8156,7 @@ decode_coding_object (struct coding_system *coding,
 
   if (! NILP (CODING_ATTR_POST_READ (attrs)))
     {
-      ptrdiff_t prev_Z = Z, prev_Z_BYTE = Z_BYTE;
+      ptrdiff_t prev_Z = ZE, prev_Z_BYTE = ZE_BYTE;
       Lisp_Object val;
       Lisp_Object undo_list = BVAR (current_buffer, undo_list);
       specpdl_ref count1 = SPECPDL_INDEX ();
@@ -8168,8 +8168,8 @@ decode_coding_object (struct coding_system *coding,
       val = safe_call1 (CODING_ATTR_POST_READ (attrs),
 			make_fixnum (coding->produced_char));
       CHECK_FIXNAT (val);
-      coding->produced_char += Z - prev_Z;
-      coding->produced += Z_BYTE - prev_Z_BYTE;
+      coding->produced_char += ZE - prev_Z;
+      coding->produced += ZE_BYTE - prev_Z_BYTE;
       unbind_to (count1, Qnil);
     }
 
@@ -8332,17 +8332,17 @@ encode_coding_object (struct coding_system *coding,
 	}
 
       safe_call2 (CODING_ATTR_PRE_WRITE (attrs),
-		  make_fixnum (BEG), make_fixnum (Z));
+		  make_fixnum (BEG), make_fixnum (ZE));
       if (XBUFFER (coding->src_object) != current_buffer)
 	kill_src_buffer = 1;
       coding->src_object = Fcurrent_buffer ();
       if (BEG != GPT)
 	move_gap_both (BEG, BEG_BYTE);
-      coding->src_chars = Z - BEG;
-      coding->src_bytes = Z_BYTE - BEG_BYTE;
+      coding->src_chars = ZE - BEG;
+      coding->src_bytes = ZE_BYTE - BEG_BYTE;
       coding->src_pos = BEG;
       coding->src_pos_byte = BEG_BYTE;
-      coding->src_multibyte = Z < Z_BYTE;
+      coding->src_multibyte = ZE < ZE_BYTE;
     }
   else if (STRINGP (src_object))
     {
@@ -9049,7 +9049,7 @@ DEFUN ("find-coding-systems-region-internal",
     {
       EMACS_INT s = fix_position (start);
       EMACS_INT e = fix_position (end);
-      if (! (BEG <= s && s <= e && e <= Z))
+      if (! (BEG <= s && s <= e && e <= ZE))
 	args_out_of_range (start, end);
       if (NILP (BVAR (current_buffer, enable_multibyte_characters)))
 	return Qt;
@@ -9303,7 +9303,7 @@ is nil.  */)
     {
       EMACS_INT s = fix_position (start);
       EMACS_INT e = fix_position (end);
-      if (! (BEG <= s && s <= e && e <= Z))
+      if (! (BEG <= s && s <= e && e <= ZE))
 	args_out_of_range (start, end);
       if (NILP (BVAR (current_buffer, enable_multibyte_characters)))
 	return Qnil;

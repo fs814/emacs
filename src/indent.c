@@ -345,7 +345,7 @@ current_column (void)
      or multibyte characters, use a more general algorithm.  */
   if (buffer_intervals (current_buffer)
       || buffer_has_overlays ()
-      || Z != Z_BYTE)
+      || ZE != ZE_BYTE)
     return current_column_1 ();
 
   /* Scan backwards from point to the previous newline,
@@ -1991,7 +1991,7 @@ line_number_display_width (struct window *w, int *width, int *pixel_width)
 	 (Org mode's display of source code snippets is known to cause
 	 that) or belong to the wrong buffer, in which cases we just
 	 punt and start from point instead.  */
-      if (startpos.charpos > Z
+      if (startpos.charpos > ZE
 	  || !(BUFFERP (w->contents)
 	       && XBUFFER (w->contents) == XMARKER (w->start)->buffer))
 	SET_TEXT_POS (startpos, PT, PT_BYTE);

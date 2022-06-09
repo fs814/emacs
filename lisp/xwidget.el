@@ -1271,5 +1271,354 @@ Each line describes an entry in history."
   ;; practice though.
   (add-hook 'window-configuration-change-hook #'xwidget-delete-zombies))
 
+
+(defun xwidget-metal-adjust-size-to-content ()
+  "Adjust webkit to content size."
+  (interactive nil xwidget-metal-mode)
+  (xwidget-adjust-size-to-content (xwidget-metal-current-session)))
+
+(defun xwidget-metal-adjust-size-dispatch ()
+  "Adjust size according to mode."
+  (interactive nil xwidget-metal-mode)
+  (xwidget-metal-adjust-size-to-window (xwidget-metal-current-session))
+  ;; The recenter is intended to correct a visual glitch.
+  ;; It errors out if the buffer isn't visible, but then we don't get
+  ;; the glitch, so silence errors.
+  (ignore-errors
+    (recenter-top-bottom)))
+
+;; Utility functions
+
+(defun xwidget-metal-adjust-size-to-window (xwidget &optional window)
+  "Adjust the size of the webkit XWIDGET to fit the WINDOW."
+  (xwidget-resize xwidget
+                  (xwidget-window-inside-pixel-width window)
+                  (xwidget-window-inside-pixel-height window)))
+
+(defun xwidget-metal-adjust-size (w h)
+  "Manually set webkit size to width W, height H."
+  ;; TODO shouldn't be tied to the webkit xwidget
+  (interactive "nWidth:\nnHeight:\n" xwidget-metal-mode)
+  (xwidget-resize (xwidget-metal-current-session) w h))
+
+(defun xwidget-metal-fit-width ()
+  "Adjust width of webkit to window width."
+  (interactive nil xwidget-metal-mode)
+  (xwidget-metal-adjust-size (- (nth 2 (window-inside-pixel-edges))
+                                 (car (window-inside-pixel-edges)))
+                              1000))
+
+(defun xwidget-metal-auto-adjust-size (window)
+  "Adjust the size of the webkit widget in the given WINDOW."
+  (with-current-buffer (window-buffer window)
+    (when (eq major-mode 'xwidget-metal-mode)
+      (let ((xwidget (xwidget-metal-current-session)))
+        (xwidget-metal-adjust-size-to-window xwidget window)))))
+
+(defun xwidget-metal-adjust-size-in-frame (frame)
+  "Dynamically adjust webkit widget for all windows of the FRAME."
+  (walk-windows 'xwidget-metal-auto-adjust-size 'no-minibuf frame))
+
+(eval-after-load 'xwidget-metal-mode
+  (add-to-list 'window-size-change-functions
+               'xwidget-metal-adjust-size-in-frame))
+
+(defvar xwidget-metal-last-session-buffer nil)
+
+(defun xwidget-metal-last-session ()
+  (if (buffer-live-p xwidget-metal-last-session-buffer)
+      (with-current-buffer xwidget-metal-last-session-buffer
+        (xwidget-at (point-min)))
+      nil))
+
+(defun xwidget-metal-callback (xwidget xwidget-event-type)
+  (if (not (buffer-live-p (xwidget-buffer xwidget)))
+      (xwidget-log "error: callback called for xwidget with dead buffer")
+    (cond (t (xwidget-log "unhandled event:%s" xwidget-event-type))
+          )
+      )
+  )
+
+(defun xwidget-metal-buffer-kill ()
+  )
+
+(defvar xwidget-metal-mode-map
+  (let ((map (make-sparse-keymap)))
+   map)
+  "Keymap for `xwidget-metal-mode'.")
+
+
+(define-derived-mode xwidget-metal-mode special-mode "xwidget-metal"
+  (setq buffer-read-only t)
+  (add-hook 'kill-buffer-hook #'xwidget-metal-buffer-kill)
+  ;;(setq-local tool-bar-map xwidget-metal-tool-bar-map)
+  (image-mode-setup-winprops)
+  )
+
+(defun xwidget-metal-current-session ()
+  (or (xwidget-at (point-min)) (xwidget-metal-last-session))
+  )
+
+(defun xwidget-metal-import-widget (xwidget)
+  (let* ((bufname
+          (generate-new-buffer-name (buffer-name)))
+         (callback #'xwidget-metal-callback)
+         (buffer (get-buffer-create bufname)))
+    (with-current-buffer buffer
+      (setq xwidget-metal-last-session-buffer buffer)
+      (save-excursion
+        (erase-buffer)
+        (insert ".")
+        (put-text-property (point-min) (point-max)
+                           'display (list 'xwidget :xwidget xwidget)))
+      (xwidget-put xwidget 'callback callback)
+      (xwidget-put xwidget 'display-callback #'xwidget-metal-display-callback)
+      (set-xwidget-buffer xwidget buffer)
+      (xwidget-metal-mode)
+      )
+    buffer))
+
+(defun xwidget-metal-display-callback (xwidget _source)
+  (display-buffer (xwidget-metal-import-widget xwidget))
+  )
+
+(defun xwidget-metal-display ()
+  (interactive)
+  (display-buffer (xwidget-metal-import-widget (xwidget-metal-current-session)))
+  )
+
+(defun xwidget-metal--create-new-session-buffer (&optional callback)
+  (let* ((bufname
+          (generate-new-buffer-name (buffer-name)))
+         (callback (or callback #'xwidget-metal-callback))
+         (current-session (xwidget-metal-current-session))
+         xw
+         )
+    (setq xwidget-metal-last-session-buffer (get-buffer-create bufname))
+    (with-current-buffer xwidget-metal-last-session-buffer
+      (let ((start (point)))
+        (insert "metal")
+        (put-text-property start (+ start (length "metal")) 'invisible t)
+        (setq xw (xwidget-insert
+                  start 'metal bufname
+                  (xwidget-window-inside-pixel-width (selected-window))
+                  (xwidget-window-inside-pixel-height (selected-window))
+                  nil current-session))
+        )
+      (xwidget-put xw 'callback callback)
+      (xwidget-put xw 'display-callback #'xwidget-metal-display-callback)
+      (xwidget-metal-mode)
+      )
+    xwidget-metal-last-session-buffer))
+
+(defun xwidget-metal-new-session ()
+  (switch-to-buffer (xwidget-metal--create-new-session-buffer)))
+
+(defun xwidget-metal-goto ()
+  (if (xwidget-metal-current-session)
+      (progn
+        (switch-to-buffer (xwidget-buffer (xwidget-metal-current-session))))
+    (xwidget-metal-new-session)
+    ))
+
+(defun xwidget-metal-browse (&optional new-session)
+  (interactive)
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-metal-new-session)
+    (xwidget-metal-goto))
+  (xwidget-metal-refit)
+  )
+
+(defun xwidget-metal-refit ()
+  (interactive)
+  ;;(switch-to-buffer-other-window (xwidget-buffer (xwidget-metal-current-session)))
+  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-last-session) (selected-window))
+  ;;(message "%s" (window-resizable (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) 1 t))
+  (window-resize (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) 1 t)
+  ;;(display-buffer-reuse-window (xwidget-buffer (xwidget-metal-current-session)) nil)
+  ;;(window-resize (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) -1 t)
+
+  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-current-session) (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))))
+  )
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;filament
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun xwidget-filament-adjust-size-to-content ()
+  "Adjust webkit to content size."
+  (interactive nil xwidget-filament-mode)
+  (xwidget-adjust-size-to-content (xwidget-filament-current-session)))
+
+(defun xwidget-filament-adjust-size-dispatch ()
+  "Adjust size according to mode."
+  (interactive nil xwidget-filament-mode)
+  (xwidget-filament-adjust-size-to-window (xwidget-filament-current-session))
+  ;; The recenter is intended to correct a visual glitch.
+  ;; It errors out if the buffer isn't visible, but then we don't get
+  ;; the glitch, so silence errors.
+  (ignore-errors
+    (recenter-top-bottom)))
+
+;; Utility functions
+
+(defun xwidget-filament-adjust-size-to-window (xwidget &optional window)
+  "Adjust the size of the webkit XWIDGET to fit the WINDOW."
+  (xwidget-resize xwidget
+                  (xwidget-window-inside-pixel-width window)
+                  (xwidget-window-inside-pixel-height window)))
+
+(defun xwidget-filament-adjust-size (w h)
+  "Manually set webkit size to width W, height H."
+  ;; TODO shouldn't be tied to the webkit xwidget
+  (interactive "nWidth:\nnHeight:\n" xwidget-filament-mode)
+  (xwidget-resize (xwidget-filament-current-session) w h))
+
+(defun xwidget-filament-fit-width ()
+  "Adjust width of webkit to window width."
+  (interactive nil xwidget-filament-mode)
+  (xwidget-filament-adjust-size (- (nth 2 (window-inside-pixel-edges))
+                                 (car (window-inside-pixel-edges)))
+                              1000))
+
+(defun xwidget-filament-auto-adjust-size (window)
+  "Adjust the size of the webkit widget in the given WINDOW."
+  (with-current-buffer (window-buffer window)
+    (when (eq major-mode 'xwidget-filament-mode)
+      (let ((xwidget (xwidget-filament-current-session)))
+        (xwidget-filament-adjust-size-to-window xwidget window)))))
+
+(defun xwidget-filament-adjust-size-in-frame (frame)
+  "Dynamically adjust webkit widget for all windows of the FRAME."
+  (walk-windows 'xwidget-filament-auto-adjust-size 'no-minibuf frame))
+
+(eval-after-load 'xwidget-filament-mode
+  (add-to-list 'window-size-change-functions
+               'xwidget-filament-adjust-size-in-frame))
+
+(defvar xwidget-filament-last-session-buffer nil)
+
+(defun xwidget-filament-last-session ()
+  (if (buffer-live-p xwidget-filament-last-session-buffer)
+      (with-current-buffer xwidget-filament-last-session-buffer
+        (xwidget-at (point-min)))
+      nil))
+
+(defun xwidget-filament-callback (xwidget xwidget-event-type)
+  (if (not (buffer-live-p (xwidget-buffer xwidget)))
+      (xwidget-log "error: callback called for xwidget with dead buffer")
+    (cond (t (xwidget-log "unhandled event:%s" xwidget-event-type))
+          )
+      )
+  )
+
+(defun xwidget-filament-buffer-kill ()
+  )
+
+(defvar xwidget-filament-mode-map
+  (let ((map (make-sparse-keymap)))
+   map)
+  "Keymap for `xwidget-filament-mode'.")
+
+
+(define-derived-mode xwidget-filament-mode special-mode "xwidget-filament"
+  (setq buffer-read-only t)
+  (add-hook 'kill-buffer-hook #'xwidget-filament-buffer-kill)
+  ;;(setq-local tool-bar-map xwidget-filament-tool-bar-map)
+  (image-mode-setup-winprops)
+  )
+
+(defun xwidget-filament-current-session ()
+  (or (xwidget-at (point-min)) (xwidget-filament-last-session))
+  )
+
+(defun xwidget-filament-import-widget (xwidget)
+  (let* ((bufname
+          (generate-new-buffer-name (buffer-name)))
+         (callback #'xwidget-filament-callback)
+         (buffer (get-buffer-create bufname)))
+    (with-current-buffer buffer
+      (setq xwidget-filament-last-session-buffer buffer)
+      (save-excursion
+        (erase-buffer)
+        (insert ".")
+        (put-text-property (point-min) (point-max)
+                           'display (list 'xwidget :xwidget xwidget)))
+      (xwidget-put xwidget 'callback callback)
+      (xwidget-put xwidget 'display-callback #'xwidget-filament-display-callback)
+      (set-xwidget-buffer xwidget buffer)
+      (xwidget-filament-mode)
+      )
+    buffer))
+
+(defun xwidget-filament-display-callback (xwidget _source)
+  (display-buffer (xwidget-filament-import-widget xwidget))
+  )
+
+(defun xwidget-filament-display ()
+  (interactive)
+  (display-buffer (xwidget-filament-import-widget (xwidget-filament-current-session)))
+  )
+
+(defun xwidget-filament--create-new-session-buffer (&optional callback)
+  (let* ((bufname
+          (generate-new-buffer-name (buffer-name)))
+         (callback (or callback #'xwidget-filament-callback))
+         (current-session (xwidget-filament-current-session))
+         xw
+         )
+    (setq xwidget-filament-last-session-buffer (get-buffer-create bufname))
+    (with-current-buffer xwidget-filament-last-session-buffer
+      (let ((start (point)))
+        (insert "filament")
+        (put-text-property start (+ start (length "filament")) 'invisible t)
+        (setq xw (xwidget-insert
+                  start 'filament bufname
+                  (xwidget-window-inside-pixel-width (selected-window))
+                  (xwidget-window-inside-pixel-height (selected-window))
+                  nil current-session))
+        )
+      (xwidget-put xw 'callback callback)
+      (xwidget-put xw 'display-callback #'xwidget-filament-display-callback)
+      (xwidget-filament-mode)
+      )
+    xwidget-filament-last-session-buffer))
+
+(defun xwidget-filament-new-session ()
+  (switch-to-buffer (xwidget-filament--create-new-session-buffer)))
+
+(defun xwidget-filament-goto ()
+  (if (xwidget-filament-current-session)
+      (progn
+        (switch-to-buffer (xwidget-buffer (xwidget-filament-current-session))))
+    (xwidget-filament-new-session)
+    ))
+
+(defun xwidget-filament-browse (&optional new-session)
+  (interactive)
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-filament-new-session)
+    (xwidget-filament-goto))
+  ;;(xwidget-filament-refit)
+  )
+
+(defun xwidget-filament-refit ()
+  (interactive)
+  ;;(switch-to-buffer-other-window (xwidget-buffer (xwidget-filament-current-session)))
+  ;;(xwidget-filament-adjust-size-to-window (xwidget-filament-last-session) (selected-window))
+  ;;(message "%s" (window-resizable (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))) 1 t))
+  (window-resize (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))) 1 t)
+  ;;(display-buffer-reuse-window (xwidget-buffer (xwidget-filament-current-session)) nil)
+  ;;(window-resize (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))) -1 t)
+
+  ;;(xwidget-filament-adjust-size-to-window (xwidget-filament-current-session) (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))))
+  )
+
+
+
+
+
 (provide 'xwidget)
 ;;; xwidget.el ends here

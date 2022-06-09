@@ -880,7 +880,7 @@ in the accessible portion of some other BUFFER, use
   (Lisp_Object buffer)
 {
   if (NILP (buffer))
-    return make_fixnum (Z - BEG);
+    return make_fixnum (ZE - BEG);
   else
     {
       CHECK_BUFFER (buffer);
@@ -953,7 +953,7 @@ If POSITION is out of range, the value is nil.  */)
   (Lisp_Object position)
 {
   EMACS_INT pos = fix_position (position);
-  if (! (BEG <= pos && pos <= Z))
+  if (! (BEG <= pos && pos <= ZE))
     return Qnil;
   return make_fixnum (CHAR_TO_BYTE (pos));
 }
@@ -967,9 +967,9 @@ If BYTEPOS is out of range, the value is nil.  */)
 
   CHECK_FIXNUM (bytepos);
   pos_byte = XFIXNUM (bytepos);
-  if (pos_byte < BEG_BYTE || pos_byte > Z_BYTE)
+  if (pos_byte < BEG_BYTE || pos_byte > ZE_BYTE)
     return Qnil;
-  if (Z != Z_BYTE)
+  if (ZE != ZE_BYTE)
     /* There are multibyte characters in the buffer.
        The argument of BYTE_TO_CHAR must be a byte position at
        a character boundary, so search for the start of the current
@@ -2360,9 +2360,9 @@ Both characters must have the same length of multi-byte form.  */)
 	     combines with neighboring bytes.  */
 	  if (maybe_byte_combining
 	      && (maybe_byte_combining == COMBINING_AFTER
-		  ? (pos_byte_next < Z_BYTE
+		  ? (pos_byte_next < ZE_BYTE
 		     && ! CHAR_HEAD_P (FETCH_BYTE (pos_byte_next)))
-		  : ((pos_byte_next < Z_BYTE
+		  : ((pos_byte_next < ZE_BYTE
 		      && ! CHAR_HEAD_P (FETCH_BYTE (pos_byte_next)))
 		     || (pos_byte > BEG_BYTE
 			 && ! ASCII_CHAR_P (FETCH_BYTE (pos_byte - 1))))))
@@ -2661,11 +2661,11 @@ DEFUN ("widen", Fwiden, Swiden, 0, 0, "",
 This allows the buffer's full text to be seen and edited.  */)
   (void)
 {
-  if (BEG != BEGV || Z != ZV)
+  if (BEG != BEGV || ZE != ZV)
     current_buffer->clip_changed = 1;
   BEGV = BEG;
   BEGV_BYTE = BEG_BYTE;
-  SET_BUF_ZV_BOTH (current_buffer, Z, Z_BYTE);
+  SET_BUF_ZV_BOTH (current_buffer, ZE, ZE_BYTE);
   /* Changing the buffer bounds invalidates any recorded current column.  */
   invalidate_current_column ();
   return Qnil;
@@ -2690,7 +2690,7 @@ remain visible.  */)
       EMACS_INT tem = s; s = e; e = tem;
     }
 
-  if (!(BEG <= s && s <= e && e <= Z))
+  if (!(BEG <= s && s <= e && e <= ZE))
     args_out_of_range (start, end);
 
   if (BEGV != s || ZV != e)
@@ -2710,7 +2710,7 @@ remain visible.  */)
 Lisp_Object
 save_restriction_save (void)
 {
-  if (BEGV == BEG && ZV == Z)
+  if (BEGV == BEG && ZV == ZE)
     /* The common case that the buffer isn't narrowed.
        We return just the buffer object, which save_restriction_restore
        recognizes as meaning `no restriction'.  */

@@ -864,6 +864,7 @@ AC_DEFUN([_AC_PROG_CC_C89], [$2])
 
 dnl Sets GCC=yes if using gcc.
 AC_PROG_CC([gcc cc cl clang "$XCRUN gcc" "$XCRUN clang"])
+AC_PROG_CXX([g++ clang++ "$XCRUN g++" "$XCRUN clang++"])
 if test -n "$XCRUN"; then
   AC_CHECK_PROGS(AR, [ar "$XCRUN ar"])
   test -n "$AR" && export AR
@@ -2127,6 +2128,7 @@ if test "${HAVE_NS}" = yes; then
      infodir="\${ns_appresdir}/info"
      mandir="\${ns_appresdir}/man"
      lispdir="\${ns_appresdir}/lisp"
+     custommatsdir="\${ns_appresdir}/custom_materials"
      lispdirrel="\${ns_appresdir}/lisp"
      test "$locallisppathset" = no && locallisppath="\${ns_appresdir}/site-lisp"
      INSTALL_ARCH_INDEP_EXTRA=
@@ -3524,14 +3526,20 @@ if test "$with_xwidgets" != "no"; then
   elif test "${NS_IMPL_COCOA}" = "yes"; then
     dnl FIXME: Check framework WebKit2
     dnl WEBKIT_REQUIRED=M.m.p
-    WEBKIT_LIBS="-Wl,-framework -Wl,WebKit"
-    WEBKIT_CFLAGS="-I/System/Library/Frameworks/WebKit.framework/Headers"
+    WEBKIT_LIBS="-Wl,-framework -Wl,WebKit -Wl,-framework -Wl,Metal -Wl,-framework -Wl,MetalKit -lc++ -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/filament -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/filament/backend -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/bluegl -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/bluevk -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/camutils -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filabridge -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filaflat -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filagui -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filamat -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filamentapp -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filameshio -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/ibl -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/math -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/utils -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/third_party/smol-v/tnt -L/opt/homebrew/lib -lfilament -lbackend -lvkshaders -lutils -lglfw -lbluevk -lbluegl -lcamutils -lfilabridge -lfilaflat -lfilagui -lfilamat -lfilamentapp -lfilameshio -lmath -libl -lsmol-v "
+    WEBKIT_CFLAGS="-I/System/Library/Frameworks/WebKit.framework/Headers -I/System/Library/Frameworks/Metal.framework/Headers -I/System/Library/Frameworks/MetalKit.framework/Headers -I/Users/fs814/sourcecode/renderer/filament/filament/include -I/Users/fs814/sourcecode/renderer/filament/libs/utils/include -I/Users/fs814/sourcecode/renderer/filament/libs/math/include -I/Users/fs814/sourcecode/renderer/filament/filament/backend/include -I/Users/fs814/sourcecode/renderer/filament/libs/filabridge/include -I/Users/fs814/sourcecode/renderer/filament/filament/src -I/Users/fs814/sourcecode/renderer/filament/third_party/robin-map -I/Users/fs814/sourcecode/renderer/filament/third_party/stb -I/Users/fs814/sourcecode/editor/emacs-fswork/generated"
     HAVE_WEBKIT="yes"
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
     NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
+    NS_OBJCXX_OBJ="LcRender.o FilamentDelegate.o"
+    #NS_CXX_OBJ="FilamentRender.o"
+    CXXFLAGS="$CXXFLAGS -std=c++17"
     dnl Update NS_OBJC_OBJ with added nsxwidget.o
     AC_SUBST(NS_OBJC_OBJ)
+    AC_SUBST(NS_OBJCXX_OBJ)
+    AC_SUBST(NS_CXX_OBJ)
+    AC_SUBST(CXXFLAGS)
   else
     AC_MSG_ERROR([xwidgets requested, it requires GTK3 as X window toolkit or macOS Cocoa as window system.])
   fi
@@ -5951,6 +5959,7 @@ AC_SUBST(mandir)
 AC_SUBST(infodir)
 AC_SUBST(lispdirrel)
 AC_SUBST(lispdir)
+AC_SUBST(custommatsdir)
 AC_SUBST(standardlisppath)
 AC_SUBST(locallisppath)
 AC_SUBST(lisppath)
