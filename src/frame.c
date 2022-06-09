@@ -335,7 +335,7 @@ DEFUN ("frame-windows-min-size", Fframe_windows_min_size,
  * additionally limit the minimum frame height to a value large enough
  * to support menu bar, tab bar, mode line and echo area.
  */
-int
+static int
 frame_windows_min_size (Lisp_Object frame, Lisp_Object horizontal,
 			Lisp_Object ignore, Lisp_Object pixelwise)
 {
@@ -1572,6 +1572,19 @@ do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object nor
   if (! FRAME_MINIBUF_ONLY_P (XFRAME (selected_frame)))
     last_nonminibuf_frame = XFRAME (selected_frame);
 
+  /* If the selected window in the target frame is its mini-window, we move
+     to a different window, the most recently used one, unless there is a
+     valid active minibuffer in the mini-window.  */
+  if (EQ (f->selected_window, f->minibuffer_window)
+      /* The following test might fail if the mini-window contains a
+	 non-active minibuffer.  */
+      && NILP (Fminibufferp (XWINDOW (f->minibuffer_window)->contents, Qt)))
+    {
+      Lisp_Object w = call1 (Qget_mru_window, frame);
+      if (WINDOW_LIVE_P (w)) /* W can be nil in minibuffer-only frames.  */
+        Fset_frame_selected_window (frame, w, Qnil);
+    }
+
   Fselect_window (f->selected_window, norecord);
 
   /* We want to make sure that the next event generates a frame-switch
@@ -1987,6 +2000,15 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
       else
 	error ("Attempt to delete the only frame");
     }
+#ifdef HAVE_X_WINDOWS
+  else if ((x_dnd_in_progress && f == x_dnd_frame)
+	   || (x_dnd_waiting_for_finish && f == x_dnd_finish_frame))
+    error ("Attempt to delete the drop source frame");
+#endif
+#ifdef HAVE_HAIKU
+  else if (f == haiku_dnd_frame)
+    error ("Attempt to delete the drop source frame");
+#endif
 
   XSETFRAME (frame, f);
 
@@ -2325,7 +2347,8 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
 	kset_default_minibuffer_frame (kb, Qnil);
     }
 
-  /* Cause frame titles to update--necessary if we now have just one frame.  */
+  /* Cause frame titles to update--necessary if we now have just one
+     frame.  */
   if (!is_tooltip_frame)
     update_mode_lines = 15;
 
@@ -2505,9 +2528,12 @@ vertical offset, measured in units of the frame's default character size.
 If Emacs is running on a mouseless terminal or hasn't been programmed
 to read the mouse position, it returns the selected frame for FRAME
 and nil for X and Y.
-If `mouse-position-function' is non-nil, `mouse-position' calls it,
-passing the normal return value to that function as an argument,
-and returns whatever that function returns.  */)
+
+FRAME might be nil if `track-mouse' is set to `drag-source'.  This
+means there is no frame under the mouse.  If `mouse-position-function'
+is non-nil, `mouse-position' calls it, passing the normal return value
+to that function as an argument, and returns whatever that function
+returns.  */)
   (void)
 {
   return mouse_position (true);
@@ -2534,7 +2560,7 @@ mouse_position (bool call_mouse_position_function)
 						  &time_dummy);
     }
 
-  if (! NILP (x))
+  if (! NILP (x) && f)
     {
       int col = XFIXNUM (x);
       int row = XFIXNUM (y);
@@ -2542,7 +2568,10 @@ mouse_position (bool call_mouse_position_function)
       XSETINT (x, col);
       XSETINT (y, row);
     }
-  XSETFRAME (lispy_dummy, f);
+  if (f)
+    XSETFRAME (lispy_dummy, f);
+  else
+    lispy_dummy = Qnil;
   retval = Fcons (lispy_dummy, Fcons (x, y));
   if (call_mouse_position_function && !NILP (Vmouse_position_function))
     retval = call1 (Vmouse_position_function, retval);
@@ -2555,9 +2584,11 @@ DEFUN ("mouse-pixel-position", Fmouse_pixel_position,
 The position is given in pixel units, where (0, 0) is the
 upper-left corner of the frame, X is the horizontal offset, and Y is
 the vertical offset.
-If Emacs is running on a mouseless terminal or hasn't been programmed
-to read the mouse position, it returns the selected frame for FRAME
-and nil for X and Y.  */)
+FRAME might be nil if `track-mouse' is set to `drag-source'.  This
+means there is no frame under the mouse.  If Emacs is running on a
+mouseless terminal or hasn't been programmed to read the mouse
+position, it returns the selected frame for FRAME and nil for X and
+Y.  */)
   (void)
 {
   struct frame *f;
@@ -2578,7 +2609,11 @@ and nil for X and Y.  */)
 						  &time_dummy);
     }
 
-  XSETFRAME (lispy_dummy, f);
+  if (f)
+    XSETFRAME (lispy_dummy, f);
+  else
+    lispy_dummy = Qnil;
+
   retval = Fcons (lispy_dummy, Fcons (x, y));
   if (!NILP (Vmouse_position_function))
     retval = call1 (Vmouse_position_function, retval);
@@ -3495,7 +3530,10 @@ DEFUN ("frame-native-width", Fframe_native_width,
        Sframe_native_width, 0, 1, 0,
        doc: /* Return FRAME's native width in pixels.
 For a terminal frame, the result really gives the width in characters.
-If FRAME is omitted or nil, the selected frame is used.  */)
+If FRAME is omitted or nil, the selected frame is used.
+
+If you're interested only in the width of the text portion of the
+frame, see `frame-text-width' instead.  */)
   (Lisp_Object frame)
 {
   struct frame *f = decode_any_frame (frame);
@@ -3518,6 +3556,9 @@ In the Gtk+ and NS versions, it includes only any window (including the
 minibuffer or echo area), mode line, and header line.  It does not
 include the tool bar or menu bar.  With other graphical versions, it may
 also include the tool bar and the menu bar.
+
+If you're interested only in the height of the text portion of the
+frame, see `frame-text-height' instead.
 
 For a text terminal, it includes the menu bar.  In this case, the
 result is really in characters rather than pixels (i.e., is identical
@@ -3616,7 +3657,7 @@ DEFUN ("frame-fringe-width", Ffringe_width, Sfringe_width, 0, 1, 0,
 
 DEFUN ("frame-child-frame-border-width", Fframe_child_frame_border_width, Sframe_child_frame_border_width, 0, 1, 0,
        doc: /* Return width of FRAME's child-frame border in pixels.
- If FRAME's 'child-frame-border-width' parameter is nil, return FRAME's
+ If FRAME's `child-frame-border-width' parameter is nil, return FRAME's
  internal border width instead.  */)
   (Lisp_Object frame)
 {
@@ -3908,6 +3949,9 @@ static const struct frame_parm_table frame_parms[] =
   {"override-redirect",		SYMBOL_INDEX (Qoverride_redirect)},
   {"no-special-glyphs",		SYMBOL_INDEX (Qno_special_glyphs)},
   {"alpha-background",          SYMBOL_INDEX (Qalpha_background)},
+#ifdef HAVE_X_WINDOWS
+  {"shaded", 			SYMBOL_INDEX (Qshaded)},
+#endif
 #ifdef NS_IMPL_COCOA
   {"ns-appearance",		SYMBOL_INDEX (Qns_appearance)},
   {"ns-transparent-titlebar",	SYMBOL_INDEX (Qns_transparent_titlebar)},
@@ -6084,6 +6128,7 @@ syms_of_frame (void)
   DEFSYM (Qfullheight, "fullheight");
   DEFSYM (Qfullboth, "fullboth");
   DEFSYM (Qmaximized, "maximized");
+  DEFSYM (Qshaded, "shaded");
   DEFSYM (Qx_resource_name, "x-resource-name");
   DEFSYM (Qx_frame_parameter, "x-frame-parameter");
 
@@ -6229,14 +6274,24 @@ You can also use a floating number between 0.0 and 1.0.  */);
 	       doc: /* Alist of default values for frame creation.
 These may be set in your init file, like this:
   (setq default-frame-alist \\='((width . 80) (height . 55) (menu-bar-lines . 1)))
+
 These override values given in window system configuration data,
- including X Windows' defaults database.
+including X Windows' defaults database.
+
+Note that many display-related modes (like `scroll-bar-mode' or
+`menu-bar-mode') alter `default-frame-alist', so if you set this
+variable directly, you may be overriding other settings
+unintentionally.  Instead it's often better to use
+`modify-all-frames-parameters' or push new elements to the front of
+this alist.
+
 For values specific to the first Emacs frame, see `initial-frame-alist'.
+
 For window-system specific values, see `window-system-default-frame-alist'.
+
 For values specific to the separate minibuffer frame, see
- `minibuffer-frame-alist'.
-The `menu-bar-lines' element of the list controls whether new frames
- have menu bars; `menu-bar-mode' works by altering this element.
+`minibuffer-frame-alist'.
+
 Setting this variable does not affect existing frames, only new ones.  */);
   Vdefault_frame_alist = Qnil;
 
@@ -6256,7 +6311,7 @@ Setting this variable does not affect existing frames, only new ones.  */);
 
   DEFVAR_BOOL ("scroll-bar-adjust-thumb-portion",
                scroll_bar_adjust_thumb_portion_p,
-               doc: /* Adjust thumb for overscrolling for Gtk+ and MOTIF.
+               doc: /* Adjust scroll bars for overscrolling for Gtk+, Motif and Haiku.
 Non-nil means adjust the thumb in the scroll bar so it can be dragged downwards
 even if the end of the buffer is shown (i.e. overscrolling).
 Set to nil if you want the thumb to be at the bottom when the end of the buffer

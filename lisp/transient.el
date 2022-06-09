@@ -61,10 +61,10 @@
 (eval-when-compile
   (require 'subr-x))
 
-(declare-function info 'info)
-(declare-function Man-find-section 'man)
-(declare-function Man-next-section 'man)
-(declare-function Man-getpage-in-background 'man)
+(declare-function info "info")
+(declare-function Man-find-section "man")
+(declare-function Man-next-section "man")
+(declare-function Man-getpage-in-background "man")
 
 (defvar Man-notify-method)
 
@@ -1384,7 +1384,7 @@ The optional argument COMMAND is intended for internal use.  If
 you are contemplating using it in your own code, then you should
 probably use this instead:
 
-  (get COMMAND 'transient--suffix)"
+  (get COMMAND \\='transient--suffix)"
   (when command
     (cl-check-type command command))
   (if (or transient--prefix

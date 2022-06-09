@@ -490,7 +490,7 @@ OPTION_DEFAULT_ON([modules],[don't compile with dynamic modules support])
 OPTION_DEFAULT_ON([threads],[don't compile with elisp threading support])
 OPTION_DEFAULT_OFF([native-compilation],[compile with Emacs Lisp native compiler support])
 OPTION_DEFAULT_OFF([cygwin32-native-compilation],[use native compilation on 32-bit Cygwin])
-OPTION_DEFAULT_OFF([xinput2],[use version 2 of the X Input Extension for input])
+OPTION_DEFAULT_ON([xinput2],[don't use version 2 of the X Input Extension for input])
 
 AC_ARG_WITH([file-notification],[AS_HELP_STRING([--with-file-notification=LIB],
  [use a file notification library (LIB one of: yes, inotify, kqueue, gfile, w32, no)])],
@@ -965,6 +965,17 @@ AC_DEFUN([gl_GCC_VERSION_IFELSE],
   ]
 )
 
+# clang is unduly picky about some things.
+AC_CACHE_CHECK([whether the compiler is clang], [emacs_cv_clang],
+  [AC_COMPILE_IFELSE(
+     [AC_LANG_PROGRAM([[
+	  #ifndef __clang__
+	    error "not clang";
+	  #endif
+        ]])],
+     [emacs_cv_clang=yes],
+     [emacs_cv_clang=no])])
+
 AC_ARG_ENABLE([gcc-warnings],
   [AS_HELP_STRING([--enable-gcc-warnings@<:@=TYPE@:>@],
                   [control generation of GCC warnings.  The TYPE 'yes'
@@ -984,7 +995,11 @@ AC_ARG_ENABLE([gcc-warnings],
    # just a release imported into Git for patch management.
    gl_gcc_warnings=no
    if test -e "$srcdir"/.git && test ! -f "$srcdir"/.tarball-version; then
-     gl_GCC_VERSION_IFELSE([5], [3], [gl_gcc_warnings=warn-only])
+      # Clang typically identifies itself as GCC 4.2 or something similar
+      # even if it is recent enough to accept the warnings we enable.
+      AS_IF([test "$emacs_cv_clang" = yes],
+         [gl_gcc_warnings=warn-only],
+         [gl_GCC_VERSION_IFELSE([5], [3], [gl_gcc_warnings=warn-only])])
    fi])
 
 AC_ARG_ENABLE([check-lisp-object-type],
@@ -995,17 +1010,6 @@ if test "$enable_check_lisp_object_type" = yes; then
   AC_DEFINE([CHECK_LISP_OBJECT_TYPE], 1,
     [Define to enable compile-time checks for the Lisp_Object data type.])
 fi
-
-# clang is unduly picky about some things.
-AC_CACHE_CHECK([whether the compiler is clang], [emacs_cv_clang],
-  [AC_COMPILE_IFELSE(
-     [AC_LANG_PROGRAM([[
-	  #ifndef __clang__
-	    error "not clang";
-	  #endif
-        ]])],
-     [emacs_cv_clang=yes],
-     [emacs_cv_clang=no])])
 
 WERROR_CFLAGS=
 # When compiling with GCC, prefer -isystem to -I when including system
@@ -1020,6 +1024,7 @@ AS_IF([test $gl_gcc_warnings = no],
      gl_WARN_ADD([-Wno-pointer-sign])
      gl_WARN_ADD([-Wno-string-plus-int])
      gl_WARN_ADD([-Wno-unknown-attributes])
+     gl_WARN_ADD([-Wno-unknown-pragmas])
    ])
  ],[
   isystem='-isystem '
@@ -1075,8 +1080,12 @@ AS_IF([test $gl_gcc_warnings = no],
   # option problematic.
   nw="$nw -Wsuggest-attribute=pure"
 
+  # Emacs doesn't need this paranoia.
+  nw="$nw -Wbidi-chars=any,ucn"
+
   if test "$emacs_cv_clang" = yes; then
     nw="$nw -Wdouble-promotion"
+    nm="$nm -Wunknown-pragmas"
   fi
 
   # This causes too much noise in the MinGW build.
@@ -1096,11 +1105,14 @@ AS_IF([test $gl_gcc_warnings = no],
   gl_WARN_ADD([-Wno-type-limits])      # Too many warnings for now
   gl_WARN_ADD([-Wno-unused-parameter]) # Too many warnings for now
   gl_WARN_ADD([-Wno-format-nonliteral])
+  gl_WARN_ADD([-Wno-bidi-chars])
 
   # clang is unduly picky about some things.
   if test "$emacs_cv_clang" = yes; then
     gl_WARN_ADD([-Wno-missing-braces])
     gl_WARN_ADD([-Wno-null-pointer-arithmetic])
+    gl_WARN_ADD([-Wno-implicit-const-int-float-conversion])
+    gl_WARN_ADD([-Wno-int-in-bool-context])
   fi
 
   # This causes too much noise in the MinGW build
@@ -1201,6 +1213,8 @@ dnl Automake replacements.
 AC_DEFUN([AM_CONDITIONAL],
   [$2 && $1_CONDITION=1 || $1_CONDITION=
    AC_SUBST([$1_CONDITION])])
+AC_DEFUN([AM_COND_IF],
+  [AS_IF([test "$$1_CONDITION"], [$2], [$3])])
 
 dnl Prefer silent make output.  For verbose output, use
 dnl 'configure --disable-silent-rules' or 'make V=1' .
@@ -1609,16 +1623,63 @@ AC_DEFUN([AC_TYPE_SIZE_T])
 # Likewise for obsolescent test for uid_t, gid_t; Emacs assumes them.
 AC_DEFUN([AC_TYPE_UID_T])
 
-# sqrt and other floating-point functions such as fmod and frexp
-# are found in -lm on many systems.
-OLD_LIBS=$LIBS
-AC_SEARCH_LIBS([sqrt], [m])
-if test "X$LIBS" = "X$OLD_LIBS"; then
-  LIB_MATH=
-else
-  LIB_MATH=$ac_cv_search_sqrt
-fi
-LIBS=$OLD_LIBS
+# Check for all math.h functions that Emacs uses; on some platforms,
+# -lm is needed for some of these functions.
+AC_CACHE_CHECK([for math library],
+  [emacs_cv_lib_math],
+  [OLD_LIBS=$LIBS
+   AC_LINK_IFELSE(
+     [AC_LANG_SOURCE([[
+	#include <math.h>
+	int
+	main (int argc, char **argv)
+	{
+	  double d = argc;
+	  float f = argc;
+	  int i = argc;
+	  long l = argc;
+	  d = acos (d);
+	  d = asin (d);
+	  d = atan (d);
+	  d = atan2 (d, d);
+	  d = ceil (d);
+	  d = copysign (d, d);
+	  d = cos (d);
+	  d = exp (d);
+	  d = fabs (d);
+	  d = floor (d);
+	  d = fmod (d, d);
+	  d = frexp (d, &i);
+	  d = ldexp (d, i);
+	  d = log (d);
+	  d = log2 (d);
+	  d = log10 (d);
+	  d = pow (d, d);
+	  d = rint (d);
+	  d = scalbn (d, l);
+	  d = sin (d);
+	  d = sqrt (d);
+	  d = tan (d);
+	  d = trunc (d);
+	  f = fabsf (f);
+	  f = powf (f, f);
+	  i = ilogb (d);
+	  i = signbit (d);
+	  l = lrint (d);
+	  l = lround (d);
+	  return d == f && i == l;
+	}
+     ]])],
+     [emacs_cv_lib_math='none required'],
+     [LIBS="-lm $LIBS"
+      AC_LINK_IFELSE([],
+        [emacs_cv_lib_math=-lm],
+	[AC_MSG_ERROR([Math library (-lm) not found])])])
+   LIBS=$OLD_LIBS])
+case $emacs_cv_lib_math in
+  -*) LIB_MATH=$emacs_cv_lib_math;;
+  *)  LIB_MATH=;;
+esac
 
 dnl Current possibilities handled by sed (aix4-2 -> aix,
 dnl gnu-linux -> gnu/linux, etc.):
@@ -2021,6 +2082,16 @@ Either fix this, or re-configure with the option '--without-ns'.])])
        AC_MSG_ERROR([Mac OS X 10.6 or newer is required]);
     fi
   fi
+
+  AC_CACHE_CHECK([for Mac OS X 12.0 or later],
+                 [emacs_cv_macosx_12_0],
+                 AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
+#include <AvailabilityMacros.h>
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 120000
+Mac OS X 12.x or later.
+#endif
+                 ]])], [emacs_cv_macosx_12_0=no],
+                 [emacs_cv_macosx_12_0=yes]))
 
   if test "${with_native_image_api}" = yes; then
      AC_DEFINE(HAVE_NATIVE_IMAGE_API, 1, [Define to use native OS APIs for images.])
@@ -2689,6 +2760,9 @@ if test "${with_webp}" != "no"; then
       WEBP_MODULE="libwebp >= $WEBP_REQUIRED"
 
       EMACS_CHECK_MODULES([WEBP], [$WEBP_MODULE])
+      if test "$HAVE_WEBP" = "yes"; then
+        WEBP_LIBS="-lwebp -lwebpdemux"
+      fi
       AC_SUBST(WEBP_CFLAGS)
       AC_SUBST(WEBP_LIBS)
    fi
@@ -2788,7 +2862,11 @@ gtk3_pkg_errors=
 if test "${opsys}" != "mingw32"; then
   if test "${with_gtk3}" = "yes" || test "${with_gtk}" = "yes" || test "$USE_X_TOOLKIT" = "maybe"; then
     GLIB_REQUIRED=2.37.5
-    GTK_REQUIRED=3.10
+    if test "${window_system}" = "x11"; then
+      GTK_REQUIRED=3.10
+    else
+      GTK_REQUIRED=3.20
+    fi
     GTK_MODULES="gtk+-3.0 >= $GTK_REQUIRED glib-2.0 >= $GLIB_REQUIRED"
 
     dnl Checks for libraries.
@@ -2923,6 +3001,8 @@ if test "$window_system" = "pgtk"; then
 fi
 AC_SUBST(PGTK_OBJ)
 AC_SUBST(PGTK_LIBS)
+
+AC_CHECK_FUNCS(malloc_trim)
 
 dnl D-Bus has been tested under GNU/Linux only.  Must be adapted for
 dnl other platforms.
@@ -3355,6 +3435,8 @@ if test "${with_toolkit_scroll_bars}" != "no"; then
     AC_DEFINE(USE_TOOLKIT_SCROLL_BARS)
     USE_TOOLKIT_SCROLL_BARS=yes
   fi
+elif test "${window_system}" != "x11" && "${window_system}" != "none"; then
+  AC_MSG_ERROR(Non-toolkit scroll bars are not implemented for your system)
 fi
 
 dnl See if XIM is available.
@@ -3745,6 +3827,14 @@ if test "${HAVE_X11}" = "yes"; then
 [Define to 1 if you have the XCB library and X11-XCB library for mixed
   X11/XCB programming.])
         XCB_LIBS="-lX11-xcb -lxcb -lxcb-util"
+      else
+        AC_CHECK_LIB(xcb-aux, xcb_aux_sync, HAVE_XCB_AUX=yes)
+        if test "${HAVE_XCB_AUX}" = "yes"; then
+          AC_DEFINE(USE_XCB, 1,
+[Define to 1 if you have the XCB library and X11-XCB library for mixed
+ X11/XCB programming.])
+          XCB_LIBS="-lX11-xcb -lxcb -lxcb-aux"
+        fi
       fi
     fi
   fi
@@ -3938,6 +4028,16 @@ case "${opsys}" in
   darwin) MODULES_SECONDARY_SUFFIX='.so' ;;
   *) MODULES_SECONDARY_SUFFIX='' ;;
 esac
+
+# pgtkterm.c uses dlsym
+if test $window_system = pgtk; then
+  case $opsys in
+    gnu|gnu-linux)
+    LIBMODULES="-ldl"
+    ;;
+  esac
+fi
+
 if test "${with_modules}" != "no"; then
   case $opsys in
     gnu|gnu-linux)
@@ -4091,7 +4191,7 @@ if test "${with_native_compilation}" != "no"; then
           MAC_CFLAGS="-I$(dirname $($BREW ls -v libgccjit | \
                                                 grep libgccjit.h))"
           MAC_LIBS="-L$(dirname $($BREW ls -v libgccjit| \
-                                            grep libgccjit.so\$))"
+                                            grep -E 'libgccjit\.(so|dylib)$'))"
         fi
       fi
 
@@ -4270,7 +4370,8 @@ if test "${opsys}" = "mingw32"; then
   fi
 elif test "${HAVE_X11}" = "yes" && test "${with_gif}" != "no" \
         || test "${HAVE_W32}" = "yes" || test "${HAVE_NS}" = "yes" \
-	|| test "${HAVE_BE_APP}" = "yes" || test "$window_system" = "pgtk"; then
+	|| test "${HAVE_BE_APP}" = "yes" || test "$window_system" = "pgtk" \
+	&& test "${with_gif}" != "no"; then
   AC_CHECK_HEADER(gif_lib.h,
 # EGifPutExtensionLast only exists from version libungif-4.1.0b1.
 # Earlier versions can crash Emacs, but version 5.0 removes EGifPutExtensionLast.
@@ -4525,6 +4626,51 @@ if test "${HAVE_X11}" = "yes"; then
 fi
 AC_SUBST(XDBE_CFLAGS)
 AC_SUBST(XDBE_LIBS)
+
+### Use the Nonrectangular Window Shape extension if available.
+HAVE_XSHAPE=no
+HAVE_XCB_SHAPE=no
+if test "${HAVE_X11}" = "yes"; then
+  AC_CHECK_HEADER(X11/extensions/shape.h,
+    [AC_CHECK_LIB(Xext, XShapeQueryVersion, HAVE_XSHAPE=yes)],
+    [],
+    [#include <X11/extensions/shape.h>
+    ])
+  if test $HAVE_XSHAPE = yes; then
+    XSHAPE_LIBS=-lXext
+    AC_CHECK_HEADER(xcb/shape.h,
+      [AC_CHECK_LIB(xcb-shape, xcb_shape_combine, HAVE_XCB_SHAPE=yes)], [],
+      [#include <xcb/shape.h>])
+
+    if test $HAVE_XCB_SHAPE = yes && test "$XCB_LIBS" != ""; then
+      XSHAPE_LIBS="$XSHAPE_LIBS -lxcb-shape"
+      AC_DEFINE(HAVE_XCB_SHAPE, 1, [Define to 1 if XCB supports the Nonrectangular Window Shape extension.])
+    fi
+  fi
+  if test $HAVE_XSHAPE = yes; then
+    AC_DEFINE(HAVE_XSHAPE, 1, [Define to 1 if you have the Nonrectangular Window Shape extension.])
+  fi
+fi
+AC_SUBST(XSHAPE_CFLAGS)
+AC_SUBST(XSHAPE_LIBS)
+
+### Use Xcomposite (-lXcomposite) if available
+HAVE_XCOMPOSITE=no
+if test "${HAVE_X11}" = "yes"; then
+  AC_CHECK_HEADER(X11/extensions/Xcomposite.h,
+    [AC_CHECK_LIB(Xcomposite, XCompositeRedirectWindow, HAVE_XCOMPOSITE=yes)],
+    [],
+    [#include <X11/extensions/Xcomposite.h>
+    ])
+  if test $HAVE_XCOMPOSITE = yes; then
+    XCOMPOSITE_LIBS=-lXcomposite
+  fi
+  if test $HAVE_XCOMPOSITE = yes; then
+    AC_DEFINE(HAVE_XCOMPOSITE, 1, [Define to 1 if you have the XCOMPOSITE extension.])
+  fi
+fi
+AC_SUBST(XCOMPOSITE_CFLAGS)
+AC_SUBST(XCOMPOSITE_LIBS)
 
 ### Use libxml (-lxml2) if available
 ### mingw32 doesn't use -lxml2, since it loads the library dynamically.
@@ -6082,6 +6228,9 @@ case "$opsys" in
      if test "$NS_IMPL_COCOA" = "yes"; then
         libs_nsgui="$libs_nsgui -framework IOKit -framework Carbon \
                     -framework IOSurface -framework QuartzCore"
+        if test "$emacs_cv_macosx_12_0" = "yes"; then
+	  libs_nsgui="$libs_nsgui -framework UniformTypeIdentifiers"
+	fi
      fi
    else
      libs_nsgui=

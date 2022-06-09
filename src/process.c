@@ -1071,13 +1071,24 @@ record_deleted_pid (pid_t pid, Lisp_Object filename)
 
 }
 
-DEFUN ("delete-process", Fdelete_process, Sdelete_process, 1, 1, 0,
+DEFUN ("delete-process", Fdelete_process, Sdelete_process, 0, 1,
+       "(list 'message)",
        doc: /* Delete PROCESS: kill it and forget about it immediately.
 PROCESS may be a process, a buffer, the name of a process or buffer, or
-nil, indicating the current buffer's process.  */)
+nil, indicating the current buffer's process.
+
+Interactively, it will kill the current buffer's process.  */)
   (register Lisp_Object process)
 {
   register struct Lisp_Process *p;
+  bool mess = false;
+
+  /* We use this to see whether we were called interactively.  */
+  if (EQ (process, Qmessage))
+    {
+      mess = true;
+      process = Qnil;
+    }
 
   process = get_process (process);
   p = XPROCESS (process);
@@ -1131,6 +1142,8 @@ nil, indicating the current buffer's process.  */)
 	}
     }
   remove_process (process);
+  if (mess)
+    message ("Deleted process");
   return Qnil;
 }
 
@@ -2131,6 +2144,10 @@ create_process (Lisp_Object process, char **new_argv, Lisp_Object current_dir)
       outchannel = p->open_fd[WRITE_TO_SUBPROCESS];
       inchannel = p->open_fd[READ_FROM_SUBPROCESS];
       forkout = p->open_fd[SUBPROCESS_STDOUT];
+
+#if defined(GNU_LINUX) && defined(F_SETPIPE_SZ)
+      fcntl (inchannel, F_SETPIPE_SZ, read_process_output_max);
+#endif
 
       if (!NILP (p->stderrproc))
 	{
@@ -4766,7 +4783,7 @@ corresponding connection was closed.  */)
 		 SDATA (proc->name),
 		 STRINGP (proc_thread_name)
 		 ? SDATA (proc_thread_name)
-		 : SDATA (Fprin1_to_string (proc->thread, Qt)));
+		 : SDATA (Fprin1_to_string (proc->thread, Qt, Qnil)));
 	}
     }
   else
@@ -6239,7 +6256,6 @@ Otherwise it discards the output.  */)
     {
       Lisp_Object old_read_only;
       ptrdiff_t old_begv, old_zv;
-      ptrdiff_t old_begv_byte, old_zv_byte;
       ptrdiff_t before, before_byte;
       ptrdiff_t opoint_byte;
       struct buffer *b;
@@ -6250,8 +6266,6 @@ Otherwise it discards the output.  */)
       old_read_only = BVAR (current_buffer, read_only);
       old_begv = BEGV;
       old_zv = ZV;
-      old_begv_byte = BEGV_BYTE;
-      old_zv_byte = ZV_BYTE;
 
       bset_read_only (current_buffer, Qnil);
 
@@ -6299,15 +6313,9 @@ Otherwise it discards the output.  */)
 	  opoint_byte += PT_BYTE - before_byte;
 	}
       if (old_begv > before)
-	{
-	  old_begv += PT - before;
-	  old_begv_byte += PT_BYTE - before_byte;
-	}
+	old_begv += PT - before;
       if (old_zv >= before)
-	{
-	  old_zv += PT - before;
-	  old_zv_byte += PT_BYTE - before_byte;
-	}
+	old_zv += PT - before;
 
       /* If the restriction isn't what it should be, set it.  */
       if (old_begv != BEGV || old_zv != ZV)
@@ -6420,7 +6428,7 @@ send_process (Lisp_Object proc, const char *buf, ptrdiff_t len,
   if (p->raw_status_new)
     update_status (p);
   if (! EQ (p->status, Qrun))
-    error ("Process %s not running", SDATA (p->name));
+    error ("Process %s not running: %s", SDATA (p->name), SDATA (status_message (p)));
   if (p->outfd < 0)
     error ("Output file descriptor of %s is closed", SDATA (p->name));
 
@@ -7034,14 +7042,13 @@ abbr_to_signal (char const *name)
   return -1;
 }
 
-DEFUN ("signal-process", Fsignal_process, Ssignal_process,
-       2, 2, "sProcess (name or number): \nnSignal code: ",
-       doc: /* Send PROCESS the signal with code SIGCODE.
-PROCESS may also be a number specifying the process id of the
-process to signal; in this case, the process need not be a child of
-this Emacs.
-SIGCODE may be an integer, or a symbol whose name is a signal name.  */)
-  (Lisp_Object process, Lisp_Object sigcode)
+DEFUN ("internal-default-signal-process",
+       Finternal_default_signal_process,
+       Sinternal_default_signal_process, 2, 3, 0,
+       doc: /* Default function to send PROCESS the signal with code SIGCODE.
+It shall be the last element in list `signal-process-functions'.
+See function `signal-process' for more details on usage.  */)
+  (Lisp_Object process, Lisp_Object sigcode, Lisp_Object remote)
 {
   pid_t pid;
   int signo;
@@ -7091,6 +7098,23 @@ SIGCODE may be an integer, or a symbol whose name is a signal name.  */)
   return make_fixnum (kill (pid, signo));
 }
 
+DEFUN ("signal-process", Fsignal_process, Ssignal_process,
+       2, 3, "sProcess (name or number): \nnSignal code: ",
+       doc: /* Send PROCESS the signal with code SIGCODE.
+PROCESS may also be a number specifying the process id of the
+process to signal; in this case, the process need not be a child of
+this Emacs.
+If PROCESS is a process object which contains the property
+`remote-pid', or PROCESS is a number and REMOTE is a remote file name,
+PROCESS is interpreted as process on the respective remote host, which
+will be the process to signal.
+SIGCODE may be an integer, or a symbol whose name is a signal name.  */)
+  (Lisp_Object process, Lisp_Object sigcode, Lisp_Object remote)
+{
+  return CALLN (Frun_hook_with_args_until_success, Qsignal_process_functions,
+		process, sigcode, remote);
+}
+
 DEFUN ("process-send-eof", Fprocess_send_eof, Sprocess_send_eof, 0, 1, 0,
        doc: /* Make PROCESS see end-of-file in its input.
 EOF comes after any text already sent to it.
@@ -7125,7 +7149,7 @@ process has been transmitted to the serial port.  */)
   if (XPROCESS (proc)->raw_status_new)
     update_status (XPROCESS (proc));
   if (! EQ (XPROCESS (proc)->status, Qrun))
-    error ("Process %s not running", SDATA (XPROCESS (proc)->name));
+    error ("Process %s not running: %s", SDATA (XPROCESS (proc)->name), SDATA (status_message (XPROCESS (proc))));
 
   if (coding && CODING_REQUIRE_FLUSHING (coding))
     {
@@ -8187,16 +8211,25 @@ DEFUN ("list-system-processes", Flist_system_processes, Slist_system_processes,
        0, 0, 0,
        doc: /* Return a list of numerical process IDs of all running processes.
 If this functionality is unsupported, return nil.
+If `default-directory' is remote, return process IDs of the respective remote host.
 
 See `process-attributes' for getting attributes of a process given its ID.  */)
   (void)
 {
+  Lisp_Object handler
+    = Ffind_file_name_handler (BVAR (current_buffer, directory),
+			       Qlist_system_processes);
+  if (!NILP (handler))
+    return call1 (handler, Qlist_system_processes);
+
   return list_system_processes ();
 }
 
 DEFUN ("process-attributes", Fprocess_attributes,
        Sprocess_attributes, 1, 1, 0,
        doc: /* Return attributes of the process given by its PID, a number.
+If `default-directory' is remote, PID is regarded as process
+identifier on the respective remote host.
 
 Value is an alist where each element is a cons cell of the form
 
@@ -8247,6 +8280,12 @@ integer or floating point values.
  args    -- command line which invoked the process (string).  */)
   ( Lisp_Object pid)
 {
+  Lisp_Object handler
+    = Ffind_file_name_handler (BVAR (current_buffer, directory),
+			       Qprocess_attributes);
+  if (!NILP (handler))
+    return call2 (handler, Qprocess_attributes, pid);
+
   return system_process_attributes (pid);
 }
 
@@ -8422,6 +8461,8 @@ void
 syms_of_process (void)
 {
   DEFSYM (Qmake_process, "make-process");
+  DEFSYM (Qlist_system_processes, "list-system-processes");
+  DEFSYM (Qprocess_attributes, "process-attributes");
 
 #ifdef subprocesses
 
@@ -8580,6 +8621,13 @@ These functions are called in the order of the list, until one of them
 returns non-nil.  */);
   Vinterrupt_process_functions = list1 (Qinternal_default_interrupt_process);
 
+  DEFVAR_LISP ("signal-process-functions", Vsignal_process_functions,
+	       doc: /* List of functions to be called for `signal-process'.
+The arguments of the functions are the same as for `signal-process'.
+These functions are called in the order of the list, until one of them
+returns non-nil.  */);
+  Vsignal_process_functions = list1 (Qinternal_default_signal_process);
+
   DEFVAR_LISP ("internal--daemon-sockname", Vinternal__daemon_sockname,
 	       doc: /* Name of external socket passed to Emacs, or nil if none.  */);
   Vinternal__daemon_sockname = Qnil;
@@ -8587,7 +8635,10 @@ returns non-nil.  */);
   DEFVAR_INT ("read-process-output-max", read_process_output_max,
 	      doc: /* Maximum number of bytes to read from subprocess in a single chunk.
 Enlarge the value only if the subprocess generates very large (megabytes)
-amounts of data in one go.  */);
+amounts of data in one go.
+
+On GNU/Linux systems, the value should not exceed
+/proc/sys/fs/pipe-max-size.  See pipe(7) manpage for details.  */);
   read_process_output_max = 4096;
 
   DEFVAR_INT ("process-error-pause-time", process_error_pause_time,
@@ -8600,8 +8651,13 @@ sentinel or a process filter function has an error.  */);
 	  "internal-default-interrupt-process");
   DEFSYM (Qinterrupt_process_functions, "interrupt-process-functions");
 
+  DEFSYM (Qinternal_default_signal_process,
+	  "internal-default-signal-process");
+  DEFSYM (Qsignal_process_functions, "signal-process-functions");
+
   DEFSYM (Qnull, "null");
   DEFSYM (Qpipe_process_p, "pipe-process-p");
+  DEFSYM (Qmessage, "message");
 
   defsubr (&Sprocessp);
   defsubr (&Sget_process);
@@ -8654,6 +8710,7 @@ sentinel or a process filter function has an error.  */);
   defsubr (&Scontinue_process);
   defsubr (&Sprocess_running_child_p);
   defsubr (&Sprocess_send_eof);
+  defsubr (&Sinternal_default_signal_process);
   defsubr (&Ssignal_process);
   defsubr (&Swaiting_for_user_input_p);
   defsubr (&Sprocess_type);

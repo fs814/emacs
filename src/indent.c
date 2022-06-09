@@ -1204,7 +1204,7 @@ compute_motion (ptrdiff_t from, ptrdiff_t frombyte, EMACS_INT fromvpos,
   /* Negative width means use all available text columns.  */
   if (width < 0)
     {
-      width = window_body_width (win, 0);
+      width = window_body_width (win, WINDOW_BODY_IN_CANONICAL_CHARS);
       /* We must make room for continuation marks if we don't have fringes.  */
 #ifdef HAVE_WINDOW_SYSTEM
       if (!FRAME_WINDOW_P (XFRAME (win->frame)))
@@ -1814,7 +1814,7 @@ visible section of the buffer, and pass LINE and COL as TOPOS.  */)
 			 ? window_internal_height (w)
 			 : XFIXNUM (XCDR (topos))),
 			(NILP (topos)
-			 ? (window_body_width (w, 0)
+			 ? (window_body_width (w, WINDOW_BODY_IN_CANONICAL_CHARS)
 			    - (
 #ifdef HAVE_WINDOW_SYSTEM
 			       FRAME_WINDOW_P (XFRAME (w->frame)) ? 0 :
@@ -2209,7 +2209,10 @@ whether or not it is currently displayed in some window.  */)
 	}
       else
 	it_overshoot_count =
-	  !(it.method == GET_FROM_IMAGE || it.method == GET_FROM_STRETCH);
+	  /* If image_id is negative, it's a fringe bitmap, which by
+	     definition doesn't affect display in the text area.  */
+	  !((it.method == GET_FROM_IMAGE && it.image_id >= 0)
+	    || it.method == GET_FROM_STRETCH);
 
       if (start_x_given)
 	{

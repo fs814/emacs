@@ -239,7 +239,7 @@ extern void xwidget_motion_notify (struct xwidget_view *, double,
                                    Time);
 extern void xwidget_scroll (struct xwidget_view *, double, double,
                             double, double, uint, Time, bool);
-#ifdef HAVE_USABLE_XI_GESTURE_PINCH_EVENT
+#ifdef HAVE_XINPUT2_4
 extern void xwidget_pinch (struct xwidget_view *,
                            XIGesturePinchEvent *);
 #endif

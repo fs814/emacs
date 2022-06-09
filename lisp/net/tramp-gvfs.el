@@ -796,6 +796,7 @@ It has been changed in GVFS 1.14.")
     ;; `get-file-buffer' performed by default handler.
     (insert-directory . tramp-handle-insert-directory)
     (insert-file-contents . tramp-handle-insert-file-contents)
+    (list-system-processes . ignore)
     (load . tramp-handle-load)
     (lock-file . tramp-handle-lock-file)
     (make-auto-save-file-name . tramp-handle-make-auto-save-file-name)
@@ -805,6 +806,7 @@ It has been changed in GVFS 1.14.")
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . ignore)
     (make-symbolic-link . tramp-handle-make-symbolic-link)
+    (process-attributes . ignore)
     (process-file . ignore)
     (rename-file . tramp-gvfs-handle-rename-file)
     (set-file-acl . ignore)
@@ -816,6 +818,7 @@ It has been changed in GVFS 1.14.")
     (start-file-process . ignore)
     (substitute-in-file-name . tramp-handle-substitute-in-file-name)
     (temporary-file-directory . tramp-handle-temporary-file-directory)
+    (tramp-get-home-directory . tramp-gvfs-handle-get-home-directory)
     (tramp-get-remote-gid . tramp-gvfs-handle-get-remote-gid)
     (tramp-get-remote-uid . tramp-gvfs-handle-get-remote-uid)
     (tramp-set-file-uid-gid . tramp-gvfs-handle-set-file-uid-gid)
@@ -1139,18 +1142,14 @@ file names."
     ;; Dissect NAME.
     (with-parsed-tramp-file-name name nil
       ;; If there is a default location, expand tilde.
-      (when (string-match "\\`\\(~\\)\\(/\\|\\'\\)" localname)
-	(save-match-data
-	  (tramp-gvfs-maybe-open-connection
-	   (make-tramp-file-name
-	    :method method :user user :domain domain
-	    :host host :port port :localname "/" :hop hop)))
-	(unless (string-empty-p
-		 (tramp-get-connection-property v "default-location" ""))
-	  (setq localname
-		(replace-match
-		 (tramp-get-connection-property v "default-location" "~")
-		 nil t localname 1))))
+      (when (string-match "\\`~\\([^/]*\\)\\(.*\\)\\'" localname)
+	(let ((uname (match-string 1 localname))
+	      (fname (match-string 2 localname))
+	      hname)
+	  (when (zerop (length uname))
+	    (setq uname user))
+	  (when (setq hname (tramp-get-home-directory v uname))
+	    (setq localname (concat hname fname)))))
       ;; Tilde expansion is not possible.
       (when (and (not tramp-tolerate-tilde)
 		 (string-match-p "\\`\\(~[^/]*\\)\\(.*\\)\\'" localname))
@@ -1601,6 +1600,27 @@ If FILE-SYSTEM is non-nil, return file system attributes."
 	       nil
 	     time)))))
 
+(defun tramp-gvfs-handle-get-home-directory (vec &optional _user)
+  "The remote home directory for connection VEC as local file name.
+If USER is a string, return its home directory instead of the
+user identified by VEC.  If there is no user specified in either
+VEC or USER, or if there is no home directory, return nil."
+  (let ((localname
+	 (tramp-get-connection-property vec "default-location" nil))
+	result)
+    (cond
+     ((zerop (length localname))
+      (tramp-get-connection-property (tramp-get-process vec) "share" nil))
+     ;; Google-drive.
+     ((not (string-prefix-p "/" localname))
+      (dolist (item
+	       (tramp-gvfs-get-directory-attributes
+		(tramp-make-tramp-file-name vec "/"))
+	       result)
+	(when (string-equal (cdr (assoc "name" item)) localname)
+	  (setq result (concat "/" (car item))))))
+     (t localname))))
+
 (defun tramp-gvfs-handle-get-remote-uid (vec id-format)
   "The uid of the remote connection VEC, in ID-FORMAT.
 ID-FORMAT valid values are `string' and `integer'."
@@ -1768,22 +1788,26 @@ a downcased host name only."
 		  (list
 		   t ;; handled.
 		   nil ;; no abort of D-Bus.
-		   (with-tramp-connection-property (tramp-get-process v) message
-		     ;; In theory, there can be several choices.
-		     ;; Until now, there is only the question whether
-		     ;; to accept an unknown host signature or certificate.
-		     (with-temp-buffer
-		       ;; Preserve message for `progress-reporter'.
-		       (with-temp-message ""
-			 (insert message)
-			 (goto-char (point-max))
-			 (if noninteractive
-			     (message "%s" message)
-			   (pop-to-buffer (current-buffer)))
-			 (if (yes-or-no-p
-			      (buffer-substring
-			       (line-beginning-position) (point)))
-			     0 1)))))
+		   ;; Preserve message for `progress-reporter'.
+		   (with-temp-message ""
+		     (if noninteractive
+			 ;; Keep regression tests running.
+			 (progn
+			   (message "%s" message)
+			   0)
+		       (with-tramp-connection-property (tramp-get-process v) message
+			 ;; In theory, there can be several choices.
+			 ;; Until now, there is only the question
+			 ;; whether to accept an unknown host
+			 ;; signature or certificate.
+			 (with-temp-buffer
+			   (insert message)
+			   (goto-char (point-max))
+			   (pop-to-buffer (current-buffer))
+			   (if (yes-or-no-p
+				(buffer-substring
+				 (line-beginning-position) (point)))
+			       0 1))))))
 
 		;; When QUIT is raised, we shall return this
 		;; information to D-Bus.

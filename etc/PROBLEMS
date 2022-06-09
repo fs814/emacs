@@ -651,6 +651,46 @@ And then rename the system's readline so that it won't be loaded:
 See <https://pypi.python.org/pypi/gnureadline> for more details on
 installation.
 
+*** On MS-Windows, invoking "M-x run-python" signals an error.
+
+If the error says something like this:
+
+  Python was not found; run with arguments to install
+  from the Microsoft Store, or disable this shortcut
+  from Settings > Manage App Execution Aliases.
+
+  Process Python exited abnormally with code 49
+
+then this is due to the MS-Windows "feature" that is intended to
+encourage you to install the latest available Python version.  It
+works by placing "fake" python.exe and python3.exe executables in a
+special directory, and having that directory on your Path _before_ the
+directory where the real Python executable is installed.  That "fake"
+Python then decides whether to redirect you to the Microsoft Store or
+invoke the actual Python.  The directory where Windows keeps those
+"fake" executables is under your Windows user's 'AppData' directory,
+typically 'C:\Users\<user>\AppData\Local\Microsoft\WindowsApps', where
+"<user>" is the user name of your Windows user.
+
+To solve this, you have several alternatives:
+
+  . Go to "Settings > Manage App Execution Aliases" and turn OFF the
+    aliases for python.exe and/or python3.exe.  This will affect only
+    Python, and may require you to manage upgrades to your Python
+    installation manually, instead of being automatically prompted by
+    MS-Windows.
+  . Move the directory with the "fake" executables to the end of Path,
+    or at least after the directory where the real Python is
+    installed.  Depending on the position in Path where you move it,
+    it will affect Python and/or other programs which Windows monitors
+    via the "App Execution Aliases" feature.
+  . Manually remove python.exe and/or python3.exe from the above
+    directory.  Again, this affects only your Python installation.
+
+Whatever you do, you will need to restart Emacs to refresh its notion
+of the directory where python.exe/python3.exe lives, because that is
+recorded when Python mode is started.
+
 *** Visiting files in some auto-mounted directories causes Emacs to print
 'Error reading dir-locals: (file-error "Read error" "is a directory" ...'
 
@@ -764,6 +804,22 @@ Librsvg 2.46 and above have improved geometry code which Emacs is able
 to take advantage of.
 
 * Runtime problems related to font handling
+
+** Some fonts are detected but not usable under Xft.
+
+Some fonts might not be usable under Emacs even though they show up in
+the font family list when Emacs is built with Xft.  This is because
+Emacs prevents fonts that have color glyphs (such as color Emoji) from
+being used, since they typically cause Xft crashes.
+
+On some GNU/Linux systems, fonts (such as Source Code Pro) that do not
+have color glyphs are reported as color fonts, causing them to be
+unavailable when using Xft.  This is known to happen under Fedora
+GNU/Linux 36 or later, and possibly other distributions as well.
+
+If you encounter a such a font, you can enable it while ignoring other
+fonts that actually have color glyphs by adding its family name to the
+list `xft-color-font-whitelist'.
 
 ** Characters are displayed as empty boxes or with wrong font under X.
 
@@ -1009,6 +1065,15 @@ index 5504171..431adf8 100644
 If you can't modify that file directly, copy it to the directory
 ~/.m17n.d/ (create it if it doesn't exist), and apply the patch.
 
+** On Haiku, some proportionally-spaced fonts display with artifacting.
+
+This is a Haiku bug: https://dev.haiku-os.org/ticket/17229, which can
+be remedied by using a different font that does not exhibit this
+problem, or by configuring Emacs '--with-be-cairo'.
+
+So far, Bitstream Charter and Noto Sans have been known to exhibit
+this problem, while Noto Sans Display is known to not do so.
+
 ** On MS-Windows, some characters display as boxes with hex code.
 
 Also, some characters could display with wrong fonts.
@@ -1022,14 +1087,20 @@ modern fonts are used, such as Noto Emoji or Ebrima.
 The solution is to switch to a configuration that uses HarfBuzz as its
 shaping engine, where these problems don't exist.
 
-** On Haiku, some proportionally-spaced fonts display with artifacting.
+** On MS-Windows, selecting some fonts as the default font doesn't work.
 
-This is a Haiku bug: https://dev.haiku-os.org/ticket/17229, which can
-be remedied by using a different font that does not exhibit this
-problem, or by configuring Emacs '--with-be-cairo'.
+This can happen if you select font variants such as "Light" or "Thin"
+or "Semibold" or "Heavy", and some others.  The APIs used by Emacs on
+Windows to enumerate fonts in a font family consider only 4 font
+variants to belong to the same family: Regular, Italic, Bold, and
+Bold-Italic.  All the other variants aren't returned by those APIs
+when we request to list all the fonts in a family, and thus aren't
+considered by Emacs to belong to the family.  So any font variant that
+is not one of those 4 will likely not work as expected; in most cases
+Emacs will select some other font instead.
 
-So far, Bitstream Charter and Noto Sans have been known to exhibit
-this problem, while Noto Sans Display is known to not do so.
+The only workaround is not to choose such font variants as the default
+font when running Emacs on MS-Windows.
 
 * Internationalization problems
 
@@ -1786,6 +1857,21 @@ remote X server, try this:
 
     (setq mouse-highlight nil)
 
+*** Dropping text on xterm doesn't work.
+
+Emacs sends sythetic button events to legacy clients such as xterm
+that do not support either the XDND or Motif drag-and-drop protocols
+in order to "paste" the text that was dropped.  Unfortunately, xterm
+is configured to ignore these events by default.  Add the following to
+your X defaults file to avoid the problem:
+
+  XTerm.*.allowSendEvents: True
+
+Note that this can in theory pose a security risk, but in practice
+modern X servers have so many other ways to send input to clients
+without signifying that the event is synthesized that it does not
+matter.
+
 * Runtime problems on character terminals
 
 ** The meta key does not work on xterm.
@@ -1803,6 +1889,33 @@ use meta in modified function-keys, which confuses Emacs.  To fix
 this, you can remove the X resource or put this in your init file:
 
   (xterm-remove-modify-other-keys)
+
+** The shift TAB key combination works as meta TAB on a Linux console.
+
+This happens because on your keyboard layout, S-TAB produces the same
+keycodes as typing ESC TAB individually.  The best way to solve this
+is to modify your keyboard layout to produce different codes, and tell
+Emacs what these new codes mean.
+
+The current keyboard layout will probably be a .map.gz file somewhere
+under /usr/share/keymaps.  Identify this file, possibly from a system
+initialization file such as /etc/conf.d/keymaps.  Run gunzip on it to
+decompress it, and amend the entries for keycode 15 to look something
+like this:
+
+keycode  15 = Tab
+        alt     keycode  15 = Meta_Tab
+        shift keycode 15 = F219
+string F219 = "\033[4}\011"      # Shift+<tab>
+
+After possibly saving this file under a different name, compress it
+again using gzip.  Amend /etc/conf.d/keyamps, etc., if needed.
+Further details can be found in the man page for loadkeys.
+
+Then add the following line near the start of your site-start.el or
+.emacs or init.el file:
+
+(define-key input-decode-map "\e[4}\t" 'backtab)
 
 ** Emacs spontaneously displays "I-search: " at the bottom of the screen.
 
@@ -2911,6 +3024,23 @@ GTK_IM_MODULE.
 
 GTK does not allow programs to warp the pointer anymore.  There is
 nothing that can be done about this problem.
+
+** Certain keys such as 'C-S-u' are not reported correctly.
+
+Some keys with modifiers such as Shift and Control might not be
+reported correctly due to incorrectly written GTK input method
+modules.  This is known to happen to 'C-S-u' and 'C->', which are
+misreported as 'C-u' and '>'.
+
+To disable the use of GTK input methods, evaluate:
+
+  (pgtk-use-im-context nil)
+
+This will also cause system input methods and features such as the
+Compose key to stop working.
+
+On X Windows, users should not use Emacs configured with PGTK, since
+this and many other problems do not exist on the regular X builds.
 
 * Build-time problems
 

@@ -102,6 +102,10 @@ struct frame
   Lisp_Object parent_frame;
 #endif /* HAVE_WINDOW_SYSTEM */
 
+  /* Last device to move over this frame.  Any value that isn't a
+     string means the "Virtual core pointer".  */
+  Lisp_Object last_mouse_device;
+
   /* The frame which should receive keystrokes that occur in this
      frame, or nil if they should go to the frame itself.  This is
      usually nil, but if the frame is minibufferless, we can use this
@@ -123,6 +127,7 @@ struct frame
   /* This frame's selected window.
      Each frame has its own window hierarchy
      and one of the windows in it is selected within the frame.
+     This window may be the mini-window of the frame, if any.
      The selected window of the selected frame is Emacs's selected window.  */
   Lisp_Object selected_window;
 
@@ -1338,8 +1343,6 @@ extern bool frame_inhibit_resize (struct frame *, bool, Lisp_Object);
 extern void adjust_frame_size (struct frame *, int, int, int, bool,
 			       Lisp_Object);
 extern Lisp_Object mouse_position (bool);
-extern int frame_windows_min_size (Lisp_Object, Lisp_Object, Lisp_Object,
-				   Lisp_Object);
 extern void frame_size_history_plain (struct frame *, Lisp_Object);
 extern void frame_size_history_extra (struct frame *, Lisp_Object,
 				      int, int, int, int, int, int);

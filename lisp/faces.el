@@ -46,7 +46,8 @@ the terminal-initialization file to be loaded."
     ("vt320" . "vt200")
     ("vt400" . "vt200")
     ("vt420" . "vt200")
-    ("alacritty" . "xterm"))
+    ("alacritty" . "xterm")
+    ("foot" . "xterm"))
   "Alist of terminal type aliases.
 Entries are of the form (TYPE . ALIAS), where both elements are strings.
 This means to treat a terminal of type TYPE as if it were of type ALIAS."
@@ -448,6 +449,10 @@ of FACE on FRAME."
 
 (defun face-attribute (face attribute &optional frame inherit)
   "Return the value of FACE's ATTRIBUTE on FRAME.
+
+See `set-face-attribute' for the list of supported attributes
+and their meanings and allowed values.
+
 If the optional argument FRAME is given, report on face FACE in that frame.
 If FRAME is t, report on the defaults for face FACE (for new frames).
 If FRAME is omitted or nil, use the selected frame.
@@ -511,6 +516,9 @@ FACES may be either a single face or a list of faces.
 
 (defun face-foreground (face &optional frame inherit)
   "Return the foreground color name of FACE, or nil if unspecified.
+On TTY frames, the returned color name can be \"unspecified-fg\",
+which stands for the unknown default foreground color of the display
+where the frame is displayed.
 If the optional argument FRAME is given, report on face FACE in that frame.
 If FRAME is t, report on the defaults for face FACE (for new frames).
 If FRAME is omitted or nil, use the selected frame.
@@ -532,6 +540,9 @@ merging with the `default' face (which is always completely specified)."
 
 (defun face-background (face &optional frame inherit)
   "Return the background color name of FACE, or nil if unspecified.
+On TTY frames, the returned color name can be \"unspecified-bg\",
+which stands for the unknown default background color of the display
+where the frame is displayed.
 If the optional argument FRAME is given, report on face FACE in that frame.
 If FRAME is t, report on the defaults for face FACE (for new frames).
 If FRAME is omitted or nil, use the selected frame.
@@ -663,7 +674,12 @@ face spec.  It is mostly intended for internal use only.
 
 If FRAME is nil, set the attributes for all existing frames, as
 well as the default for new frames.  If FRAME is t, change the
-default for new frames only.
+default for new frames only.  As an exception, to reset the value
+of some attribute to `unspecified' in a way that overrides the
+non-`unspecified' value defined by the face's spec in `defface',
+for new frames, you must explicitly call this function with FRAME
+set to t and the attribute's value set to `unspecified'; just
+using FRAME of nil will not affect new frames in this case.
 
 ARGS must come in pairs ATTRIBUTE VALUE.  ATTRIBUTE must be a
 valid face attribute name.  All attributes can be set to
@@ -1138,13 +1154,18 @@ returned.  Otherwise, DEFAULT is returned verbatim."
                            nil t nil 'face-name-history default))
               ;; Ignore elements that are not faces
               ;; (for example, because DEFAULT was "all faces")
-              (if (facep face) (push (intern face) faces)))
+              (if (facep face) (push (if (stringp face)
+                                         (intern face)
+                                       face)
+                                     faces)))
             (nreverse faces))
         (let ((face (completing-read
                      prompt
                      (completion-table-in-turn nonaliasfaces aliasfaces)
                      nil t nil 'face-name-history defaults)))
-          (if (facep face) (intern face)))))))
+          (when (facep face) (if (stringp face)
+                                 (intern face)
+                               face)))))))
 
 ;; Not defined without X, but behind window-system test.
 (defvar x-bitmap-file-path)
@@ -1192,8 +1213,9 @@ an integer value."
            (:height
             'integerp)
            (:stipple
-            (and (memq (window-system frame) '(x ns pgtk)) ; No stipple on w32 or haiku
-                 (mapcar #'list
+            (and (memq (window-system frame) '(x ns pgtk haiku)) ; No stipple on w32
+                 (mapcar (lambda (item)
+                           (cons item item))
                          (apply #'nconc
                                 (mapcar (lambda (dir)
                                           (and (file-readable-p dir)
@@ -1738,7 +1760,15 @@ The following sources are applied in this order:
         (and tail (face-spec-set-2 face frame
                                    (list :extend (cadr tail))))))
     (setq face-attrs (face-spec-choose (get face 'face-override-spec) frame))
-    (face-spec-set-2 face frame face-attrs)))
+    (face-spec-set-2 face frame face-attrs)
+    (when (and (fboundp 'set-frame-parameter) ; This isn't available
+                                              ; during loadup.
+               (eq face 'scroll-bar))
+      ;; Set the `scroll-bar-foreground' and `scroll-bar-background'
+      ;; frame parameters, because the face is handled by setting
+      ;; those two parameters.  (bug#13476)
+      (set-frame-parameter frame 'scroll-bar-foreground (face-foreground face))
+      (set-frame-parameter frame 'scroll-bar-background (face-background face)))))
 
 (defun face-spec-set-2 (face frame face-attrs)
   "Set the face attributes of FACE on FRAME according to FACE-ATTRS.
@@ -1844,8 +1874,8 @@ on which one provides better contrast with COLOR."
       "#ffffff" "black"))
 
 (defconst color-luminance-dark-limit 0.325
-  "The relative luminance below which a color is considered 'dark'.
-A 'dark' color in this sense provides better contrast with white
+  "The relative luminance below which a color is considered \"dark\".
+A \"dark\" color in this sense provides better contrast with white
 than with black; see `color-dark-p'.
 This value was determined experimentally.")
 
@@ -2073,11 +2103,17 @@ unnamed faces (e.g, `foreground-color')."
         (face-attribute 'default attribute))))
 
 (defun foreground-color-at-point ()
-  "Return the foreground color of the character after point."
+  "Return the foreground color of the character after point.
+On TTY frames, the returned color name can be \"unspecified-fg\",
+which stands for the unknown default foreground color of the
+display where the frame is displayed."
   (faces--attribute-at-point :foreground 'foreground-color))
 
 (defun background-color-at-point ()
-  "Return the background color of the character after point."
+  "Return the background color of the character after point.
+On TTY frames, the returned color name can be \"unspecified-bg\",
+which stands for the unknown default background color of the
+display where the frame is displayed."
   (faces--attribute-at-point :background 'background-color))
 
 
@@ -2643,8 +2679,9 @@ non-nil."
      :background "grey75" :foreground "black")
     (t
      :inverse-video t))
-  "Face for the mode lines (for the selected window) as well as header lines.
-See `mode-line-display' for the face used on mode lines."
+  "Face for the mode lines as well as header lines.
+See `mode-line-active' and `mode-line-inactive' for the faces
+used on mode lines."
   :version "21.1"
   :group 'mode-line-faces
   :group 'basic-faces)
@@ -2821,11 +2858,9 @@ used to display the prompt text."
   :group 'frames
   :group 'basic-faces)
 
-(defface scroll-bar
-  '((((background light)) :foreground "black")
-    (((background dark))  :foreground "white"))
+(defface scroll-bar '((t nil))
   "Basic face for the scroll bar colors under X."
-  :version "28.1"
+  :version "21.1"
   :group 'frames
   :group 'basic-faces)
 
@@ -2860,7 +2895,10 @@ Note: Other faces cannot inherit from the cursor face."
   '((default
      :box (:line-width 1 :style released-button)
      :foreground "black")
-    (((type x w32 ns haiku pgtk) (class color))
+    (((type haiku))
+     :foreground "B_MENU_ITEM_TEXT_COLOR"
+     :background "B_MENU_BACKGROUND_COLOR")
+    (((type x w32 ns pgtk) (class color))
      :background "grey75")
     (((type x) (class mono))
      :background "grey"))

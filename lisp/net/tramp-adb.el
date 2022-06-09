@@ -159,6 +159,7 @@ It is used for TCP/IP devices."
     ;; `get-file-buffer' performed by default handler.
     (insert-directory . tramp-handle-insert-directory)
     (insert-file-contents . tramp-handle-insert-file-contents)
+    (list-system-processes . tramp-handle-list-system-processes)
     (load . tramp-handle-load)
     (lock-file . tramp-handle-lock-file)
     (make-auto-save-file-name . tramp-handle-make-auto-save-file-name)
@@ -168,6 +169,7 @@ It is used for TCP/IP devices."
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . tramp-adb-handle-make-process)
     (make-symbolic-link . tramp-handle-make-symbolic-link)
+    (process-attributes . tramp-handle-process-attributes)
     (process-file . tramp-adb-handle-process-file)
     (rename-file . tramp-adb-handle-rename-file)
     (set-file-acl . ignore)
@@ -179,6 +181,7 @@ It is used for TCP/IP devices."
     (start-file-process . tramp-handle-start-file-process)
     (substitute-in-file-name . tramp-handle-substitute-in-file-name)
     (temporary-file-directory . tramp-handle-temporary-file-directory)
+    (tramp-get-home-directory . ignore)
     (tramp-get-remote-gid . ignore)
     (tramp-get-remote-uid . ignore)
     (tramp-set-file-uid-gid . ignore)
@@ -545,28 +548,8 @@ Emacs dired can't find files."
 (defun tramp-adb-handle-write-region
   (start end filename &optional append visit lockname mustbenew)
   "Like `write-region' for Tramp files."
-  (setq filename (expand-file-name filename)
-	lockname (file-truename (or lockname filename)))
-  (with-parsed-tramp-file-name filename nil
-    (when (and mustbenew (file-exists-p filename)
-	       (or (eq mustbenew 'excl)
-		   (not
-		    (y-or-n-p
-		     (format "File %s exists; overwrite anyway?" filename)))))
-      (tramp-error v 'file-already-exists filename))
-
-    (let ((file-locked (eq (file-locked-p lockname) t))
-	  (curbuf (current-buffer))
-	  (tmpfile (tramp-compat-make-temp-file filename)))
-
-      ;; Lock file.
-      (when (and (not (auto-save-file-name-p (file-name-nondirectory filename)))
-		 (file-remote-p lockname)
-		 (not file-locked))
-	(setq file-locked t)
-	;; `lock-file' exists since Emacs 28.1.
-	(tramp-compat-funcall 'lock-file lockname))
-
+  (tramp-skeleton-write-region start end filename append visit lockname mustbenew
+    (let ((tmpfile (tramp-compat-make-temp-file filename)))
       (when (and append (file-exists-p filename))
 	(copy-file filename tmpfile 'ok)
 	(set-file-modes tmpfile (logior (or (file-modes tmpfile) 0) #o0600)))
@@ -579,33 +562,7 @@ Emacs dired can't find files."
 	    (unless (tramp-adb-execute-adb-command
 		     v "push" tmpfile (tramp-compat-file-name-unquote localname))
 	      (tramp-error v 'file-error "Cannot write: `%s'" filename))
-	  (delete-file tmpfile)))
-
-      ;; We must also flush the cache of the directory, because
-      ;; `file-attributes' reads the values from there.
-      (tramp-flush-file-properties v localname)
-
-      (unless (equal curbuf (current-buffer))
-	(tramp-error
-	 v 'file-error
-	 "Buffer has changed from `%s' to `%s'" curbuf (current-buffer)))
-
-      ;; Set file modification time.
-      (when (or (eq visit t) (stringp visit))
-	(set-visited-file-modtime
-	 (or (file-attribute-modification-time (file-attributes filename))
-	     (current-time))))
-
-      ;; Unlock file.
-      (when file-locked
-	;; `unlock-file' exists since Emacs 28.1.
-	(tramp-compat-funcall 'unlock-file lockname))
-
-      ;; The end.
-      (when (and (null noninteractive)
-		 (or (eq visit t) (string-or-null-p visit)))
-	(tramp-message v 0 "Wrote %s" filename))
-      (run-hooks 'tramp-handle-write-region-hook))))
+	  (delete-file tmpfile))))))
 
 (defun tramp-adb-handle-set-file-modes (filename mode &optional flag)
   "Like `set-file-modes' for Tramp files."
@@ -972,6 +929,7 @@ implementation will be used."
 			 (tramp-make-tramp-temp-file v))))
 		 (remote-tmpstderr
 		  (and tmpstderr (tramp-make-tramp-file-name v tmpstderr)))
+		 (orig-command command)
 		 (program (car command))
 		 (args (cdr command))
 		 (command
@@ -1029,6 +987,9 @@ implementation will be used."
 			    (set-process-sentinel p sentinel))
 			  (when filter
 			    (set-process-filter p filter))
+			  (process-put p 'remote-command orig-command)
+			  (tramp-set-connection-property
+			   p "remote-command" orig-command)
 			  ;; Set query flag and process marker for
 			  ;; this process.  We ignore errors, because
 			  ;; the process could have finished already.
@@ -1112,9 +1073,9 @@ E.g. a host name \"192.168.1.1#5555\" returns \"192.168.1.1:5555\"
        tramp-prefix-port-format ":"
        (cond ((member host devices) host)
 	     ;; This is the case when the host is connected to the default port.
-	     ((member (format "%s%s%d" host tramp-prefix-port-format port)
+	     ((member (format "%s%s%s" host tramp-prefix-port-format port)
 		      devices)
-	      (format "%s:%d" host port))
+	      (format "%s:%s" host port))
 	     ;; An empty host name shall be mapped as well, when there
 	     ;; is exactly one entry in `devices'.
 	     ((and (zerop (length host)) (= (length devices) 1))
@@ -1363,10 +1324,29 @@ connection if a previous connection has died for some reason."
  'tramp-adb-connection-local-default-shell-profile
  tramp-adb-connection-local-default-shell-variables)
 
+(defconst tramp-adb-connection-local-default-ps-variables
+  '((tramp-process-attributes-ps-args)
+    (tramp-process-attributes-ps-format
+     . ((user . string)
+        (pid . number)
+        (ppid . number)
+        (vsize . number)
+        (rss . number)
+        (wchan . string) ; ??
+        (pc . string) ; ??
+        (state . string)
+        (args . nil))))
+  "Default connection-local ps variables for remote adb connections.")
+
+(connection-local-set-profile-variables
+ 'tramp-adb-connection-local-default-ps-profile
+ tramp-adb-connection-local-default-ps-variables)
+
 (with-eval-after-load 'shell
   (connection-local-set-profiles
    `(:application tramp :protocol ,tramp-adb-method)
-   'tramp-adb-connection-local-default-shell-profile))
+   'tramp-adb-connection-local-default-shell-profile
+   'tramp-adb-connection-local-default-ps-profile))
 
 ;; `shell-mode' tries to open remote files like "/adb::~/.history".
 ;; This fails, because the tilde cannot be expanded.  Tell

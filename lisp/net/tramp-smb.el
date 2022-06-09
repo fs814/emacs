@@ -274,6 +274,7 @@ See `tramp-actions-before-shell' for more info.")
     ;; `get-file-buffer' performed by default handler.
     (insert-directory . tramp-smb-handle-insert-directory)
     (insert-file-contents . tramp-handle-insert-file-contents)
+    (list-system-processes . ignore)
     (load . tramp-handle-load)
     (lock-file . tramp-handle-lock-file)
     (make-auto-save-file-name . tramp-handle-make-auto-save-file-name)
@@ -283,6 +284,7 @@ See `tramp-actions-before-shell' for more info.")
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . ignore)
     (make-symbolic-link . tramp-smb-handle-make-symbolic-link)
+    (process-attributes . ignore)
     (process-file . tramp-smb-handle-process-file)
     (rename-file . tramp-smb-handle-rename-file)
     (set-file-acl . tramp-smb-handle-set-file-acl)
@@ -294,6 +296,7 @@ See `tramp-actions-before-shell' for more info.")
     (start-file-process . tramp-smb-handle-start-file-process)
     (substitute-in-file-name . tramp-smb-handle-substitute-in-file-name)
     (temporary-file-directory . tramp-handle-temporary-file-directory)
+    (tramp-get-home-directory . tramp-smb-handle-get-home-directory)
     (tramp-get-remote-gid . ignore)
     (tramp-get-remote-uid . ignore)
     (tramp-set-file-uid-gid . ignore)
@@ -606,7 +609,11 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 	  (if (tramp-tramp-file-p filename) filename newname))
 	 'file-missing filename))
 
-      (if-let ((tmpfile (file-local-copy filename)))
+      ;; `file-local-copy' returns a file name also for a local file
+      ;; with `jka-compr-handler', so we cannot trust its result as
+      ;; indication for a remote file name.
+      (if-let ((tmpfile
+		(and (file-remote-p filename) (file-local-copy filename))))
 	  ;; Remote filename.
 	  (condition-case err
 	      (rename-file tmpfile newname ok-if-already-exists)
@@ -745,25 +752,30 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
       (tramp-run-real-handler #'expand-file-name (list name nil))
     ;; Dissect NAME.
     (with-parsed-tramp-file-name name nil
-      ;; Tilde expansion if necessary.  We use the user name as share,
-      ;; which is often the case in domains.
-      (when (string-match "\\`/?~\\([^/]*\\)" localname)
-	(setq localname
-	      (replace-match
-	       (if (zerop (length (match-string 1 localname)))
-		   user
-		 (match-string 1 localname))
-	       nil nil localname)))
-      ;; Make the file name absolute.
+      ;; Tilde expansion if necessary.
+      (when (string-match "\\`~\\([^/]*\\)\\(.*\\)\\'" localname)
+	(let ((uname (match-string 1 localname))
+	      (fname (match-string 2 localname))
+	      hname)
+	  (when (zerop (length uname))
+	    (setq uname user))
+	  (when (setq hname (tramp-get-home-directory v uname))
+	    (setq localname (concat hname fname)))))
+      ;; Tilde expansion is not possible.
+      (when (and (not tramp-tolerate-tilde)
+		 (string-match-p "\\`\\(~[^/]*\\)\\(.*\\)\\'" localname))
+	(tramp-error v 'file-error "Cannot expand tilde in file `%s'" name))
       (unless (tramp-run-real-handler #'file-name-absolute-p (list localname))
 	(setq localname (concat "/" localname)))
      ;; Do not keep "/..".
       (when (string-match-p "^/\\.\\.?$" localname)
 	(setq localname "/"))
-      ;; No tilde characters in file name, do normal
-      ;; `expand-file-name' (this does "/./" and "/../").
+      ;; Do normal `expand-file-name' (this does "/./" and "/../"),
+      ;; unless there are tilde characters in file name.
       (tramp-make-tramp-file-name
-       v (tramp-run-real-handler #'expand-file-name (list localname))))))
+       v (if (string-match-p "\\`\\(~[^/]*\\)\\(.*\\)\\'" localname)
+	     localname
+	   (tramp-run-real-handler #'expand-file-name (list localname)))))))
 
 (defun tramp-smb-action-get-acl (proc vec)
   "Read ACL data from connection buffer."
@@ -1123,7 +1135,9 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 	  ;; Insert size information.
 	  (when full-directory-p
 	    (insert
-	     (if avail
+	     (if (and avail
+		      ;; Emacs 29.1 or later.
+		      (not (fboundp 'dired--insert-disk-space)))
 		 (format "total used in directory %s available %s\n" used avail)
 	       (format "total %s\n" used))))
 
@@ -1536,7 +1550,8 @@ component is used as the target of the symlink."
 	   (command (string-join (cons program args) " "))
 	   (bmp (and (buffer-live-p buffer) (buffer-modified-p buffer)))
 	   (name1 name)
-	   (i 0))
+	   (i 0)
+	   p)
       (unwind-protect
 	  (save-excursion
 	    (save-restriction
@@ -1559,8 +1574,13 @@ component is used as the target of the symlink."
 			host (file-name-directory localname))))
 		  (tramp-message v 6 "(%s); exit" command)
 		  (tramp-send-string v command)))
+	      (setq p (tramp-get-connection-process v))
+	      (when program
+		(process-put p 'remote-command (cons program args))
+		(tramp-set-connection-property
+	       p "remote-command" (cons program args)))
 	      ;; Return value.
-	      (tramp-get-connection-process v)))
+	      p))
 
 	;; Save exit.
 	(with-current-buffer (tramp-get-connection-buffer v)
@@ -1589,31 +1609,20 @@ errors for shares like \"C$/\", which are common in Microsoft Windows."
 	(tramp-run-real-handler #'substitute-in-file-name (list filename))
       (error filename))))
 
+(defun tramp-smb-handle-get-home-directory (vec &optional user)
+  "The remote home directory for connection VEC as local file name.
+If USER is a string, return its home directory instead of the
+user identified by VEC.  If there is no user specified in either
+VEC or USER, or if there is no home directory, return nil."
+  (let ((user (or user (tramp-file-name-user vec))))
+    (unless (zerop (length user))
+      (concat "/" user))))
+
 (defun tramp-smb-handle-write-region
   (start end filename &optional append visit lockname mustbenew)
   "Like `write-region' for Tramp files."
-  (setq filename (expand-file-name filename)
-	lockname (file-truename (or lockname filename)))
-  (with-parsed-tramp-file-name filename nil
-    (when (and mustbenew (file-exists-p filename)
-	       (or (eq mustbenew 'excl)
-		   (not
-		    (y-or-n-p
-		     (format "File %s exists; overwrite anyway?" filename)))))
-      (tramp-error v 'file-already-exists filename))
-
-    (let ((file-locked (eq (file-locked-p lockname) t))
-	  (curbuf (current-buffer))
-	  (tmpfile (tramp-compat-make-temp-file filename)))
-
-      ;; Lock file.
-      (when (and (not (auto-save-file-name-p (file-name-nondirectory filename)))
-		 (file-remote-p lockname)
-		 (not file-locked))
-	(setq file-locked t)
-	;; `lock-file' exists since Emacs 28.1.
-	(tramp-compat-funcall 'lock-file lockname))
-
+  (tramp-skeleton-write-region start end filename append visit lockname mustbenew
+    (let ((tmpfile (tramp-compat-make-temp-file filename)))
       (when (and append (file-exists-p filename))
 	(copy-file filename tmpfile 'ok))
       ;; We say `no-message' here because we don't want the visited file
@@ -1629,33 +1638,7 @@ errors for shares like \"C$/\", which are common in Microsoft Windows."
 		     v (format "put %s \"%s\""
 			       tmpfile (tramp-smb-get-localname v)))
 	      (tramp-error v 'file-error "Cannot write `%s'" filename))
-	  (delete-file tmpfile)))
-
-      ;; We must also flush the cache of the directory, because
-      ;; `file-attributes' reads the values from there.
-      (tramp-flush-file-properties v localname)
-
-      (unless (equal curbuf (current-buffer))
-	(tramp-error
-	 v 'file-error
-	 "Buffer has changed from `%s' to `%s'" curbuf (current-buffer)))
-
-      ;; Set file modification time.
-      (when (or (eq visit t) (stringp visit))
-	(set-visited-file-modtime
-	 (or (file-attribute-modification-time (file-attributes filename))
-	     (current-time))))
-
-      ;; Unlock file.
-      (when file-locked
-	;; `unlock-file' exists since Emacs 28.1.
-	(tramp-compat-funcall 'unlock-file lockname))
-
-      ;; The end.
-      (when (and (null noninteractive)
-		 (or (eq visit t) (string-or-null-p visit)))
-	(tramp-message v 0 "Wrote %s" filename))
-      (run-hooks 'tramp-handle-write-region-hook))))
+	  (delete-file tmpfile))))))
 
 ;; Internal file name functions.
 

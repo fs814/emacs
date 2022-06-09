@@ -475,7 +475,7 @@ x_free_colors (struct frame *f, unsigned long *pixels, int npixels)
 {
   /* If display has an immutable color map, freeing colors is not
      necessary and some servers don't allow it.  So don't do it.  */
-  if (x_mutable_colormap (FRAME_X_VISUAL (f)))
+  if (x_mutable_colormap (FRAME_X_VISUAL_INFO (f)))
     {
 #ifdef DEBUG_X_COLORS
       unregister_colors (pixels, npixels);
@@ -500,7 +500,7 @@ x_free_dpy_colors (Display *dpy, Screen *screen, Colormap cmap,
 
   /* If display has an immutable color map, freeing colors is not
      necessary and some servers don't allow it.  So don't do it.  */
-  if (x_mutable_colormap (dpyinfo->visual))
+  if (x_mutable_colormap (&dpyinfo->visual_info))
     {
 #ifdef DEBUG_X_COLORS
       unregister_colors (pixels, npixels);
@@ -888,6 +888,11 @@ parse_hex_color_comp (const char *s, const char *e, unsigned short *dst)
 static double
 parse_float_color_comp (const char *s, const char *e)
 {
+  /* Only allow decimal float literals without whitespace.  */
+  for (const char *p = s; p < e; p++)
+    if (!((*p >= '0' && *p <= '9')
+	  || *p == '.' || *p == '+' || *p == '-' || *p == 'e' || *p == 'E'))
+      return -1;
   char *end;
   double x = strtod (s, &end);
   return (end == e && x >= 0 && x <= 1) ? x : -1;
@@ -1445,9 +1450,9 @@ enum xlfd_field
 };
 
 /* Order by which font selection chooses fonts.  The default values
-   mean `first, find a best match for the font width, then for the
-   font height, then for weight, then for slant.'  This variable can be
-   set via set-face-font-sort-order.  */
+   mean "first, find a best match for the font width, then for the
+   font height, then for weight, then for slant."  This variable can be
+   set via 'internal-set-font-selection-order'.  */
 
 static int font_sort_order[4];
 
@@ -1498,16 +1503,22 @@ If FAMILY is omitted or nil, list all families.
 Otherwise, FAMILY must be a string, possibly containing wildcards
 `?' and `*'.
 If FRAME is omitted or nil, use the selected frame.
+
 Each element of the result is a vector [FAMILY WIDTH POINT-SIZE WEIGHT
 SLANT FIXED-P FULL REGISTRY-AND-ENCODING].
-FAMILY is the font family name.  POINT-SIZE is the size of the
-font in 1/10 pt.  WIDTH, WEIGHT, and SLANT are symbols describing the
-width, weight and slant of the font.  These symbols are the same as for
-face attributes.  FIXED-P is non-nil if the font is fixed-pitch.
-FULL is the full name of the font, and REGISTRY-AND-ENCODING is a string
-giving the registry and encoding of the font.
-The result list is sorted according to the current setting of
-the face font sort order.  */)
+
+FAMILY is the font family name.
+POINT-SIZE is the size of the font in 1/10 pt.
+WIDTH, WEIGHT, and SLANT are symbols describing the width, weight
+  and slant of the font.  These symbols are the same as for face
+  attributes, see `set-face-attribute'.
+FIXED-P is non-nil if the font is fixed-pitch.
+FULL is the full name of the font.
+REGISTRY-AND-ENCODING is a string giving the registry and encoding of
+  the font.
+
+The resulting list is sorted according to the current setting of
+the face font sort order, see `face-font-selection-order'.  */)
   (Lisp_Object family, Lisp_Object frame)
 {
   Lisp_Object font_spec, list, *drivers, vec;
@@ -1568,7 +1579,14 @@ the face font sort order.  */)
 			     make_fixnum (point),
 			     FONT_WEIGHT_SYMBOLIC (font),
 			     FONT_SLANT_SYMBOLIC (font),
-			     NILP (spacing) || EQ (spacing, Qp) ? Qnil : Qt,
+			     (NILP (spacing)
+			      || EQ (spacing, Qp)
+			      /* If the font was specified in a way
+				 different from XLFD (e.g., on MS-Windows),
+				 we will have a number there, not 'p'.  */
+			      || EQ (spacing,
+				     make_fixnum (FONT_SPACING_PROPORTIONAL)))
+			     ? Qnil : Qt,
 			     Ffont_xlfd_name (font, Qnil),
 			     AREF (font, FONT_REGISTRY_INDEX));
       result = Fcons (v, result);
@@ -4429,17 +4447,26 @@ free_realized_face (struct frame *f, struct face *face)
 void
 prepare_face_for_display (struct frame *f, struct face *face)
 {
+  Emacs_GC egc;
+  unsigned long mask;
+
   eassert (FRAME_WINDOW_P (f));
 
   if (face->gc == 0)
     {
-      Emacs_GC egc;
-      unsigned long mask = GCForeground | GCBackground | GCGraphicsExposures;
+      mask = GCForeground | GCBackground | GCGraphicsExposures;
 
       egc.foreground = face->foreground;
       egc.background = face->background;
 #ifdef HAVE_X_WINDOWS
       egc.graphics_exposures = False;
+
+      /* While this was historically slower than a line_width of 0,
+	 the difference no longer matters on modern X servers, so set
+	 it to 1 in order for PolyLine requests to behave consistently
+	 everywhere.  */
+      mask |= GCLineWidth;
+      egc.line_width = 1;
 #endif
 
       block_input ();
@@ -5978,6 +6005,8 @@ realize_gui_face (struct face_cache *cache, Lisp_Object attrs[LFACE_VECTOR_SIZE]
     }
   else if (CONSP (box))
     {
+      bool set_color = false;
+
       /* `(:width WIDTH :color COLOR :shadow SHADOW)'.  SHADOW
 	 being one of `raised' or `sunken'.  */
       face->box = FACE_SIMPLE_BOX;
@@ -6015,6 +6044,7 @@ realize_gui_face (struct face_cache *cache, Lisp_Object attrs[LFACE_VECTOR_SIZE]
 		  face->box_color = load_color (f, face, value,
 						LFACE_BOX_INDEX);
 		  face->use_box_color_for_shadows_p = true;
+		  set_color = true;
 		}
 	    }
 	  else if (EQ (keyword, QCstyle))
@@ -6026,7 +6056,9 @@ realize_gui_face (struct face_cache *cache, Lisp_Object attrs[LFACE_VECTOR_SIZE]
 	      else if (EQ (value, Qflat_button))
 		{
 		  face->box = FACE_SIMPLE_BOX;
-		  face->box_color = face->background;
+		  /* Don't override colors set in this box. */
+		  if (!set_color)
+		    face->box_color = face->background;
 		}
 	    }
 	}
@@ -6839,7 +6871,6 @@ DEFUN ("show-face-resources", Fshow_face_resources, Sshow_face_resources,
 			    Initialization
  ***********************************************************************/
 
-#ifdef HAVE_PDUMPER
 /* All the faces defined during loadup are recorded in
    face-new-frame-defaults.  We need to set next_lface_id to the next
    face ID number, so that any new faces defined in this session will
@@ -6849,26 +6880,35 @@ DEFUN ("show-face-resources", Fshow_face_resources, Sshow_face_resources,
 void
 init_xfaces (void)
 {
-  int nfaces = XFIXNAT (Fhash_table_count (Vface_new_frame_defaults));
-  if (nfaces > 0)
-    {
-      /* Allocate the lface_id_to_name[] array.  */
-      lface_id_to_name_size = next_lface_id = nfaces;
-      lface_id_to_name = xnmalloc (next_lface_id, sizeof *lface_id_to_name);
+#ifdef HAVE_PDUMPER
+  int nfaces;
 
-      /* Store the faces.  */
-      struct Lisp_Hash_Table* table = XHASH_TABLE (Vface_new_frame_defaults);
-      for (ptrdiff_t idx = 0; idx < nfaces; ++idx)
+  if (dumped_with_pdumper_p ())
+    {
+      nfaces = XFIXNAT (Fhash_table_count (Vface_new_frame_defaults));
+      if (nfaces > 0)
 	{
-	  Lisp_Object lface = HASH_KEY (table, idx);
-	  Lisp_Object face_id = CAR (HASH_VALUE (table, idx));
-          if (FIXNATP (face_id)) {
-              int id = XFIXNAT (face_id);
-              eassert (id >= 0);
-              lface_id_to_name[id] = lface;
-            }
+	  /* Allocate the lface_id_to_name[] array.  */
+	  lface_id_to_name_size = next_lface_id = nfaces;
+	  lface_id_to_name = xnmalloc (next_lface_id, sizeof *lface_id_to_name);
+
+	  /* Store the faces.  */
+	  struct Lisp_Hash_Table* table = XHASH_TABLE (Vface_new_frame_defaults);
+	  for (ptrdiff_t idx = 0; idx < nfaces; ++idx)
+	    {
+	      Lisp_Object lface = HASH_KEY (table, idx);
+	      Lisp_Object face_id = CAR (HASH_VALUE (table, idx));
+	      if (FIXNATP (face_id))
+		{
+		  int id = XFIXNAT (face_id);
+		  eassert (id >= 0);
+		  lface_id_to_name[id] = lface;
+		}
+	    }
 	}
     }
+#endif
+
   face_attr_sym[0] = Qface;
   face_attr_sym[LFACE_FOUNDRY_INDEX] = QCfoundry;
   face_attr_sym[LFACE_SWIDTH_INDEX] = QCwidth;
@@ -6889,7 +6929,6 @@ init_xfaces (void)
   face_attr_sym[LFACE_DISTANT_FOREGROUND_INDEX] = QCdistant_foreground;
   face_attr_sym[LFACE_EXTEND_INDEX] = QCextend;
 }
-#endif
 
 void
 syms_of_xfaces (void)

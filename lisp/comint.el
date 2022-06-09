@@ -1110,7 +1110,8 @@ See also `comint-read-input-ring'."
 	  (use-local-map keymap))
 	(forward-line 3)
 	(while (search-backward "completion" nil 'move)
-	  (replace-match "history reference")))
+	  (replace-match (apply #'propertize "history reference"
+				(text-properties-at (point))))))
       (sit-for 0)
       (message "Hit space to flush")
       (setq comint-dynamic-list-input-ring-window-conf conf)
@@ -1515,6 +1516,7 @@ Intended to be added to `isearch-mode-hook' in `comint-mode'."
                 #'comint-history-isearch-wrap)
     (setq-local isearch-push-state-function
                 #'comint-history-isearch-push-state)
+    (setq-local isearch-lazy-count nil)
     (add-hook 'isearch-mode-end-hook 'comint-history-isearch-end nil t)))
 
 (defun comint-history-isearch-end ()
@@ -1526,6 +1528,7 @@ Intended to be added to `isearch-mode-hook' in `comint-mode'."
   (setq isearch-message-function nil)
   (setq isearch-wrap-function nil)
   (setq isearch-push-state-function nil)
+  (kill-local-variable 'isearch-lazy-count)
   (remove-hook 'isearch-mode-end-hook 'comint-history-isearch-end t)
   (unless isearch-suspended
     (custom-reevaluate-setting 'comint-history-isearch)))
@@ -3975,10 +3978,12 @@ REGEXP-GROUP is the regular expression group in REGEXP to use."
 
 ;;; OSC escape sequences (Operating System Commands)
 ;;============================================================================
-;; Adding `comint-osc-process-output' to `comint-output-filter-functions'
-;; enables the interpretation of OSC escape sequences.  By default, only
-;; OSC 8, for hyperlinks, is acted upon.  Adding more entries to
-;; `comint-osc-handlers' allows a customized treatment of further sequences.
+;; Adding `comint-osc-process-output' to
+;; `comint-output-filter-functions' enables the interpretation of OSC
+;; escape sequences.  By default, OSC 7 and 8 (for current directory
+;; and hyperlinks respectively) are acted upon.  Adding more entries
+;; to `comint-osc-handlers' allows a customized treatment of further
+;; sequences.
 
 (defvar-local comint-osc-handlers '(("7" . comint-osc-directory-tracker)
                                     ("8" . comint-osc-hyperlink-handler))
@@ -4023,9 +4028,9 @@ arguments, with point where the escape sequence was located."
 
 ;; Current directory tracking (OSC 7)
 
-(declare-function url-host "url-parse.el")
-(declare-function url-type "url-parse.el")
-(declare-function url-filename "url-parse.el")
+(declare-function url-host "url/url-parse.el")
+(declare-function url-type "url/url-parse.el")
+(declare-function url-filename "url/url-parse.el")
 (defun comint-osc-directory-tracker (_ text)
   "Update `default-directory' from OSC 7 escape sequences.
 

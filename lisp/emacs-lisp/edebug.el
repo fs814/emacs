@@ -41,7 +41,7 @@
 ;; See the Emacs Lisp Reference Manual for more details.
 
 ;; If you wish to change the default edebug global command prefix, change:
-;; (setq global-edebug-prefix "\C-xX")
+;; (setq edebug-global-prefix "\C-xX")
 
 ;; Edebug was written by
 ;; Daniel LaLiberte
@@ -57,6 +57,7 @@
 (require 'cl-lib)
 (require 'seq)
 (eval-when-compile (require 'pcase))
+(require 'debug)
 
 ;;; Options
 
@@ -3711,12 +3712,25 @@ Return the result of the last expression."
 If interactive, prompt for the expression.
 Print result in minibuffer."
   (interactive (list (read--expression "Eval: ")))
-  (princ
-   (edebug-outside-excursion
-    (let ((result (edebug-eval expr)))
-      (values--store-value result)
-      (concat (edebug-safe-prin1-to-string result)
-              (eval-expression-print-format result))))))
+  (let* ((errored nil)
+         (result
+          (edebug-outside-excursion
+           (let ((result (if debug-allow-recursive-debug
+                             (edebug-eval expr)
+                           (condition-case err
+                               (edebug-eval expr)
+                             (error
+                              (setq errored
+                                    (format "%s: %s"
+			                    (get (car err) 'error-message)
+			                    (car (cdr err)))))))))
+             (unless errored
+               (values--store-value result)
+               (concat (edebug-safe-prin1-to-string result)
+                       (eval-expression-print-format result)))))))
+    (if errored
+        (message "Error: %s" errored)
+      (princ result))))
 
 (defun edebug-eval-last-sexp (&optional no-truncate)
   "Evaluate sexp before point in the outside environment.
@@ -3851,7 +3865,10 @@ be installed in `emacs-lisp-mode-map'.")
 
 (define-obsolete-variable-alias 'global-edebug-prefix
   'edebug-global-prefix "28.1")
-(defvar edebug-global-prefix "\^XX"
+(defvar edebug-global-prefix
+  (when-let ((binding
+              (car (where-is-internal 'Control-X-prefix (list global-map)))))
+    (concat binding [?X]))
   "Prefix key for global edebug commands, available from any buffer.")
 
 (define-obsolete-variable-alias 'global-edebug-map

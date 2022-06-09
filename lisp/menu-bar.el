@@ -311,7 +311,7 @@
     (isearch-update-ring string t)
     (re-search-backward string)))
 
-;; The Edit->Search->Incremental Search menu
+;; The Edit->Incremental Search menu
 (defvar menu-bar-i-search-menu
   (let ((menu (make-sparse-keymap "Incremental Search")))
     (bindings--define-key menu [isearch-forward-symbol-at-point]
@@ -339,12 +339,6 @@
 
 (defvar menu-bar-search-menu
   (let ((menu (make-sparse-keymap "Search")))
-
-    (bindings--define-key menu [i-search]
-      `(menu-item "Incremental Search" ,menu-bar-i-search-menu))
-    (bindings--define-key menu [separator-tag-isearch]
-      menu-bar-separator)
-
     (bindings--define-key menu [tags-continue]
       '(menu-item "Continue Tags Search" fileloop-continue
                   :enable (and (featurep 'fileloop)
@@ -501,6 +495,9 @@
     (bindings--define-key menu [replace]
       `(menu-item "Replace" ,menu-bar-replace-menu))
 
+    (bindings--define-key menu [i-search]
+      `(menu-item "Incremental Search" ,menu-bar-i-search-menu))
+
     (bindings--define-key menu [search]
       `(menu-item "Search" ,menu-bar-search-menu))
 
@@ -606,7 +603,8 @@
   "Insert the clipboard contents, or the last stretch of killed text."
   (interactive "*")
   (let ((select-enable-clipboard t)
-        ;; Ensure that we defeat the DWIM login in `gui-selection-value'.
+        ;; Ensure that we defeat the DWIM logic in `gui-selection-value'
+        ;; (i.e., that gui--clipboard-selection-unchanged-p returns nil).
         (gui--last-selected-text-clipboard nil))
     (yank)))
 
@@ -2322,8 +2320,29 @@ Buffers menu is regenerated."
 	      (cdr elt)))
 	  buf)))
 
-;; Used to cache the menu entries for commands in the Buffers menu
-(defvar menu-bar-buffers-menu-command-entries nil)
+(defvar menu-bar-buffers-menu-command-entries
+  (list '(command-separator "--")
+	(list 'next-buffer
+	      'menu-item
+	      "Next Buffer"
+	      'next-buffer
+	      :help "Switch to the \"next\" buffer in a cyclic order")
+	(list 'previous-buffer
+	      'menu-item
+	      "Previous Buffer"
+	      'previous-buffer
+	      :help "Switch to the \"previous\" buffer in a cyclic order")
+	(list 'select-named-buffer
+	      'menu-item
+	      "Select Named Buffer..."
+	      'switch-to-buffer
+	      :help "Prompt for a buffer name, and select that buffer in the current window")
+	(list 'list-all-buffers
+	      'menu-item
+	      "List All Buffers"
+	      'list-buffers
+	      :help "Pop up a window listing all Emacs buffers"))
+  "Entries to be included at the end of the \"Buffers\" menu.")
 
 (defvar menu-bar-select-buffer-function 'switch-to-buffer
   "Function to select the buffer chosen from the `Buffers' menu-bar menu.
@@ -2408,35 +2427,7 @@ It must accept a buffer as its only required argument.")
 			  `((frames-separator "--")
 			    (frames menu-item "Frames" ,frames-menu))))))
 
-	 ;; Add in some normal commands at the end of the menu.  We use
-	 ;; the copy cached in `menu-bar-buffers-menu-command-entries'
-	 ;; if it's been set already.  Note that we can't use constant
-	 ;; lists for the menu-entries, because the low-level menu-code
-	 ;; modifies them.
-	 (unless menu-bar-buffers-menu-command-entries
-	   (setq menu-bar-buffers-menu-command-entries
-		 (list '(command-separator "--")
-		       (list 'next-buffer
-			     'menu-item
-			     "Next Buffer"
-			     'next-buffer
-			     :help "Switch to the \"next\" buffer in a cyclic order")
-		       (list 'previous-buffer
-			     'menu-item
-			     "Previous Buffer"
-			     'previous-buffer
-			     :help "Switch to the \"previous\" buffer in a cyclic order")
-		       (list 'select-named-buffer
-			     'menu-item
-			     "Select Named Buffer..."
-			     'switch-to-buffer
-			     :help "Prompt for a buffer name, and select that buffer in the current window")
-		       (list 'list-all-buffers
-			     'menu-item
-			     "List All Buffers"
-			     'list-buffers
-			     :help "Pop up a window listing all Emacs buffers"
-			     ))))
+	 ;; Add in some normal commands at the end of the menu.
 	 (setq buffers-menu
 	       (nconc buffers-menu menu-bar-buffers-menu-command-entries))
 

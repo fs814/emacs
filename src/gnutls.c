@@ -616,6 +616,9 @@ gnutls_try_handshake (struct Lisp_Process *proc)
   gnutls_session_t state = proc->gnutls_state;
   int ret;
   bool non_blocking = proc->is_non_blocking_client;
+  /* Sleep for ten milliseconds when busy-looping in
+     gnutls_handshake.  */
+  struct timespec delay = { 0, 1000 * 1000 * 10 };
 
   if (proc->gnutls_complete_negotiation_p)
     non_blocking = false;
@@ -630,6 +633,7 @@ gnutls_try_handshake (struct Lisp_Process *proc)
       maybe_quit ();
       if (non_blocking && ret != GNUTLS_E_INTERRUPTED)
 	break;
+      nanosleep (&delay, NULL);
     }
 
   proc->gnutls_initstage = GNUTLS_STAGE_HANDSHAKE_TRIED;
@@ -1517,7 +1521,7 @@ returned as the :certificate entry.  */)
 /* Initialize global GnuTLS state to defaults.
    Call 'gnutls-global-deinit' when GnuTLS usage is no longer needed.
    Return zero on success.  */
-Lisp_Object
+static Lisp_Object
 emacs_gnutls_global_init (void)
 {
   int ret = GNUTLS_E_SUCCESS;

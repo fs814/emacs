@@ -237,6 +237,26 @@ Comments in the form will be lost."
       (if (bolp) (delete-char -1))
       (indent-region start (point)))))
 
+(defun elisp-mode-syntax-propertize (start end)
+  (goto-char start)
+  (let ((case-fold-search nil))
+    (funcall
+     (syntax-propertize-rules
+      ;; Empty symbol.
+      ("##" (0 (unless (nth 8 (syntax-ppss))
+                 (string-to-syntax "_"))))
+      ;; Unicode character names.  (The longest name is 88 characters
+      ;; long.)
+      ("\\?\\\\N{[-A-Za-z0-9 ]\\{,100\\}}"
+       (0 (unless (nth 8 (syntax-ppss))
+            (string-to-syntax "_"))))
+      ((rx "#" (or (seq (group-n 1 "&" (+ digit)) ?\") ; Bool-vector.
+                   (seq (group-n 1 "s") "(")           ; Record.
+                   (seq (group-n 1 (+ "^")) "[")))     ; Char-table.
+       (1 (unless (save-excursion (nth 8 (syntax-ppss (match-beginning 0))))
+            (string-to-syntax "'")))))
+     start end)))
+
 (defcustom emacs-lisp-mode-hook nil
   "Hook run when entering Emacs Lisp mode."
   :options '(eldoc-mode imenu-add-menubar-index checkdoc-minor-mode)
@@ -310,6 +330,7 @@ be used instead.
             #'elisp-eldoc-var-docstring nil t)
   (add-hook 'xref-backend-functions #'elisp--xref-backend nil t)
   (setq-local project-vc-external-roots-function #'elisp-load-path-roots)
+  (setq-local syntax-propertize-function #'elisp-mode-syntax-propertize)
   (add-hook 'completion-at-point-functions
             #'elisp-completion-at-point nil 'local)
   (add-hook 'flymake-diagnostic-functions #'elisp-flymake-checkdoc nil t)
@@ -606,13 +627,13 @@ functions are annotated with \"<f>\" via the
            ;; t if in function position.
            (funpos (eq (char-before beg) ?\())
            (quoted (elisp--form-quoted-p beg))
-           (fun-sym (condition-case nil
-                        (save-excursion
-                          (up-list -1)
-                          (forward-char 1)
-                          (and (memq (char-syntax (char-after)) '(?w ?_))
-                               (read (current-buffer))))
-                      (error nil))))
+           (is-ignore-error
+            (condition-case nil
+                (save-excursion
+                  (up-list -1)
+                  (forward-char 1)
+                  (looking-at-p "ignore-error\\>"))
+              (error nil))))
       (when (and end (or (not (nth 8 (syntax-ppss)))
                          (memq (char-before beg) '(?` ?‘))))
         (let ((table-etc
@@ -621,7 +642,7 @@ functions are annotated with \"<f>\" via the
                     ;; FIXME: We could look at the first element of
                     ;; the current form and use it to provide a more
                     ;; specific completion table in more cases.
-                    ((eq fun-sym 'ignore-error)
+                    (is-ignore-error
                      (list t (elisp--completion-local-symbols)
                            :predicate (lambda (sym)
                                         (get sym 'error-conditions))))
@@ -755,8 +776,8 @@ functions are annotated with \"<f>\" via the
 
 ;;; Xref backend
 
-(declare-function xref-make "xref" (summary location))
-(declare-function xref-item-location "xref" (this))
+(declare-function xref-make "progmodes/xref" (summary location))
+(declare-function xref-item-location "progmodes/xref" (this))
 
 (defun elisp--xref-backend () 'elisp)
 
@@ -779,7 +800,7 @@ functions are annotated with \"<f>\" via the
 (defun elisp--xref-make-xref (type symbol file &optional summary)
   "Return an xref for TYPE SYMBOL in FILE.
 TYPE must be a type in `find-function-regexp-alist' (use nil for
-'defun).  If SUMMARY is non-nil, use it for the summary;
+`defun').  If SUMMARY is non-nil, use it for the summary;
 otherwise build the summary from TYPE and SYMBOL."
   (xref-make (or summary
 		 (format elisp--xref-format (or type 'defun) symbol))
@@ -1614,8 +1635,6 @@ Return the result of evaluation."
   ;; printing, not while evaluating.
   (defvar elisp--eval-defun-result)
   (let ((debug-on-error eval-expression-debug-on-error)
-	(print-length eval-expression-print-length)
-	(print-level eval-expression-print-level)
         elisp--eval-defun-result)
     (save-excursion
       ;; Arrange for eval-region to "read" the (possibly) altered form.
@@ -1630,10 +1649,17 @@ Return the result of evaluation."
           (setq beg (point))
           (setq form (funcall load-read-function (current-buffer)))
           (setq end (point)))
-        ;; Alter the form if necessary.
-        (let ((form (eval-sexp-add-defvars
-                     (elisp--eval-defun-1
-                      (macroexpand form)))))
+        ;; Alter the form if necessary.  We bind `print-level' (etc.)
+        ;; in the form itself, because we want evalling the form to
+        ;; use the original values, while we want the printing to use
+        ;; `eval-expression-print-length' (etc.).
+        (let ((form `(let ((print-level ,print-level)
+                           (print-length ,print-length))
+                       ,(eval-sexp-add-defvars
+                         (elisp--eval-defun-1
+                          (macroexpand form)))))
+	      (print-length eval-expression-print-length)
+	      (print-level eval-expression-print-level))
           (eval-region beg end standard-output
                        (lambda (_ignore)
                          ;; Skipping to the end of the specified region
@@ -1737,13 +1763,41 @@ Intended for `eldoc-documentation-functions' (which see)."
 
 (defun elisp-eldoc-var-docstring (callback &rest _ignored)
   "Document variable at point.
-Intended for `eldoc-documentation-functions' (which see)."
+Intended for `eldoc-documentation-functions' (which see).
+Also see `elisp-eldoc-var-docstring-with-value'."
   (let* ((sym (elisp--current-symbol))
          (docstring (and sym (elisp-get-var-docstring sym))))
     (when docstring
       (funcall callback docstring
                :thing sym
                :face 'font-lock-variable-name-face))))
+
+(defun elisp-eldoc-var-docstring-with-value (callback &rest _)
+  "Document variable at point.
+Intended for `eldoc-documentation-functions' (which see).
+Compared to `elisp-eldoc-var-docstring', this also includes the
+current variable value and a bigger chunk of the docstring."
+  (when-let ((cs (elisp--current-symbol)))
+    (when (and (boundp cs)
+	       ;; nil and t are boundp!
+	       (not (null cs))
+	       (not (eq cs t)))
+      (funcall callback
+	       (format "%.100S %s"
+		       (symbol-value cs)
+		       (let* ((doc (documentation-property
+                                    cs 'variable-documentation t))
+			      (more (- (length doc) 1000)))
+			 (concat (propertize
+				  (string-limit (if (string= doc "nil")
+						    "Undocumented."
+						  doc)
+					        1000)
+				  'face 'font-lock-doc-face)
+				 (when (> more 0)
+				   (format "[%sc more]" more)))))
+	       :thing cs
+	       :face 'font-lock-variable-name-face))))
 
 (defun elisp-get-fnsym-args-string (sym &optional index)
   "Return a string containing the parameter list of the function SYM.
@@ -2062,7 +2116,9 @@ current buffer state and calls REPORT-FN when done."
     (when (process-live-p elisp-flymake--byte-compile-process)
       (kill-process elisp-flymake--byte-compile-process)))
   (let ((temp-file (make-temp-file "elisp-flymake-byte-compile"))
-        (source-buffer (current-buffer)))
+        (source-buffer (current-buffer))
+        (coding-system-for-write 'utf-8-unix)
+        (coding-system-for-read 'utf-8))
     (save-restriction
       (widen)
       (write-region (point-min) (point-max) temp-file nil 'nomessage))
@@ -2083,7 +2139,7 @@ current buffer state and calls REPORT-FN when done."
         :connection-type 'pipe
         :sentinel
         (lambda (proc _event)
-          (when (eq (process-status proc) 'exit)
+          (unless (process-live-p proc)
             (unwind-protect
                 (cond
                  ((not (and (buffer-live-p source-buffer)
@@ -2112,6 +2168,8 @@ Runs in a batch-mode Emacs.  Interactively use variable
   (interactive (list buffer-file-name))
   (let* ((file (or file
                    (car command-line-args-left)))
+         (coding-system-for-read 'utf-8-unix)
+         (coding-system-for-write 'utf-8)
          (byte-compile-log-buffer
           (generate-new-buffer " *dummy-byte-compile-log-buffer*"))
          (byte-compile-dest-file-function #'ignore)

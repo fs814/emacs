@@ -256,6 +256,7 @@ the command."
 
 (defcustom eshell-subcommand-bindings
   '((eshell-in-subcommand-p t)
+    (eshell-in-pipeline-p nil)
     (default-directory default-directory)
     (process-environment (eshell-copy-environment)))
   "A list of `let' bindings for subcommand environments."
@@ -350,6 +351,39 @@ This only returns external (non-Lisp) processes."
 
 (defvar eshell--sep-terms)
 
+(defmacro eshell-with-temp-command (region &rest body)
+  "Narrow the buffer to REGION and execute the forms in BODY.
+
+REGION is a cons cell (START . END) that specifies the region to
+which to narrow the buffer.  REGION can also be a string, in
+which case the macro temporarily inserts it into the buffer at
+point, and narrows the buffer to the inserted string.  Before
+executing BODY, point is set to the beginning of the narrowed
+REGION.
+
+The value returned is the last form in BODY."
+  (declare (indent 1))
+  `(let ((reg ,region))
+     (if (stringp reg)
+         ;; Since parsing relies partly on buffer-local state
+         ;; (e.g. that of `eshell-parse-argument-hook'), we need to
+         ;; perform the parsing in the Eshell buffer.
+         (let ((begin (point)) end
+	       (inhibit-point-motion-hooks t))
+           (with-silent-modifications
+             (insert reg)
+             (setq end (point))
+             (unwind-protect
+                 (save-restriction
+                   (narrow-to-region begin end)
+                   (goto-char begin)
+                   ,@body)
+               (delete-region begin end))))
+       (save-restriction
+         (narrow-to-region (car reg) (cdr reg))
+         (goto-char (car reg))
+         ,@body))))
+
 (defun eshell-parse-command (command &optional args toplevel)
   "Parse the COMMAND, adding ARGS if given.
 COMMAND can either be a string, or a cons cell demarcating a buffer
@@ -361,15 +395,9 @@ hooks should be run before and after the command."
 	  (append
 	   (if (consp command)
 	       (eshell-parse-arguments (car command) (cdr command))
-	     (let ((here (point))
-		   (inhibit-point-motion-hooks t))
-               (with-silent-modifications
-                 ;; FIXME: Why not use a temporary buffer and avoid this
-                 ;; "insert&delete" business?  --Stef
-                 (insert command)
-                 (prog1
-                     (eshell-parse-arguments here (point))
-                   (delete-region here (point))))))
+             (eshell-with-temp-command command
+               (goto-char (point-max))
+               (eshell-parse-arguments (point-min) (point-max))))
 	   args))
 	 (commands
 	  (mapcar
@@ -800,8 +828,8 @@ This macro calls itself recursively, with NOTFIRST non-nil."
 		      ((cdr pipeline) t)
 		      (t (quote 'last)))))
           (let ((proc ,(car pipeline)))
-            (setq headproc (or proc headproc))
-            (setq tailproc (or tailproc proc))
+            (set headproc (or proc (symbol-value headproc)))
+            (set tailproc (or (symbol-value tailproc) proc))
             proc))))))
 
 (defmacro eshell-do-pipelines-synchronously (pipeline)
@@ -834,7 +862,7 @@ This is used on systems where async subprocesses are not supported."
        (let ((result ,(car pipeline)))
          ;; tailproc gets the result of the last successful process in
          ;; the pipeline.
-         (setq tailproc (or result tailproc))
+         (set tailproc (or result (symbol-value tailproc)))
          ,(if (cdr pipeline)
               `(eshell-do-pipelines-synchronously (quote ,(cdr pipeline))))
          result))))
@@ -843,7 +871,11 @@ This is used on systems where async subprocesses are not supported."
 
 (defmacro eshell-execute-pipeline (pipeline)
   "Execute the commands in PIPELINE, connecting each to one another."
-  `(let ((eshell-in-pipeline-p t) headproc tailproc)
+  `(let ((eshell-in-pipeline-p t)
+         (headproc (make-symbol "headproc"))
+         (tailproc (make-symbol "tailproc")))
+     (set headproc nil)
+     (set tailproc nil)
      (progn
        ,(if (fboundp 'make-process)
 	    `(eshell-do-pipelines ,pipeline)
@@ -853,7 +885,8 @@ This is used on systems where async subprocesses are not supported."
 				(car (aref eshell-current-handles
 					   ,eshell-error-handle)) nil)))
 	     (eshell-do-pipelines-synchronously ,pipeline)))
-       (eshell-process-identity (cons headproc tailproc)))))
+       (eshell-process-identity (cons (symbol-value headproc)
+                                      (symbol-value tailproc))))))
 
 (defmacro eshell-as-subcommand (command)
   "Execute COMMAND using a temp buffer.
@@ -875,7 +908,8 @@ This avoids the need to use `let*'."
 (defmacro eshell-command-to-value (object)
   "Run OBJECT synchronously, returning its result as a string.
 Returns a string comprising the output from the command."
-  `(let ((value (make-symbol "eshell-temp")))
+  `(let ((value (make-symbol "eshell-temp"))
+         (eshell-in-pipeline-p nil))
      (eshell-do-command-to-value ,object)))
 
 ;;;_* Iterative evaluation
@@ -974,6 +1008,14 @@ COMMAND should be a top-level Eshell command in parsed form, as
 produced by `eshell-parse-command'."
   (let ((base (cadr (nth 2 (nth 2 (cadr command))))))
     (eshell--invoke-command-directly base)))
+
+(defun eshell-eval-argument (argument)
+  "Evaluate a single Eshell ARGUMENT and return the result."
+  (let* ((form (eshell-with-temp-command argument
+                 (eshell-parse-argument)))
+         (result (eshell-do-eval form t)))
+    (cl-assert (eq (car result) 'quote))
+    (cadr result)))
 
 (defun eshell-eval-command (command &optional input)
   "Evaluate the given COMMAND iteratively."

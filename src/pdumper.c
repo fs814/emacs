@@ -36,7 +36,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "coding.h"
 #include "fingerprint.h"
 #include "frame.h"
-#include "getpagesize.h"
 #include "intervals.h"
 #include "lisp.h"
 #include "pdumper.h"
@@ -163,7 +162,7 @@ ptrdiff_t_to_dump_off (ptrdiff_t value)
 /* Worst-case allocation granularity on any system that might load
    this dump.  */
 static int
-dump_get_page_size (void)
+dump_get_max_page_size (void)
 {
   return 64 * 1024;
 }
@@ -1070,7 +1069,7 @@ dump_queue_enqueue (struct dump_queue *dump_queue,
         }
     }
 
-  if (!EQ (weights, orig_weights))
+  if (!BASE_EQ (weights, orig_weights))
     Fputhash (object, weights, dump_queue->link_weights);
 }
 
@@ -1384,7 +1383,7 @@ print_paths_to_root_1 (struct dump_context *ctx,
     {
       Lisp_Object referrer = XCAR (referrers);
       referrers = XCDR (referrers);
-      Lisp_Object repr = Fprin1_to_string (referrer, Qnil);
+      Lisp_Object repr = Fprin1_to_string (referrer, Qnil, Qnil);
       for (int i = 0; i < level; ++i)
 	putc (' ', stderr);
       fwrite (SDATA (repr), 1, SBYTES (repr), stderr);
@@ -2854,7 +2853,7 @@ dump_bool_vector (struct dump_context *ctx, const struct Lisp_Vector *v)
 static dump_off
 dump_subr (struct dump_context *ctx, const struct Lisp_Subr *subr)
 {
-#if CHECK_STRUCTS && !defined (HASH_Lisp_Subr_F09D8E8E19)
+#if CHECK_STRUCTS && !defined (HASH_Lisp_Subr_20B7443AD7)
 # error "Lisp_Subr changed. See CHECK_STRUCTS comment in config.h."
 #endif
   struct Lisp_Subr out;
@@ -2877,12 +2876,14 @@ dump_subr (struct dump_context *ctx, const struct Lisp_Subr *subr)
       dump_remember_cold_op (ctx,
                              COLD_OP_NATIVE_SUBR,
 			     make_lisp_ptr ((void *) subr, Lisp_Vectorlike));
-      dump_field_lv (ctx, &out, subr, &subr->native_intspec, WEIGHT_NORMAL);
+      dump_field_lv (ctx, &out, subr, &subr->intspec.native, WEIGHT_NORMAL);
+      dump_field_lv (ctx, &out, subr, &subr->command_modes, WEIGHT_NORMAL);
     }
   else
     {
       dump_field_emacs_ptr (ctx, &out, subr, &subr->symbol_name);
-      dump_field_emacs_ptr (ctx, &out, subr, &subr->intspec);
+      dump_field_emacs_ptr (ctx, &out, subr, &subr->intspec.string);
+      dump_field_emacs_ptr (ctx, &out, subr, &subr->command_modes);
     }
   DUMP_FIELD_COPY (&out, subr, doc);
 #ifdef HAVE_NATIVE_COMP
@@ -3757,7 +3758,7 @@ decode_emacs_reloc (struct dump_context *ctx, Lisp_Object lreloc)
             reloc.u.dump_offset = dump_recall_object (ctx, target_value);
             if (reloc.u.dump_offset <= 0)
               {
-                Lisp_Object repr = Fprin1_to_string (target_value, Qnil);
+                Lisp_Object repr = Fprin1_to_string (target_value, Qnil, Qnil);
                 error ("relocation target was not dumped: %s", SDATA (repr));
               }
             dump_check_dump_off (ctx, reloc.u.dump_offset);
@@ -4209,7 +4210,7 @@ types.  */)
   eassert (dump_queue_empty_p (&ctx->dump_queue));
 
   dump_off discardable_end = ctx->offset;
-  dump_align_output (ctx, dump_get_page_size ());
+  dump_align_output (ctx, dump_get_max_page_size ());
   ctx->header.cold_start = ctx->offset;
 
   /* Start the cold section.  This section contains bytes that should
@@ -4927,7 +4928,7 @@ dump_mmap_contiguous (struct dump_memory_map *maps, int nr_maps)
     return true;
 
   size_t total_size = 0;
-  int worst_case_page_size = dump_get_page_size ();
+  int worst_case_page_size = dump_get_max_page_size ();
 
   for (int i = 0; i < nr_maps; ++i)
     {
@@ -5615,7 +5616,7 @@ pdumper_load (const char *dump_filename, char *argv0)
   err = PDUMPER_LOAD_OOM;
 
   adj_discardable_start = header->discardable_start;
-  dump_page_size = dump_get_page_size ();
+  dump_page_size = dump_get_max_page_size ();
   /* Snap to next page boundary.  */
   adj_discardable_start = ROUNDUP (adj_discardable_start, dump_page_size);
   eassert (adj_discardable_start % dump_page_size == 0);

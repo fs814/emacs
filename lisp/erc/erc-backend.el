@@ -315,8 +315,7 @@ This will only be consulted if the coding system in
   :version "24.1"
   :type '(repeat coding-system))
 
-(defcustom erc-server-coding-system (if (and (fboundp 'coding-system-p)
-                                             (coding-system-p 'undecided)
+(defcustom erc-server-coding-system (if (and (coding-system-p 'undecided)
                                              (coding-system-p 'utf-8))
                                         '(utf-8 . undecided)
                                       nil)
@@ -464,7 +463,7 @@ If POS is out of range, the value is nil."
 (defun erc-bounds-of-word-at-point ()
   "Return the bounds of word at point, or nil if we're not at a word.
 If no `subword-mode' is active, then this is
-\(bounds-of-thing-at-point 'word)."
+\(bounds-of-thing-at-point \\='word)."
   (if (or (erc-word-at-arg-p (point))
           (erc-word-at-arg-p (1- (point))))
       (save-excursion
@@ -1192,7 +1191,7 @@ Would expand to:
                         aliases))
   (let* ((hook-name (intern (format "erc-server-%s-functions" name)))
          (fn-name (intern (format "erc-server-%s" name)))
-         (hook-doc (format-message "\
+         (hook-doc (format "\
 %sHook called upon receiving a %%s server response.
 Each function is called with two arguments, the process associated
 with the response and the parsed response.  If the function returns
@@ -1203,7 +1202,7 @@ See also `%s'."
                                (concat extra-var-doc "\n\n")
                              "")
                            fn-name))
-         (fn-doc (format-message "\
+         (fn-doc (format "\
 %sHandler for a %s server response.
 PROC is the server process which returned the response.
 PARSED is the actual response as an `erc-response' struct.

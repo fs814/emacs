@@ -29,31 +29,41 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "haiku_support.h"
 
 static Lisp_Object *volatile menu_item_selection;
+static struct timespec menu_timer_timespec;
 
 int popup_activated_p = 0;
 
 static void
 digest_menu_items (void *first_menu, int start, int menu_items_used,
-		   int mbar_p)
+		   bool is_menu_bar)
 {
   void **menus, **panes;
-  ssize_t menu_len = (menu_items_used + 1 - start) * sizeof *menus;
-  ssize_t pane_len = (menu_items_used + 1 - start) * sizeof *panes;
+  ssize_t menu_len;
+  ssize_t pane_len;
+  int i, menu_depth;
+  void *menu, *window, *view;
+  Lisp_Object pane_name, prefix;
+  const char *pane_string;
+  Lisp_Object item_name, enable, descrip, def, selected, help;
 
-  menus = alloca (menu_len);
-  panes = alloca (pane_len);
+  USE_SAFE_ALLOCA;
 
-  int i = start, menu_depth = 0;
+  menu_len = (menu_items_used + 1 - start) * sizeof *menus;
+  pane_len = (menu_items_used + 1 - start) * sizeof *panes;
+  menu = first_menu;
 
+  i = start;
+  menu_depth = 0;
+
+  menus = SAFE_ALLOCA (menu_len);
+  panes = SAFE_ALLOCA (pane_len);
   memset (menus, 0, menu_len);
   memset (panes, 0, pane_len);
-
-  void *menu = first_menu;
-
   menus[0] = first_menu;
 
-  void *window = NULL;
-  void *view = NULL;
+  window = NULL;
+  view = NULL;
+
   if (FRAMEP (Vmenu_updating_frame) &&
       FRAME_LIVE_P (XFRAME (Vmenu_updating_frame)) &&
       FRAME_HAIKU_P (XFRAME (Vmenu_updating_frame)))
@@ -63,7 +73,7 @@ digest_menu_items (void *first_menu, int start, int menu_items_used,
     }
 
   if (view)
-    BView_draw_lock (view);
+    BView_draw_lock (view, false, 0, 0, 0, 0);
 
   while (i < menu_items_used)
     {
@@ -82,9 +92,6 @@ digest_menu_items (void *first_menu, int start, int menu_items_used,
 	i += 1;
       else if (EQ (AREF (menu_items, i), Qt))
 	{
-	  Lisp_Object pane_name, prefix;
-	  const char *pane_string;
-
 	  if (menu_items_n_panes == 1)
 	    {
 	      i += MENU_ITEMS_PANE_LENGTH;
@@ -115,7 +122,6 @@ digest_menu_items (void *first_menu, int start, int menu_items_used,
 	}
       else
 	{
-	  Lisp_Object item_name, enable, descrip, def, selected, help;
 	  item_name = AREF (menu_items, i + MENU_ITEMS_ITEM_NAME);
 	  enable = AREF (menu_items, i + MENU_ITEMS_ITEM_ENABLE);
 	  descrip = AREF (menu_items, i + MENU_ITEMS_ITEM_EQUIV_KEY);
@@ -143,7 +149,7 @@ digest_menu_items (void *first_menu, int start, int menu_items_used,
 	    menu = BMenu_new_submenu (menu, SSDATA (item_name), !NILP (enable));
 	  else if (NILP (def) && menu_separator_name_p (SSDATA (item_name)))
 	    BMenu_add_separator (menu);
-	  else if (!mbar_p)
+	  else if (!is_menu_bar)
 	    {
 	      if (!use_system_tooltips || NILP (Fsymbol_value (Qtooltip_mode)))
 		BMenu_add_item (menu, SSDATA (item_name),
@@ -177,6 +183,8 @@ digest_menu_items (void *first_menu, int start, int menu_items_used,
 
   if (view)
     BView_draw_unlock (view);
+
+  SAFE_FREE ();
 }
 
 static Lisp_Object
@@ -340,25 +348,53 @@ haiku_menu_show_help (void *help, void *data)
     show_help_echo (Qnil, Qnil, Qnil, Qnil);
 }
 
-static void
+static Lisp_Object
+haiku_process_pending_signals_for_menu_1 (void *ptr)
+{
+  menu_timer_timespec = timer_check ();
+
+  return Qnil;
+}
+
+static Lisp_Object
+haiku_process_pending_signals_for_menu_2 (enum nonlocal_exit exit, Lisp_Object error)
+{
+  menu_timer_timespec.tv_sec = 0;
+  menu_timer_timespec.tv_nsec = -1;
+
+  return Qnil;
+}
+
+static struct timespec
 haiku_process_pending_signals_for_menu (void)
 {
   process_pending_signals ();
 
-  input_pending = false;
-  detect_input_pending_run_timers (true);
+  /* The original idea was to let timers throw so that timeouts can
+     work correctly, but there's no way to pop down a BPopupMenu
+     that's currently popped up.  */
+  internal_catch_all (haiku_process_pending_signals_for_menu_1, NULL,
+		      haiku_process_pending_signals_for_menu_2);
+
+  return menu_timer_timespec;
 }
 
 Lisp_Object
 haiku_menu_show (struct frame *f, int x, int y, int menuflags,
 		 Lisp_Object title, const char **error_name)
 {
-  int i = 0, submenu_depth = 0;
-  void *view = FRAME_HAIKU_VIEW (f);
-  void *menu;
+  int i, submenu_depth, j;
+  void *view, *menu;
+  Lisp_Object *subprefix_stack;
+  Lisp_Object prefix, entry;
 
-  Lisp_Object *subprefix_stack =
-    alloca (menu_items_used * sizeof (Lisp_Object));
+  USE_SAFE_ALLOCA;
+
+  view = FRAME_HAIKU_VIEW (f);
+  i = 0;
+  submenu_depth = 0;
+  subprefix_stack
+    = SAFE_ALLOCA (menu_items_used * sizeof (Lisp_Object));
 
   eassert (FRAME_HAIKU_P (f));
 
@@ -367,6 +403,8 @@ haiku_menu_show (struct frame *f, int x, int y, int menuflags,
   if (menu_items_used <= MENU_ITEMS_PANE_LENGTH)
     {
       *error_name = "Empty menu";
+
+      SAFE_FREE ();
       return Qnil;
     }
 
@@ -394,8 +432,6 @@ haiku_menu_show (struct frame *f, int x, int y, int menuflags,
 
   if (menu_item_selection)
     {
-      Lisp_Object prefix, entry;
-
       prefix = entry = Qnil;
       i = 0;
       while (i < menu_items_used)
@@ -429,8 +465,6 @@ haiku_menu_show (struct frame *f, int x, int y, int menuflags,
 		{
 		  if (menuflags & MENU_KEYMAPS)
 		    {
-		      int j;
-
 		      entry = list1 (entry);
 		      if (!NILP (prefix))
 			entry = Fcons (prefix, entry);
@@ -441,6 +475,8 @@ haiku_menu_show (struct frame *f, int x, int y, int menuflags,
 		  block_input ();
 		  BPopUpMenu_delete (menu);
 		  unblock_input ();
+
+		  SAFE_FREE ();
 		  return entry;
 		}
 	      i += MENU_ITEMS_ITEM_LENGTH;
@@ -457,20 +493,27 @@ haiku_menu_show (struct frame *f, int x, int y, int menuflags,
   block_input ();
   BPopUpMenu_delete (menu);
   unblock_input ();
+
+  SAFE_FREE ();
   return Qnil;
 }
 
 void
 free_frame_menubar (struct frame *f)
 {
+  void *mbar;
+
   FRAME_MENU_BAR_LINES (f) = 0;
   FRAME_MENU_BAR_HEIGHT (f) = 0;
   FRAME_EXTERNAL_MENU_BAR (f) = 0;
 
   block_input ();
-  void *mbar = FRAME_HAIKU_MENU_BAR (f);
+  mbar = FRAME_HAIKU_MENU_BAR (f);
+  FRAME_HAIKU_MENU_BAR (f) = NULL;
+
   if (mbar)
     BMenuBar_delete (mbar);
+
   if (FRAME_OUTPUT_DATA (f)->menu_bar_open_p)
     --popup_activated_p;
   FRAME_OUTPUT_DATA (f)->menu_bar_open_p = 0;
@@ -493,13 +536,20 @@ set_frame_menubar (struct frame *f, bool deep_p)
 {
   void *mbar = FRAME_HAIKU_MENU_BAR (f);
   void *view = FRAME_HAIKU_VIEW (f);
-
-  int first_time_p = 0;
+  bool first_time_p = false;
 
   if (!mbar)
     {
+      block_input ();
       mbar = FRAME_HAIKU_MENU_BAR (f) = BMenuBar_new (view);
       first_time_p = 1;
+
+      /* Now wait for the MENU_BAR_RESIZE event informing us of the
+	 initial dimensions of that menu bar.  */
+      if (FRAME_VISIBLE_P (f))
+	haiku_wait_for_event (f, MENU_BAR_RESIZE);
+
+      unblock_input ();
     }
 
   Lisp_Object items;
@@ -509,12 +559,15 @@ set_frame_menubar (struct frame *f, bool deep_p)
   int previous_menu_items_used = f->menu_bar_items_used;
   Lisp_Object *previous_items
     = alloca (previous_menu_items_used * sizeof *previous_items);
+  int count;
+  ptrdiff_t subitems, i;
+  int *submenu_start, *submenu_end, *submenu_n_panes;
+  Lisp_Object *submenu_names;
 
   XSETFRAME (Vmenu_updating_frame, f);
 
   if (!deep_p)
     {
-      FRAME_OUTPUT_DATA (f)->menu_up_to_date_p = 0;
       items = FRAME_MENU_BAR_ITEMS (f);
       Lisp_Object string;
 
@@ -553,6 +606,7 @@ set_frame_menubar (struct frame *f, bool deep_p)
 	 do always reinitialize them.  */
       if (first_time_p)
 	previous_menu_items_used = 0;
+
       buffer = XWINDOW (FRAME_SELECTED_WINDOW (f))->contents;
       specbind (Qinhibit_quit, Qt);
       /* Don't let the debugger step into this code
@@ -588,29 +642,23 @@ set_frame_menubar (struct frame *f, bool deep_p)
       /* Fill in menu_items with the current menu bar contents.
 	 This can evaluate Lisp code.  */
       save_menu_items ();
+
       menu_items = f->menu_bar_vector;
       menu_items_allocated = VECTORP (menu_items) ? ASIZE (menu_items) : 0;
-      init_menu_items ();
-      int i;
-      int count = BMenu_count_items (mbar);
-      int subitems = ASIZE (items) / 4;
-
-      int *submenu_start, *submenu_end,	*submenu_n_panes;
-      Lisp_Object *submenu_names;
-
+      subitems = ASIZE (items) / 4;
       submenu_start = alloca ((subitems + 1) * sizeof *submenu_start);
       submenu_end = alloca (subitems * sizeof *submenu_end);
       submenu_n_panes = alloca (subitems * sizeof *submenu_n_panes);
       submenu_names = alloca (subitems * sizeof (Lisp_Object));
 
-      for (i = 0; i < subitems; ++i)
+      init_menu_items ();
+      for (i = 0; i < subitems; i++)
 	{
 	  Lisp_Object key, string, maps;
 
-	  key = AREF (items, i * 4);
-	  string = AREF (items, i * 4 + 1);
-	  maps = AREF (items, i * 4 + 2);
-
+	  key = AREF (items, 4 * i);
+	  string = AREF (items, 4 * i + 1);
+	  maps = AREF (items, 4 * i + 2);
 	  if (NILP (string))
 	    break;
 
@@ -618,16 +666,42 @@ set_frame_menubar (struct frame *f, bool deep_p)
 	    string = ENCODE_UTF_8 (string);
 
 	  submenu_start[i] = menu_items_used;
+
 	  menu_items_n_panes = 0;
 	  parse_single_submenu (key, string, maps);
 	  submenu_n_panes[i] = menu_items_n_panes;
+
 	  submenu_end[i] = menu_items_used;
 	  submenu_names[i] = string;
 	}
-      finish_menu_items ();
+
       submenu_start[i] = -1;
+      finish_menu_items ();
+
+      set_buffer_internal_1 (prev);
+
+      /* If there has been no change in the Lisp-level contents
+	 of the menu bar, skip redisplaying it.  Just exit.  */
+
+      /* Compare the new menu items with the ones computed last time.  */
+      for (i = 0; i < previous_menu_items_used; i++)
+	if (menu_items_used == i
+	    || (!EQ (previous_items[i], AREF (menu_items, i))))
+	  break;
+      if (i == menu_items_used && i == previous_menu_items_used && i != 0)
+	{
+	  /* The menu items have not changed.  Don't bother updating
+	     the menus in any form, since it would be a no-op.  */
+	  discard_menu_items ();
+	  unbind_to (specpdl_count, Qnil);
+	  return;
+	}
+
+      /* Convert menu_items into widget_value trees
+	 to display the menu.  This cannot evaluate Lisp code.  */
 
       block_input ();
+      count = BMenu_count_items (mbar);
       for (i = 0; submenu_start[i] >= 0; ++i)
 	{
 	  void *mn = NULL;
@@ -643,31 +717,23 @@ set_frame_menubar (struct frame *f, bool deep_p)
 	}
       unblock_input ();
 
-      set_buffer_internal_1 (prev);
-
-      FRAME_OUTPUT_DATA (f)->menu_up_to_date_p = 1;
+      /* The menu items are different, so store them in the frame.  */
       fset_menu_bar_vector (f, menu_items);
       f->menu_bar_items_used = menu_items_used;
     }
+
+  /* This undoes save_menu_items.  */
   unbind_to (specpdl_count, Qnil);
 }
 
 void
 run_menu_bar_help_event (struct frame *f, int mb_idx)
 {
-  Lisp_Object frame;
-  Lisp_Object vec;
-  Lisp_Object help;
-
-  block_input ();
-  if (!FRAME_OUTPUT_DATA (f)->menu_up_to_date_p)
-    {
-      unblock_input ();
-      return;
-    }
+  Lisp_Object frame, vec, help;
 
   XSETFRAME (frame, f);
 
+  block_input ();
   if (mb_idx < 0)
     {
       kbd_buffer_store_help_event (frame, Qnil);
@@ -677,7 +743,7 @@ run_menu_bar_help_event (struct frame *f, int mb_idx)
 
   vec = f->menu_bar_vector;
   if ((mb_idx + MENU_ITEMS_ITEM_HELP) >= ASIZE (vec))
-    emacs_abort ();
+    return;
 
   help = AREF (vec, mb_idx + MENU_ITEMS_ITEM_HELP);
   if (STRINGP (help) || NILP (help))
@@ -702,21 +768,65 @@ the position of the last non-menu event instead.  */)
   (Lisp_Object frame)
 {
   struct frame *f = decode_window_system_frame (frame);
+  int rc;
 
   if (FRAME_EXTERNAL_MENU_BAR (f))
     {
       block_input ();
       set_frame_menubar (f, 1);
-      BMenuBar_start_tracking (FRAME_HAIKU_MENU_BAR (f));
+      rc = BMenuBar_start_tracking (FRAME_HAIKU_MENU_BAR (f));
       unblock_input ();
+
+      if (!rc)
+	return Qnil;
+
+      FRAME_OUTPUT_DATA (f)->menu_bar_open_p = 1;
+      popup_activated_p += 1;
+    }
+  else
+    return call2 (Qpopup_menu, call0 (Qmouse_menu_bar_map),
+		  last_nonmenu_event);
+
+  return Qnil;
+}
+
+void
+haiku_activate_menubar (struct frame *f)
+{
+  int rc;
+
+  if (!FRAME_HAIKU_MENU_BAR (f))
+    return;
+
+  set_frame_menubar (f, true);
+
+  if (FRAME_OUTPUT_DATA (f)->saved_menu_event)
+    {
+      block_input ();
+      rc = be_replay_menu_bar_event (FRAME_HAIKU_MENU_BAR (f),
+				     FRAME_OUTPUT_DATA (f)->saved_menu_event);
+      xfree (FRAME_OUTPUT_DATA (f)->saved_menu_event);
+      FRAME_OUTPUT_DATA (f)->saved_menu_event = NULL;
+      unblock_input ();
+
+      if (!rc)
+	return;
+
+      FRAME_OUTPUT_DATA (f)->menu_bar_open_p = 1;
+      popup_activated_p += 1;
     }
   else
     {
-      return call2 (Qpopup_menu, call0 (Qmouse_menu_bar_map),
-		    last_nonmenu_event);
-    }
+      block_input ();
+      rc = BMenuBar_start_tracking (FRAME_HAIKU_MENU_BAR (f));
+      unblock_input ();
 
-  return Qnil;
+      if (!rc)
+	return;
+
+      FRAME_OUTPUT_DATA (f)->menu_bar_open_p = 1;
+      popup_activated_p += 1;
+    }
 }
 
 void

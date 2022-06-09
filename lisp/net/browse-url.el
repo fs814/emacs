@@ -708,16 +708,38 @@ interactively.  Turn the filename into a URL with function
   (browse-url (browse-url-file-url file))
   (run-hooks 'browse-url-of-file-hook))
 
+(defun browse-url--file-name-coding-system ()
+  (if (equal system-type 'windows-nt)
+      ;; W32 pretends that file names are UTF-8 encoded.
+      'utf-8
+    (or file-name-coding-system default-file-name-coding-system)))
+
 (defun browse-url-file-url (file)
   "Return the URL corresponding to FILE.
 Use variable `browse-url-filename-alist' to map filenames to URLs."
-  (let ((coding (if (equal system-type 'windows-nt)
-		    ;; W32 pretends that file names are UTF-8 encoded.
-		    'utf-8
-		  (and (or file-name-coding-system
-			   default-file-name-coding-system)))))
-    (if coding (setq file (encode-coding-string file coding))))
-  (setq file (browse-url-url-encode-chars file "[*\"()',=;?% ]"))
+  (when-let ((coding (browse-url--file-name-coding-system)))
+    (setq file (encode-coding-string file coding)))
+  (if (and (file-remote-p file)
+           ;; We're applying special rules for FTP URLs for historical
+           ;; reasons.
+           (seq-find (lambda (match)
+                       (and (string-match-p (car match) file)
+                            (not (string-match "\\`file:" (cdr match)))))
+                     browse-url-filename-alist))
+      (setq file (browse-url-url-encode-chars file "[*\"()',=;?% ]"))
+    ;; Encode all other file names properly.
+    (let ((bits (file-name-split file)))
+      (setq file
+            (string-join
+             ;; On Windows, the first bit here might be "c:" or the
+             ;; like, so don't encode the ":" in the first bit.
+             (cons (let ((url-unreserved-chars
+                          (if (file-name-absolute-p file)
+                              (cons ?: url-unreserved-chars)
+                            url-unreserved-chars)))
+                     (url-hexify-string (car bits)))
+                   (mapcar #'url-hexify-string (cdr bits)))
+             "/"))))
   (dolist (map browse-url-filename-alist)
     (when (and map (string-match (car map) file))
       (setq file (replace-match (cdr map) t nil file))))
@@ -769,7 +791,10 @@ If optional arg TEMP-FILE-NAME is non-nil, delete it instead."
 (defun browse-url-of-dired-file ()
   "In Dired, ask a WWW browser to display the file named on this line."
   (interactive)
-  (let ((tem (dired-get-filename t t)))
+  (let ((tem (dired-get-filename t t))
+        ;; Some URL handlers open files in Emacs.  We want to always
+        ;; open in a browser, so disable those.
+        (browse-url-default-handlers nil))
     (if tem
 	(browse-url-of-file (expand-file-name tem))
       (error "No file on this line"))))
@@ -835,7 +860,11 @@ If ARGS are omitted, the default is to pass
          ((featurep 'pgtk)
           (setq classname (pgtk-backend-display-class))
           (if (equal classname "GdkWaylandDisplay")
-              (setenv "WAYLAND_DISPLAY" dpy)
+              (progn
+                ;; The `display' frame parameter is probably wrong.
+                ;; See bug#53969 for some context.
+                ;; (setenv "WAYLAND_DISPLAY" dpy)
+                )
             (setenv "DISPLAY" dpy)))
          (t
           (setenv "DISPLAY" dpy)))))
@@ -954,7 +983,13 @@ non-nil, or the same display as Emacs if different from the current
 environment, otherwise just use the current environment."
   (let ((display (or browse-url-browser-display (browse-url-emacs-display))))
     (if display
-	(cons (concat "DISPLAY=" display) process-environment)
+	(cons (concat (if (and (eq window-system 'pgtk)
+                               (equal (pgtk-backend-display-class)
+                                      "GdkWaylandDisplay"))
+                          "WAYLAND_DISPLAY="
+                        "DISPLAY=")
+                      display)
+              process-environment)
       process-environment)))
 
 (defun browse-url-emacs-display ()
@@ -984,6 +1019,8 @@ instead of `browse-url-new-window-flag'."
      'browse-url-default-windows-browser)
     ((memq system-type '(darwin))
      'browse-url-default-macosx-browser)
+    ((featurep 'haiku)
+     'browse-url-default-haiku-browser)
     ((browse-url-can-use-xdg-open) 'browse-url-xdg-open)
 ;;;    ((executable-find browse-url-gnome-moz-program) 'browse-url-gnome-moz)
     ((executable-find browse-url-mozilla-program) 'browse-url-mozilla)
@@ -1204,6 +1241,24 @@ The optional argument NEW-WINDOW is not used."
 
 (function-put 'browse-url-webpositive 'browse-url-browser-kind 'external)
 
+(declare-function haiku-roster-launch "haikuselect.c")
+
+;;;###autoload
+(defun browse-url-default-haiku-browser (url &optional _new-window)
+  "Browse URL with the system default browser.
+Default to the URL around or before point."
+  (interactive (browse-url-interactive-arg "URL: "))
+  (setq url (browse-url-encode-url url))
+  (let* ((scheme (save-match-data
+                   (if (string-match "\\(.+\\):/" url)
+                       (match-string 1 url)
+                     "http")))
+         (mime (concat "application/x-vnd.Be.URL." scheme)))
+    (haiku-roster-launch mime (vector url))))
+
+(function-put 'browse-url-default-haiku-browser
+              'browse-url-browser-kind 'external)
+
 ;;;###autoload
 (defun browse-url-emacs (url &optional same-window)
   "Ask Emacs to load URL into a buffer and show it in another window.
@@ -1213,10 +1268,12 @@ currently selected window instead."
   (require 'url-handlers)
   (let ((parsed (url-generic-parse-url url))
         (func (if same-window 'find-file 'find-file-other-window)))
-    (if (and (equal (url-type parsed) "file")
-             (file-directory-p (url-filename parsed)))
-        ;; It's a directory; just open it.
-        (funcall func (url-filename parsed))
+    (if (equal (url-type parsed) "file")
+        ;; It's a file; just open it.
+        (let ((file (url-unhex-string (url-filename parsed))))
+          (when-let ((coding (browse-url--file-name-coding-system)))
+            (setq file (decode-coding-string file 'utf-8)))
+          (funcall func file))
       (let ((file-name-handler-alist
              (cons (cons url-handler-regexp 'url-file-handler)
                    file-name-handler-alist)))
@@ -1576,13 +1633,11 @@ from `browse-url-elinks-wrapper'."
 
 ;;; Adding buttons to a buffer to call `browse-url' when you hit them.
 
-(defvar browse-url-button-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "\r" #'browse-url-button-open)
-    (define-key map [mouse-2] #'browse-url-button-open)
-    (define-key map "w" #'browse-url-button-copy)
-    map)
-  "The keymap used for `browse-url' buttons.")
+(defvar-keymap browse-url-button-map
+  :doc "The keymap used for `browse-url' buttons."
+  "RET"       #'browse-url-button-open
+  "<mouse-2>" #'browse-url-button-open
+  "w"         #'browse-url-button-copy)
 
 (defface browse-url-button
   '((t :inherit link))

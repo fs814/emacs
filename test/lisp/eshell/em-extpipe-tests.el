@@ -71,6 +71,7 @@
        (skip-unless shell-file-name)
        (skip-unless shell-command-switch)
        (skip-unless (executable-find shell-file-name))
+       (skip-unless (not (getenv "EMACS_EMBA_CI")))
        (let ((input ,input))
          (with-temp-eshell ,@body)))))
 
@@ -169,7 +170,7 @@
 
 (em-extpipe-tests--deftest em-extpipe-test-13 "foo*|bar"
   (should-parse '(eshell-execute-pipeline
-                  '((eshell-named-command (concat "foo" "*"))
+                  '((eshell-named-command (eshell-concat nil "foo" "*"))
                     (eshell-named-command "bar")))))
 
 (em-extpipe-tests--deftest em-extpipe-test-14 "tac *<temp"

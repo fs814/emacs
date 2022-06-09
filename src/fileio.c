@@ -2505,6 +2505,8 @@ With a prefix argument, TRASH is nil.  */)
   return Qnil;
 }
 
+#if defined HAVE_NATIVE_COMP && defined WINDOWSNT
+
 static Lisp_Object
 internal_delete_file_1 (Lisp_Object ignore)
 {
@@ -2523,6 +2525,8 @@ internal_delete_file (Lisp_Object filename)
 				   Qt, internal_delete_file_1);
   return NILP (tem);
 }
+
+#endif
 
 /* Return -1 if FILE is a case-insensitive file name, 0 if not,
    and a positive errno value if the result cannot be determined.  */
@@ -2714,6 +2718,20 @@ This is what happens in interactive use with M-x.  */)
 	   : Qnil);
       if (!NILP (symlink_target))
 	Fmake_symbolic_link (symlink_target, newname, ok_if_already_exists);
+      else if (S_ISFIFO (file_st.st_mode))
+	{
+	  /* If it's a FIFO, calling `copy-file' will hang if it's a
+	     inter-file system move, so do it here.  (It will signal
+	     an error in that case, but it won't hang in any case.)  */
+	  if (!NILP (ok_if_already_exists))
+	    barf_or_query_if_file_exists (newname, false,
+					  "rename to it",
+					  FIXNUMP (ok_if_already_exists),
+					  false);
+	  if (rename (SSDATA (encoded_file), SSDATA (encoded_newname)) != 0)
+	    report_file_errno ("Renaming", list2 (file, newname), errno);
+	  return Qnil;
+	}
       else
 	Fcopy_file (file, newname, ok_if_already_exists, Qt, Qt, Qt);
     }
@@ -5519,7 +5537,10 @@ DEFUN ("car-less-than-car", Fcar_less_than_car, Scar_less_than_car, 2, 2, 0,
        doc: /* Return t if (car A) is numerically less than (car B).  */)
   (Lisp_Object a, Lisp_Object b)
 {
-  return arithcompare (Fcar (a), Fcar (b), ARITH_LESS);
+  Lisp_Object ca = Fcar (a), cb = Fcar (b);
+  if (FIXNUMP (ca) && FIXNUMP (cb))
+    return XFIXNUM (ca) < XFIXNUM (cb) ? Qt : Qnil;
+  return arithcompare (ca, cb, ARITH_LESS);
 }
 
 /* Build the complete list of annotations appropriate for writing out
@@ -5951,14 +5972,19 @@ do_auto_save_eh (Lisp_Object ignore)
 
 DEFUN ("do-auto-save", Fdo_auto_save, Sdo_auto_save, 0, 2, "",
        doc: /* Auto-save all buffers that need it.
-This is all buffers that have auto-saving enabled
-and are changed since last auto-saved.
-Auto-saving writes the buffer into a file
-so that your editing is not lost if the system crashes.
-This file is not the file you visited; that changes only when you save.
+This auto-saves all buffers that have auto-saving enabled and
+were changed since last auto-saved.
+
+Auto-saving writes the buffer into a file so that your edits are
+not lost if the system crashes.
+
+The auto-save file is not the file you visited; that changes only
+when you save.
+
 Normally, run the normal hook `auto-save-hook' before saving.
 
 A non-nil NO-MESSAGE argument means do not print any message if successful.
+
 A non-nil CURRENT-ONLY argument means save only current buffer.  */)
   (Lisp_Object no_message, Lisp_Object current_only)
 {
@@ -5973,7 +5999,8 @@ A non-nil CURRENT-ONLY argument means save only current buffer.  */)
   bool old_message_p = 0;
   struct auto_save_unwind auto_save_unwind;
 
-  intmax_t sum = INT_ADD_WRAPV (specpdl_size, 40, &sum) ? INTMAX_MAX : sum;
+  intmax_t sum = INT_ADD_WRAPV (specpdl_end - specpdl, 40, &sum)
+                 ? INTMAX_MAX : sum;
   if (max_specpdl_size < sum)
     max_specpdl_size = sum;
 

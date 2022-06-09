@@ -557,25 +557,12 @@ to `user-emacs-directory'.
 For best results, call this function in your early-init file,
 so that the rest of initialization and package loading uses
 the updated value."
-  (let ((tmp-dir (and (equal (getenv "HOME") "/nonexistent")
-                      (file-writable-p (expand-file-name
-                                        (or temporary-file-directory "")))
-                      (car native-comp-eln-load-path))))
-    (if tmp-dir
-        (setq native-comp-eln-load-path
-              (cdr native-comp-eln-load-path)))
-    ;; Remove the original eln-cache.
-    (setq native-comp-eln-load-path
-          (cdr native-comp-eln-load-path))
-    ;; Add the new eln-cache.
-    (push (expand-file-name (file-name-as-directory cache-directory)
-                            user-emacs-directory)
-          native-comp-eln-load-path)
-    (when tmp-dir
-      ;; Recompute tmp-dir, in case user-emacs-directory affects it.
-      (setq tmp-dir (make-temp-file "emacs-testsuite-" t))
-      (add-hook 'kill-emacs-hook (lambda () (delete-directory tmp-dir t)))
-      (push tmp-dir native-comp-eln-load-path))))
+  ;; Remove the original eln-cache.
+  (setq native-comp-eln-load-path (cdr native-comp-eln-load-path))
+  ;; Add the new eln-cache.
+  (push (expand-file-name (file-name-as-directory cache-directory)
+                          user-emacs-directory)
+        native-comp-eln-load-path))
 
 (defun startup--update-eln-cache ()
   "Update the user eln-cache directory due to user customizations."
@@ -619,18 +606,7 @@ It is the default value of the variable `top-level'."
             (unless (string= "" path)
               (push path native-comp-eln-load-path)))))
       (push (expand-file-name "eln-cache/" user-emacs-directory)
-            native-comp-eln-load-path)
-      ;; When $HOME is set to '/nonexistent' means we are running the
-      ;; testsuite, add a temporary folder in front to produce there
-      ;; new compilations.
-      (when (and (equal (getenv "HOME") "/nonexistent")
-                 ;; We may be running in a chroot environment where we
-                 ;; can't write anything.
-                 (file-writable-p (expand-file-name
-                                   (or temporary-file-directory ""))))
-        (let ((tmp-dir (make-temp-file "emacs-testsuite-" t)))
-          (add-hook 'kill-emacs-hook (lambda () (delete-directory tmp-dir t)))
-          (push tmp-dir native-comp-eln-load-path))))
+            native-comp-eln-load-path))
 
     ;; Look in each dir in load-path for a subdirs.el file.  If we
     ;; find one, load it, which will add the appropriate subdirs of
@@ -1044,7 +1020,11 @@ init-file, or to a default value if loading is not possible."
         (debug-on-error-initial
          (if (eq init-file-debug t)
              'startup
-           init-file-debug)))
+           init-file-debug))
+        ;; The init file might contain byte-code with embedded NULs,
+        ;; which can cause problems when read back, so disable nul
+        ;; byte detection.  (Bug#52554)
+        (inhibit-null-byte-detection t))
     (let ((debug-on-error debug-on-error-initial))
       (condition-case-unless-debug error
           (when init-file-user
@@ -1232,6 +1212,14 @@ please check its value")
 		  (t
 		   (setq argval nil
 			 argi orig-argi)))))
+
+        ;; We handle "-scripteval" further down, but we have to
+        ;; inhibit loading the user init file first.  (This is for
+        ;; "emacs -x" handling.)
+	(when (equal argi "-scripteval")
+	  (setq init-file-user nil
+                noninteractive t))
+
 	(cond
 	 ;; The --display arg is handled partly in C, partly in Lisp.
 	 ;; When it shows up here, we just put it back to be handled
@@ -1287,12 +1275,16 @@ please check its value")
          (setcdr command-line-args args)))
 
   ;; Re-evaluate predefined variables whose initial value depends on
-  ;; the runtime context.
-  (when (listp custom-delayed-init-variables)
-    (mapc #'custom-reevaluate-setting
-          ;; Initialize them in the same order they were loaded, in
-          ;; case there are dependencies between them.
-          (reverse custom-delayed-init-variables)))
+  ;; the runtime context.  But delay the warning about
+  ;; `user-emacs-directory' being inaccessible until after processing
+  ;; the init file and the command-line arguments, in case the user
+  ;; customized `user-emacs-directory-warning' to nil via those.
+  (let ((user-emacs-directory-warning nil))
+    (when (listp custom-delayed-init-variables)
+      (mapc #'custom-reevaluate-setting
+            ;; Initialize them in the same order they were loaded, in
+            ;; case there are dependencies between them.
+            (reverse custom-delayed-init-variables))))
   (setq custom-delayed-init-variables t)
 
   ;; Warn for invalid user name.
@@ -1553,8 +1545,20 @@ please check its value")
 	(list 'error
 	      (substitute-command-keys "Memory exhausted--use \\[save-some-buffers] then exit and restart Emacs")))
 
+  ;; Reevaluate `user-emacs-directory-warning' before processing
+  ;; '--eval' arguments, so that the user could override the default
+  ;; value in the '--eval' forms.
+  (custom-reevaluate-setting 'user-emacs-directory-warning)
+
   ;; Process the remaining args.
   (command-line-1 (cdr command-line-args))
+
+  ;; Check if `user-emacs-directory' is accessible and warn if it
+  ;; isn't, unless `user-emacs-directory-warning' was customized to
+  ;; disable that warning.
+  (when (and user-emacs-directory-warning
+             (not (file-accessible-directory-p user-emacs-directory)))
+    (locate-user-emacs-file ""))
 
   ;; This is a problem because, e.g. if emacs.d/gnus.el exists,
   ;; trying to load gnus could load the wrong file.
@@ -2330,7 +2334,7 @@ If you have no Meta key, you may instead type ESC followed by the character.)"))
   (insert "\t\t")
   (insert-button "Open *scratch* buffer"
 		 'action (lambda (_button) (switch-to-buffer
-                                       (startup--get-buffer-create-scratch)))
+                                       (get-scratch-buffer-create)))
 		 'follow-link t)
   (insert "\n")
   (save-restriction
@@ -2461,12 +2465,6 @@ A fancy display is used on graphic displays, normal otherwise."
 
 (defalias 'about-emacs 'display-about-screen)
 (defalias 'display-splash-screen 'display-startup-screen)
-
-(defun startup--get-buffer-create-scratch ()
-  (or (get-buffer "*scratch*")
-      (with-current-buffer (get-buffer-create "*scratch*")
-        (set-buffer-major-mode (current-buffer))
-        (current-buffer))))
 
 ;; This avoids byte-compiler warning in the unexec build.
 (declare-function pdumper-stats "pdumper.c" ())
@@ -2660,7 +2658,7 @@ nil default-directory" name)
 
                     ;; This is used to handle -script.  It's not clear
                     ;; we need to document it (it is totally internal).
-                    ((member argi '("-scriptload"))
+                    ((member argi '("-scriptload" "-scripteval"))
                      (let* ((file (command-line-normalize-file-name
                                    (or argval (pop command-line-args-left))))
                             ;; Take file from default dir.
@@ -2673,7 +2671,10 @@ nil default-directory" name)
                        ;; actually exist on some systems.
                        (when (file-exists-p truename)
                          (setq file-ex truename))
-                       (command-line--load-script file-ex)))
+                       (if (equal argi "-scripteval")
+                           ;; This will kill Emacs.
+                           (command-line--eval-script file-ex)
+                         (command-line--load-script file-ex))))
 
                     ((equal argi "-insert")
                      (setq inhibit-startup-screen t)
@@ -2756,7 +2757,7 @@ nil default-directory" name)
     (when (eq initial-buffer-choice t)
       ;; When `initial-buffer-choice' equals t make sure that *scratch*
       ;; exists.
-      (startup--get-buffer-create-scratch))
+      (get-scratch-buffer-create))
 
     ;; If *scratch* exists and is empty, insert initial-scratch-message.
     ;; Do this before switching to *scratch* below to handle bug#9605.
@@ -2780,7 +2781,7 @@ nil default-directory" name)
 		   ((functionp initial-buffer-choice)
 		    (funcall initial-buffer-choice))
                    ((eq initial-buffer-choice t)
-                    (startup--get-buffer-create-scratch))
+                    (get-scratch-buffer-create))
                    (t
                     (error "`initial-buffer-choice' must be a string, a function, or t")))))
         (unless (buffer-live-p buf)
@@ -2874,6 +2875,22 @@ nil default-directory" name)
        (when (looking-at "#!")
          (delete-line))
        (eval-buffer buffer nil file nil t)))))
+
+(defun command-line--eval-script (file)
+  (load-with-code-conversion
+   file file nil t
+   (lambda (buffer _)
+     (with-current-buffer buffer
+       (goto-char (point-min))
+       (when (looking-at "#!")
+         (forward-line))
+       (let (value form)
+         (while (ignore-error 'end-of-file
+                  (setq form (read (current-buffer))))
+           (setq value (eval form t)))
+         (kill-emacs (if (numberp value)
+                         value
+                       0)))))))
 
 (defun command-line-normalize-file-name (file)
   "Collapse multiple slashes to one, to handle non-Emacs file names."

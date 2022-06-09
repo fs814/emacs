@@ -57,6 +57,7 @@
 ;; * ".crate" - Cargo (Rust) packages
 ;; * ".deb" - Debian packages
 ;; * ".depot" - HP-UX SD depots
+;; * ".epub" - Electronic publications
 ;; * ".exe" - Self extracting Microsoft Windows EXE files
 ;; * ".iso" - ISO 9660 images
 ;; * ".jar" - Java archives
@@ -145,6 +146,7 @@
     "crate" ;; Cargo (Rust) packages.  Not in libarchive testsuite.
     "deb" ;; Debian packages.  Not in libarchive testsuite.
     "depot" ;; HP-UX SD depot.  Not in libarchive testsuite.
+    "epub" ;; Electronic publications.  Not in libarchive testsuite.
     "exe" ;; Self extracting Microsoft Windows EXE files.
     "iso" ;; ISO 9660 images.
     "jar" ;; Java archives.  Not in libarchive testsuite.
@@ -267,6 +269,7 @@ It must be supported by libarchive(3).")
     ;; `get-file-buffer' performed by default handler.
     (insert-directory . tramp-archive-handle-insert-directory)
     (insert-file-contents . tramp-archive-handle-insert-file-contents)
+    (list-system-processes . ignore)
     (load . tramp-archive-handle-load)
     (lock-file . ignore)
     (make-auto-save-file-name . ignore)
@@ -276,6 +279,7 @@ It must be supported by libarchive(3).")
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . ignore)
     (make-symbolic-link . tramp-archive-handle-not-implemented)
+    (process-attributes . ignore)
     (process-file . ignore)
     (rename-file . tramp-archive-handle-not-implemented)
     (set-file-acl . ignore)
@@ -287,6 +291,7 @@ It must be supported by libarchive(3).")
     (start-file-process . tramp-archive-handle-not-implemented)
     ;; `substitute-in-file-name' performed by default handler.
     (temporary-file-directory . tramp-archive-handle-temporary-file-directory)
+    (tramp-get-home-directory . ignore)
     (tramp-get-remote-gid . ignore)
     (tramp-get-remote-uid . ignore)
     (tramp-set-file-uid-gid . ignore)
@@ -359,21 +364,22 @@ arguments to pass to the OPERATION."
 (progn (defun tramp-archive-autoload-file-name-handler (operation &rest args)
   "Load Tramp archive file name handler, and perform OPERATION."
   (defvar tramp-archive-autoload)
-  (when tramp-archive-enabled
-    ;; We cannot use `tramp-compat-temporary-file-directory' here due
-    ;; to autoload.  When installing Tramp's GNU ELPA package, there
-    ;; might be an older, incompatible version active.  We try to
-    ;; overload this.
-    (let ((default-directory temporary-file-directory)
-          (tramp-archive-autoload t))
-      (apply #'tramp-autoload-file-name-handler operation args)))))
+  (let (;; We cannot use `tramp-compat-temporary-file-directory' here
+	;; due to autoload.  When installing Tramp's GNU ELPA package,
+	;; there might be an older, incompatible version active.  We
+	;; try to overload this.
+        (default-directory temporary-file-directory)
+        (tramp-archive-autoload tramp-archive-enabled))
+    (apply #'tramp-autoload-file-name-handler operation args))))
 
 (put #'tramp-archive-autoload-file-name-handler 'tramp-autoload t)
 
 ;;;###autoload
 (progn (defun tramp-register-archive-file-name-handler ()
   "Add archive file name handler to `file-name-handler-alist'."
-  (when tramp-archive-enabled
+  (when (and tramp-archive-enabled
+             (not
+              (rassq #'tramp-archive-file-name-handler file-name-handler-alist)))
     (add-to-list 'file-name-handler-alist
 	         (cons (tramp-archive-autoload-file-name-regexp)
 		       #'tramp-archive-autoload-file-name-handler))

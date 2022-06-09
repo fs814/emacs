@@ -323,7 +323,7 @@ fails.  */)
   CHECK_FIXNAT (width);
   CHECK_FIXNAT (height);
 
-  if (!EQ (type, Qwebkit) && !EQ (type,Qglarea))
+  if (!EQ (type, Qwebkit) && !EQ (type, Qglarea))
     error ("Bad xwidget type");
 
   Frequire (Qxwidget, Qnil, Qnil);
@@ -497,7 +497,9 @@ fails.  */)
                         G_CALLBACK (offscreen_damage_event), xw);
 
       unblock_input ();
-    } else if (EQ (xw->type, Qglarea)) {
+    }
+  else if (EQ (xw->type, Qglarea))
+    {
       block_input ();
 
       /* Create a window for GL context. */
@@ -506,8 +508,8 @@ fails.  */)
                          xw->height);
 
       xw->widget_osr = gtk_gl_area_new ();
-      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr), xw->width,
-                                   xw->height);
+      gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr),
+                                   xw->width, xw->height);
 
       gtk_container_add (GTK_CONTAINER (xw->widgetwindow_osr),
                          GTK_WIDGET (GTK_GL_AREA (xw->widget_osr)));
@@ -518,7 +520,8 @@ fails.  */)
       /* Store some xwidget data in the gtk widgets for convenient
          retrieval in the event handlers.  */
       g_object_set_data (G_OBJECT (xw->widget_osr), XG_XWIDGET, xw);
-      g_object_set_data (G_OBJECT (xw->widgetwindow_osr), XG_XWIDGET, xw);
+      g_object_set_data (G_OBJECT (xw->widgetwindow_osr), XG_XWIDGET,
+                         xw);
 
       unblock_input ();
     }
@@ -938,15 +941,35 @@ to_embedder (GdkWindow *window, double x, double y,
 }
 
 static GdkDevice *
-find_suitable_pointer (struct frame *f)
+find_suitable_pointer (struct frame *f, bool need_smooth)
 {
   GdkSeat *seat = gdk_display_get_default_seat (
     gtk_widget_get_display (FRAME_GTK_WIDGET (f)));
+  GList *devices, *tem;
+  GdkDevice *device;
 
   if (!seat)
     return NULL;
 
-  return gdk_seat_get_pointer (seat);
+  devices
+    = gdk_seat_get_slaves (seat, GDK_SEAT_CAPABILITY_ALL_POINTING);
+  device = NULL;
+  tem = NULL;
+
+  if (need_smooth)
+    {
+      for (tem = devices; tem; tem = tem->next)
+        {
+          device = GDK_DEVICE (tem->data);
+
+          if (gdk_device_get_source (device) == GDK_SOURCE_TOUCHPAD)
+            break;
+        }
+    }
+
+  g_list_free (devices);
+
+  return !tem ? gdk_seat_get_pointer (seat) : device;
 }
 
 static GdkDevice *
@@ -1283,7 +1306,8 @@ xwidget_button_1 (struct xwidget_view *view, bool down_p, int x,
   xg_event->button.button = button;
   xg_event->button.state = modifier_state;
   xg_event->button.time = time;
-  xg_event->button.device = find_suitable_pointer (view->frame);
+  xg_event->button.device
+    = find_suitable_pointer (view->frame, false);
 
   gtk_main_do_event (xg_event);
   gdk_event_free (xg_event);
@@ -1333,7 +1357,8 @@ xwidget_button_1 (struct xwidget_view *view, bool down_p, int x,
           xg_event->crossing.mode = GDK_CROSSING_UNGRAB;
           xg_event->crossing.window = g_object_ref (target_window);
           gdk_event_set_device (xg_event,
-                                find_suitable_pointer (view->frame));
+                                find_suitable_pointer (view->frame,
+                                                       false));
 
           gtk_main_do_event (xg_event);
           gdk_event_free (xg_event);
@@ -1357,8 +1382,10 @@ xwidget_button_1 (struct xwidget_view *view, bool down_p, int x,
               xg_event->crossing.mode = GDK_CROSSING_UNGRAB;
               xg_event->crossing.window = g_object_ref (toplevel);
 
-              gdk_event_set_device (xg_event, find_suitable_pointer (
-                                                view->frame));
+              gdk_event_set_device (xg_event,
+                                    find_suitable_pointer (view
+                                                             ->frame,
+                                                           false));
               gtk_main_do_event (xg_event);
               gdk_event_free (xg_event);
             }
@@ -1420,7 +1447,7 @@ xwidget_button (struct xwidget_view *view, bool down_p, int x, int y,
             xg_event->scroll.direction = GDK_SCROLL_RIGHT;
 
           xg_event->scroll.device
-            = find_suitable_pointer (view->frame);
+            = find_suitable_pointer (view->frame, false);
 
           xg_event->scroll.x = x;
           xg_event->scroll.x_root = x;
@@ -1486,7 +1513,8 @@ xwidget_motion_notify (struct xwidget_view *view, double x, double y,
   xg_event->motion.y_root = root_y;
   xg_event->motion.time = time;
   xg_event->motion.state = state;
-  xg_event->motion.device = find_suitable_pointer (view->frame);
+  xg_event->motion.device
+    = find_suitable_pointer (view->frame, false);
 
   g_object_ref (xg_event->any.window);
 
@@ -1532,7 +1560,7 @@ xwidget_scroll (struct xwidget_view *view, double x, double y,
   xg_event->scroll.state = state;
   xg_event->scroll.delta_x = dx;
   xg_event->scroll.delta_y = dy;
-  xg_event->scroll.device = find_suitable_pointer (view->frame);
+  xg_event->scroll.device = find_suitable_pointer (view->frame, true);
   xg_event->scroll.is_stop = stop_p;
 
   g_object_ref (xg_event->any.window);
@@ -1541,7 +1569,7 @@ xwidget_scroll (struct xwidget_view *view, double x, double y,
   gdk_event_free (xg_event);
 }
 
-#ifdef HAVE_USABLE_XI_GESTURE_PINCH_EVENT
+#ifdef HAVE_XINPUT2_4
 void
 xwidget_pinch (struct xwidget_view *view, XIGesturePinchEvent *xev)
 {
@@ -1599,7 +1627,7 @@ xwidget_pinch (struct xwidget_view *view, XIGesturePinchEvent *xev)
     }
 
   gdk_event_set_device (xg_event,
-                        find_suitable_pointer (view->frame));
+                        find_suitable_pointer (view->frame, false));
 
   g_object_ref (xg_event->any.window);
   gtk_main_do_event (xg_event);
@@ -1718,7 +1746,7 @@ xw_notify_virtual_upwards_until (
       xg_event = gdk_event_new (type);
 
       gdk_event_set_device (xg_event,
-                            find_suitable_pointer (xv->frame));
+                            find_suitable_pointer (xv->frame, false));
       window_coords_from_toplevel (tem, toplevel, x, y, &cx, &cy);
       xg_event->crossing.x = cx;
       xg_event->crossing.y = cy;
@@ -1760,7 +1788,7 @@ xw_notify_virtual_downwards_until (
       xg_event = gdk_event_new (type);
 
       gdk_event_set_device (xg_event,
-                            find_suitable_pointer (xv->frame));
+                            find_suitable_pointer (xv->frame, false));
       window_coords_from_toplevel (tem, toplevel, x, y, &cx, &cy);
       xg_event->crossing.x = cx;
       xg_event->crossing.y = cy;
@@ -1867,7 +1895,8 @@ xw_maybe_synthesize_crossing (struct xwidget_view *view,
           xg_event->crossing.window
             = g_object_ref (view->last_crossing_window);
           gdk_event_set_device (xg_event,
-                                find_suitable_pointer (view->frame));
+                                find_suitable_pointer (view->frame,
+                                                       false));
 
           gtk_main_do_event (xg_event);
           gdk_event_free (xg_event);
@@ -1940,7 +1969,8 @@ xw_maybe_synthesize_crossing (struct xwidget_view *view,
 
       xg_event = gdk_event_new (GDK_LEAVE_NOTIFY);
       gdk_event_set_device (xg_event,
-                            find_suitable_pointer (view->frame));
+                            find_suitable_pointer (view->frame,
+                                                   false));
       window_coords_from_toplevel (last_crossing, toplevel, x, y, &cx,
                                    &cy);
       xg_event->crossing.x = cx;
@@ -1969,7 +1999,8 @@ xw_maybe_synthesize_crossing (struct xwidget_view *view,
 
       xg_event = gdk_event_new (GDK_ENTER_NOTIFY);
       gdk_event_set_device (xg_event,
-                            find_suitable_pointer (view->frame));
+                            find_suitable_pointer (view->frame,
+                                                   false));
       window_coords_from_toplevel (current_window, toplevel, x, y,
                                    &cx, &cy);
       xg_event->crossing.x = cx;
@@ -2076,7 +2107,7 @@ xwidget_motion_or_crossing (struct xwidget_view *view,
           xg_event->motion.time = event->xmotion.time;
           xg_event->motion.state = event->xmotion.state;
           xg_event->motion.device
-            = find_suitable_pointer (view->frame);
+            = find_suitable_pointer (view->frame, false);
         }
       else
         {
@@ -2126,7 +2157,8 @@ xwidget_motion_or_crossing (struct xwidget_view *view,
         }
 
       gdk_event_set_device (xg_event,
-                            find_suitable_pointer (view->frame));
+                            find_suitable_pointer (view->frame,
+                                                   false));
     }
 #endif
   else
@@ -2156,7 +2188,8 @@ xwidget_motion_or_crossing (struct xwidget_view *view,
       xg_event->crossing.y_root = event->xcrossing.y_root;
       xg_event->crossing.focus = event->xcrossing.focus;
       gdk_event_set_device (xg_event,
-                            find_suitable_pointer (view->frame));
+                            find_suitable_pointer (view->frame,
+                                                   false));
     }
 
   gtk_main_do_event (xg_event);
@@ -2182,7 +2215,8 @@ synthesize_focus_in_event (GtkWidget *offscreen_window)
 
   if (FRAME_WINDOW_P (SELECTED_FRAME ()))
     gdk_event_set_device (focus_event,
-                          find_suitable_pointer (SELECTED_FRAME ()));
+                          find_suitable_pointer (SELECTED_FRAME (),
+                                                 false));
 
   g_object_ref (wnd);
 
@@ -2787,7 +2821,7 @@ webkit_script_dialog_cb (WebKitWebView *webview,
 
   return TRUE;
 }
-//#endif /* USE_GTK */
+// #endif /* USE_GTK */
 
 static void
 glarea_render_frame (void)
@@ -2826,7 +2860,7 @@ xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
 
   if (EQ (xw->type, Qglarea))
     {
-      error("error in xwidget_osr_draw_cb");
+      error ("error in xwidget_osr_draw_cb");
 
       GdkWindow *xwin = gtk_widget_get_window (xw->widgetwindow_osr);
       GdkWindow *xwin_widget = gtk_widget_get_window (xv->widget);
@@ -2840,7 +2874,7 @@ xwidget_osr_draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
       if (glXMakeCurrent (GDK_WINDOW_XDISPLAY (xwin),
                           GDK_WINDOW_XID (xwin_widget), glcontext))
         {
-          error("error in xwidget_osr_draw_cb glx");
+          error ("error in xwidget_osr_draw_cb glx");
           if (!NILP (xw->init_func))
             {
               call3 (xw->init_func, make_fixed_natnum (xw->width),

@@ -747,6 +747,7 @@ byte-compiled.  Run with dynamic binding."
     (ert-with-temp-file elcfile
       :suffix ".elc"
       (with-temp-buffer
+        (insert ";;; -*- lexical-binding: t -*-\n")
         (dolist (form forms)
           (print form (current-buffer)))
         (write-region (point-min) (point-max) elfile nil 'silent))
@@ -1227,12 +1228,19 @@ literals (Bug#20852)."
    '((lexical prefixless))
    "global/dynamic var .prefixless. lacks")
 
-  (test-suppression
-   '(defun foo()
-      (let ((nil t))
-        (message-mail)))
-   '((constants nil))
-   "Warning: attempt to let-bind constant .nil.")
+  ;; FIXME: These messages cannot be suppressed reliably right now,
+  ;; but attempting mutate `nil' or `5' is a rather daft thing to do
+  ;; in the first place.  Preventing mutation of constants such as
+  ;; `most-positive-fixnum' makes more sense but the compiler doesn't
+  ;; warn about that at all right now (it's caught at runtime, and we
+  ;; allow writing the same value).
+  ;;
+  ;; (test-suppression
+  ;;  '(defun foo()
+  ;;     (let ((nil t))
+  ;;       (message-mail)))
+  ;;  '((constants nil))
+  ;;  "Warning: attempt to let-bind constant .nil.")
 
   (test-suppression
    '(progn
@@ -1251,7 +1259,7 @@ literals (Bug#20852)."
       (defun zot ()
         (wrong-params 1 2 3)))
    '((callargs wrong-params))
-   "Warning: wrong-params called with")
+   "Warning: .wrong-params. called with")
 
   (test-byte-comp-compile-and-load nil
     (defvar obsolete-variable nil)
@@ -1538,6 +1546,33 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
 (TEST-IN-COMMENTS t) (TEST-IN-STRINGS t) (TEST-IN-CODE t) \
 (FIXTURE-FN \\='#\\='electric-pair-mode))" fill-column)))
 
+(defun test-bytecomp-defgroup-choice ()
+  (should-not (byte-compile--suspicious-defcustom-choice 'integer))
+  (should-not (byte-compile--suspicious-defcustom-choice
+               '(choice (const :tag "foo" bar))))
+  (should (byte-compile--suspicious-defcustom-choice
+           '(choice (const :tag "foo" 'bar)))))
+
+(ert-deftest bytecomp-function-attributes ()
+  ;; Check that `byte-compile' keeps the declarations, interactive spec and
+  ;; doc string of the function (bug#55830).
+  (let ((fname 'bytecomp-test-fun))
+    (fset fname nil)
+    (put fname 'pure nil)
+    (put fname 'lisp-indent-function nil)
+    (eval `(defun ,fname (x)
+             "tata"
+             (declare (pure t) (indent 1))
+             (interactive "P")
+             (list 'toto x))
+          t)
+    (let ((bc (byte-compile fname)))
+      (should (byte-code-function-p bc))
+      (should (equal (funcall bc 'titi) '(toto titi)))
+      (should (equal (aref bc 5) "P"))
+      (should (equal (get fname 'pure) t))
+      (should (equal (get fname 'lisp-indent-function) 1))
+      (should (equal (aref bc 4) "tata\n\n(fn X)")))))
 
 ;; Local Variables:
 ;; no-byte-compile: t

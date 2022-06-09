@@ -1761,12 +1761,7 @@ nil."
 		 (lambda (bufname)
 		   (let ((buf (if (consp bufname)
 				  (cdr bufname) (get-buffer bufname))))
-		     (when buf
-		       (erc--buffer-p buf (lambda () t) proc)
-		       (with-current-buffer buf
-			 (and (derived-mode-p 'erc-mode)
-			      (or (null proc)
-				  (eq proc erc-server-process))))))))))
+                     (and buf (erc--buffer-p buf (lambda () t) proc)))))))
 (defun erc-switch-to-buffer (&optional arg)
   "Prompt for an ERC buffer to switch to.
 When invoked with prefix argument, use all ERC buffers.  Without
@@ -2274,7 +2269,7 @@ Example usage:
 
     (erc-tls :server \"irc.libera.chat\" :port 6697
              :client-certificate
-             '(\"/home/bandali/my-cert.key\"
+             \\='(\"/home/bandali/my-cert.key\"
                \"/home/bandali/my-cert.crt\"))"
   (interactive (let ((erc-default-port erc-default-port-tls))
 		 (erc-select-read-args)))
@@ -3630,12 +3625,7 @@ If S is non-nil, it will be used as the quit reason."
   "Zippy quit message.
 
 If S is non-nil, it will be used as the quit reason."
-  (or s
-      (if (fboundp 'yow)
-          (if (>= emacs-major-version 28)
-              (string-replace "\n" "" (yow))
-            (replace-regexp-in-string "\n" "" (yow)))
-        (erc-quit/part-reason-default))))
+  (or s (erc-quit/part-reason-default)))
 
 (make-obsolete 'erc-quit-reason-zippy "it will be removed." "24.4")
 
@@ -3659,12 +3649,7 @@ If S is non-nil, it will be used as the part reason."
   "Zippy part message.
 
 If S is non-nil, it will be used as the quit reason."
-  (or s
-      (if (fboundp 'yow)
-          (if (>= emacs-major-version 28)
-              (string-replace "\n" "" (yow))
-            (replace-regexp-in-string "\n" "" (yow)))
-        (erc-quit/part-reason-default))))
+  (or s (erc-quit/part-reason-default)))
 
 (make-obsolete 'erc-part-reason-zippy "it will be removed." "24.4")
 

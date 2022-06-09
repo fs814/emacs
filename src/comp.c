@@ -447,7 +447,7 @@ load_gccjit_if_necessary (bool mandatory)
 
 
 /* Increase this number to force a new Vcomp_abi_hash to be generated.  */
-#define ABI_VERSION "4"
+#define ABI_VERSION "5"
 
 /* Length of the hashes used for eln file naming.  */
 #define HASH_LENGTH 8
@@ -515,8 +515,6 @@ typedef struct {
   void *link_table[F_RELOC_MAX_SIZE];
   ptrdiff_t size;
 } f_reloc_t;
-
-sigset_t saved_sigset;
 
 static f_reloc_t freloc;
 
@@ -648,7 +646,7 @@ typedef struct {
 
 static comp_t comp;
 
-FILE *logfile = NULL;
+static FILE *logfile;
 
 /* This is used for serialized objects by the reload mechanism.  */
 typedef struct {
@@ -666,16 +664,16 @@ typedef struct {
    Helper functions called by the run-time.
 */
 
-void helper_unwind_protect (Lisp_Object handler);
-Lisp_Object helper_temp_output_buffer_setup (Lisp_Object x);
-Lisp_Object helper_unbind_n (Lisp_Object n);
-void helper_save_restriction (void);
-bool helper_PSEUDOVECTOR_TYPEP_XUNTAG (Lisp_Object a, enum pvec_type code);
-struct Lisp_Symbol_With_Pos *helper_GET_SYMBOL_WITH_POSITION (Lisp_Object a);
+static void helper_unwind_protect (Lisp_Object);
+static Lisp_Object helper_unbind_n (Lisp_Object);
+static void helper_save_restriction (void);
+static bool helper_PSEUDOVECTOR_TYPEP_XUNTAG (Lisp_Object, enum pvec_type);
+static struct Lisp_Symbol_With_Pos *
+helper_GET_SYMBOL_WITH_POSITION (Lisp_Object);
 
 /* Note: helper_link_table must match the list created by
    `declare_runtime_imported_funcs'.  */
-void *helper_link_table[] =
+static void *helper_link_table[] =
   { wrong_type_argument,
     helper_PSEUDOVECTOR_TYPEP_XUNTAG,
     pure_write_error,
@@ -758,12 +756,12 @@ comp_hash_source_file (Lisp_Object filename)
 
 DEFUN ("comp--subr-signature", Fcomp__subr_signature,
        Scomp__subr_signature, 1, 1, 0,
-       doc: /* Support function to 'hash_native_abi'.
+       doc: /* Support function to hash_native_abi.
 For internal use.  */)
   (Lisp_Object subr)
 {
   return concat2 (Fsubr_name (subr),
-		  Fprin1_to_string (Fsubr_arity (subr), Qnil));
+		  Fprin1_to_string (Fsubr_arity (subr), Qnil, Qnil));
 }
 
 /* Produce a key hashing Vcomp_subr_list.  */
@@ -1709,7 +1707,7 @@ static gcc_jit_lvalue *
 emit_lisp_obj_reloc_lval (Lisp_Object obj)
 {
   emit_comment (format_string ("l-value for lisp obj: %s",
-			       SSDATA (Fprin1_to_string (obj, Qnil))));
+			       SSDATA (Fprin1_to_string (obj, Qnil, Qnil))));
 
   imm_reloc_t reloc = obj_to_reloc (obj);
   return gcc_jit_context_new_array_access (comp.ctxt,
@@ -1722,7 +1720,7 @@ static gcc_jit_rvalue *
 emit_lisp_obj_rval (Lisp_Object obj)
 {
   emit_comment (format_string ("const lisp obj: %s",
-			       SSDATA (Fprin1_to_string (obj, Qnil))));
+			       SSDATA (Fprin1_to_string (obj, Qnil, Qnil))));
 
   if (NILP (obj))
     {
@@ -1970,7 +1968,7 @@ emit_mvar_rval (Lisp_Object mvar)
 	    SSDATA (
 	      Fprin1_to_string (
 		NILP (func) ? value : CALL1I (comp-func-c-name, func),
-		Qnil)));
+		Qnil, Qnil)));
 	}
       if (FIXNUMP (value))
 	{
@@ -2473,7 +2471,7 @@ emit_limple_insn (Lisp_Object insn)
   else if (EQ (op, Qsetimm))
     {
       /* Ex: (setimm #s(comp-mvar 9 1 t 3 nil) a).  */
-      emit_comment (SSDATA (Fprin1_to_string (arg[1], Qnil)));
+      emit_comment (SSDATA (Fprin1_to_string (arg[1], Qnil, Qnil)));
       imm_reloc_t reloc = obj_to_reloc (arg[1]);
       emit_frame_assignment (
 	arg[0],
@@ -2649,7 +2647,7 @@ emit_static_object (const char *name, Lisp_Object obj)
   specbind (intern_c_string ("print-quoted"), Qt);
   specbind (intern_c_string ("print-gensym"), Qt);
   specbind (intern_c_string ("print-circle"), Qt);
-  Lisp_Object str = Fprin1_to_string (obj, Qnil);
+  Lisp_Object str = Fprin1_to_string (obj, Qnil, Qnil);
   unbind_to (count, Qnil);
 
   ptrdiff_t len = SBYTES (str);
@@ -4971,12 +4969,11 @@ unknown (before GCC version 10).  */)
 
 /******************************************************************************/
 /* Helper functions called from the run-time.				      */
-/* These can't be statics till shared mechanism is used to solve relocations. */
 /* Note: this are all potentially definable directly to gcc and are here just */
 /* for laziness. Change this if a performance impact is measured.             */
 /******************************************************************************/
 
-void
+static void
 helper_unwind_protect (Lisp_Object handler)
 {
   /* Support for a function here is new in 24.4.  */
@@ -4984,28 +4981,20 @@ helper_unwind_protect (Lisp_Object handler)
 			 handler);
 }
 
-Lisp_Object
-helper_temp_output_buffer_setup (Lisp_Object x)
-{
-  CHECK_STRING (x);
-  temp_output_buffer_setup (SSDATA (x));
-  return Vstandard_output;
-}
-
-Lisp_Object
+static Lisp_Object
 helper_unbind_n (Lisp_Object n)
 {
   return unbind_to (specpdl_ref_add (SPECPDL_INDEX (), -XFIXNUM (n)), Qnil);
 }
 
-void
+static void
 helper_save_restriction (void)
 {
   record_unwind_protect (save_restriction_restore,
 			 save_restriction_save ());
 }
 
-bool
+static bool
 helper_PSEUDOVECTOR_TYPEP_XUNTAG (Lisp_Object a, enum pvec_type code)
 {
   return PSEUDOVECTOR_TYPEP (XUNTAG (a, Lisp_Vectorlike,
@@ -5013,7 +5002,7 @@ helper_PSEUDOVECTOR_TYPEP_XUNTAG (Lisp_Object a, enum pvec_type code)
 			     code);
 }
 
-struct Lisp_Symbol_With_Pos *
+static struct Lisp_Symbol_With_Pos *
 helper_GET_SYMBOL_WITH_POSITION (Lisp_Object a)
 {
   if (!SYMBOL_WITH_POS_P (a))
@@ -5032,6 +5021,12 @@ return_nil (Lisp_Object arg)
 {
   return Qnil;
 }
+
+static Lisp_Object
+directory_files_matching (Lisp_Object name, Lisp_Object match)
+{
+  return Fdirectory_files (name, Qt, match, Qnil, Qnil);
+}
 #endif
 
 /* Windows does not let us delete a .eln file that is currently loaded
@@ -5049,11 +5044,11 @@ eln_load_path_final_clean_up (void)
   FOR_EACH_TAIL (dir_tail)
     {
       Lisp_Object files_in_dir =
-	internal_condition_case_5 (Fdirectory_files,
+	internal_condition_case_2 (directory_files_matching,
 				   Fexpand_file_name (Vcomp_native_version_dir,
 						      XCAR (dir_tail)),
-				   Qt, build_string ("\\.eln\\.old\\'"), Qnil,
-				   Qnil, Qt, return_nil);
+				   build_string ("\\.eln\\.old\\'"),
+				   Qt, return_nil);
       FOR_EACH_TAIL (files_in_dir)
 	internal_delete_file (XCAR (files_in_dir));
     }
@@ -5347,7 +5342,7 @@ load_comp_unit (struct Lisp_Native_Comp_Unit *comp_u, bool loading_dump,
 	 are necessary exclusively during the first load.  Once these
 	 are collected we don't have to maintain them in the heap
 	 forever.  */
-      Lisp_Object volatile data_ephemeral_vec;
+      Lisp_Object volatile data_ephemeral_vec = Qnil;
       /* In case another load of the same CU is active on the stack
 	 all ephemeral data is hold by that frame.  Re-writing
 	 'data_ephemeral_vec' would be not only a waste of cycles but
@@ -5411,7 +5406,7 @@ native_function_doc (Lisp_Object function)
 static Lisp_Object
 make_subr (Lisp_Object symbol_name, Lisp_Object minarg, Lisp_Object maxarg,
 	   Lisp_Object c_name, Lisp_Object type, Lisp_Object doc_idx,
-	   Lisp_Object intspec, Lisp_Object comp_u)
+	   Lisp_Object intspec, Lisp_Object command_modes, Lisp_Object comp_u)
 {
   struct Lisp_Native_Comp_Unit *cu = XNATIVE_COMP_UNIT (comp_u);
   dynlib_handle_ptr handle = cu->handle;
@@ -5444,7 +5439,8 @@ make_subr (Lisp_Object symbol_name, Lisp_Object minarg, Lisp_Object maxarg,
   x->s.min_args = XFIXNUM (minarg);
   x->s.max_args = FIXNUMP (maxarg) ? XFIXNUM (maxarg) : MANY;
   x->s.symbol_name = xstrdup (SSDATA (symbol_name));
-  x->s.native_intspec = intspec;
+  x->s.intspec.native = intspec;
+  x->s.command_modes = command_modes;
   x->s.doc = XFIXNUM (doc_idx);
 #ifdef HAVE_NATIVE_COMP
   x->s.native_comp_u = comp_u;
@@ -5467,12 +5463,15 @@ This gets called by top_level_run during the load phase.  */)
 {
   Lisp_Object doc_idx = FIRST (rest);
   Lisp_Object intspec = SECOND (rest);
+  Lisp_Object command_modes = THIRD (rest);
+
   struct Lisp_Native_Comp_Unit *cu = XNATIVE_COMP_UNIT (comp_u);
   if (cu->loaded_once)
     return Qnil;
 
   Lisp_Object tem =
-    make_subr (c_name, minarg, maxarg, c_name, type, doc_idx, intspec, comp_u);
+    make_subr (c_name, minarg, maxarg, c_name, type, doc_idx, intspec,
+	       command_modes, comp_u);
 
   /* We must protect it against GC because the function is not
      reachable through symbols.  */
@@ -5497,9 +5496,11 @@ This gets called by top_level_run during the load phase.  */)
 {
   Lisp_Object doc_idx = FIRST (rest);
   Lisp_Object intspec = SECOND (rest);
+  Lisp_Object command_modes = THIRD (rest);
+
   Lisp_Object tem =
     make_subr (SYMBOL_NAME (name), minarg, maxarg, c_name, type, doc_idx,
-	       intspec, comp_u);
+	       intspec, command_modes, comp_u);
 
   defalias (name, tem);
 

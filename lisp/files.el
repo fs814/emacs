@@ -987,10 +987,7 @@ one or more of those symbols."
 	  (logior (if (memq 'executable predicate) 1 0)
 		  (if (memq 'writable predicate) 2 0)
 		  (if (memq 'readable predicate) 4 0))))
-  (let ((file (locate-file-internal filename path suffixes predicate)))
-    (if (and file (string-match "\\.eln\\'" file))
-        (gethash (file-name-nondirectory file) comp-eln-to-el-h)
-      file)))
+  (locate-file-internal filename path suffixes predicate))
 
 (defun locate-file-completion-table (dirs suffixes string pred action)
   "Do completion for file names passed to `locate-file'."
@@ -1736,19 +1733,18 @@ rather than FUN itself, to `minibuffer-setup-hook'."
 
 (defun find-file (filename &optional wildcards)
   "Edit file FILENAME.
-Switch to a buffer visiting file FILENAME,
-creating one if none already exists.
+\\<minibuffer-local-map>Switch to a buffer visiting file FILENAME, creating one if none
+already exists.
 Interactively, the default if you just type RET is the current directory,
 but the visited file name is available through the minibuffer history:
 type \\[next-history-element] to pull it into the minibuffer.
 
-The first time \\[next-history-element] is used after Emacs prompts for
-the file name, the result is affected by `file-name-at-point-functions',
-which by default try to guess the file name by looking at point in the
-current buffer.  Customize the value of `file-name-at-point-functions'
-or set it to nil, if you want only the visited file name and the
-current directory to be available on first \\[next-history-element]
-request.
+The first time \\[next-history-element] is used after Emacs prompts for the file name,
+the result is affected by `file-name-at-point-functions', which by
+default try to guess the file name by looking at point in the current
+buffer.  Customize the value of `file-name-at-point-functions' or set
+it to nil, if you want only the visited file name and the current
+directory to be available on first \\[next-history-element] request.
 
 You can visit files on remote machines by specifying something
 like /ssh:SOME_REMOTE_MACHINE:FILE for the file name.  You can
@@ -1761,7 +1757,7 @@ Interactively, or if WILDCARDS is non-nil in a call from Lisp,
 expand wildcards (if any) and visit multiple files.  You can
 suppress wildcard expansion by setting `find-file-wildcards' to nil.
 
-To visit a file without any kind of conversion and without
+\\<global-map>To visit a file without any kind of conversion and without
 automatically choosing a major mode, use \\[find-file-literally]."
   (interactive
    (find-file-read-args "Find file: "
@@ -1777,6 +1773,7 @@ automatically choosing a major mode, use \\[find-file-literally]."
 Like \\[find-file] (which see), but creates a new window or reuses
 an existing one.  See the function `display-buffer'.
 
+\\<minibuffer-local-map>\
 Interactively, the default if you just type RET is the current directory,
 but the visited file name is available through the minibuffer history:
 type \\[next-history-element] to pull it into the minibuffer.
@@ -1809,6 +1806,7 @@ expand wildcards (if any) and visit multiple files."
 Like \\[find-file] (which see), but creates a new frame or reuses
 an existing one.  See the function `display-buffer'.
 
+\\<minibuffer-local-map>\
 Interactively, the default if you just type RET is the current directory,
 but the visited file name is available through the minibuffer history:
 type \\[next-history-element] to pull it into the minibuffer.
@@ -2104,8 +2102,11 @@ started Emacs, set `abbreviated-home-dir' to nil so it will be recalculated)."
   "Return the buffer visiting file FILENAME (a string).
 This is like `get-file-buffer', except that it checks for any buffer
 visiting the same file, possibly under a different name.
+
 If PREDICATE is non-nil, only buffers satisfying it are eligible,
-and others are ignored.
+and others are ignored.  PREDICATE is called with the buffer as
+the only argument, but not with the buffer as the current buffer.
+
 If there is no such live buffer, return nil."
   (let ((predicate (or predicate #'identity))
         (truename (abbreviate-file-name (file-truename filename))))
@@ -2326,7 +2327,16 @@ the various files."
 	     (attributes (file-attributes truename))
 	     (number (nthcdr 10 attributes))
 	     ;; Find any buffer for a file that has same truename.
-	     (other (and (not buf) (find-buffer-visiting filename))))
+	     (other (and (not buf)
+                         (find-buffer-visiting
+                          filename
+                          ;; We want to filter out buffers that we've
+                          ;; visited via symlinks and the like, where
+                          ;; the symlink no longer exists.
+                          (lambda (buffer)
+                            (let ((file (buffer-local-value
+                                         'buffer-file-name buffer)))
+                              (and file (file-exists-p file))))))))
 	;; Let user know if there is a buffer with the same truename.
 	(if other
 	    (progn
@@ -3744,8 +3754,8 @@ return as the symbol specifying the mode."
 	       (while (not (or (and (eq handle-mode t) result)
                                (>= (point) end)))
 		 (unless (looking-at hack-local-variable-regexp)
-		   (message "Malformed mode-line: %S"
-                            (buffer-substring-no-properties (point) end))
+		   (message "Malformed mode-line: %S in buffer %S"
+                            (buffer-substring-no-properties (point) end) (buffer-name))
 		   (throw 'malformed-line nil))
 		 (goto-char (match-end 0))
 		 ;; There used to be a downcase here,
@@ -3902,8 +3912,8 @@ inhibited."
       (with-demoted-errors "Directory-local variables error: %s"
 	;; Note this is a no-op if enable-local-variables is nil.
 	(hack-dir-local-variables))
-      (let ((result (append (hack-local-variables--find-variables)
-                            (hack-local-variables-prop-line))))
+      (let ((result (append (hack-local-variables--find-variables handle-mode)
+                            (hack-local-variables-prop-line handle-mode))))
         (if (and enable-local-variables
                  (not (inhibit-local-variables-p)))
             (progn
@@ -3981,8 +3991,7 @@ major-mode."
 	        (forward-line 1))
 	      (goto-char (point-min))
 
-	      (while (not (or (eobp)
-                              (and (eq handle-mode t) result)))
+	      (while (not (eobp))
 	        ;; Find the variable name;
 	        (unless (looking-at hack-local-variable-regexp)
                   (user-error "Malformed local variable line: %S"
@@ -4008,7 +4017,8 @@ major-mode."
 			   (not (string-match
 			         "-minor\\'"
 			         (setq val2 (downcase (symbol-name val)))))
-			   (setq result (intern (concat val2 "-mode"))))
+                           ;; Allow several mode: elements.
+                           (push (intern (concat val2 "-mode")) result))
 		    (cond ((eq var 'coding))
 			  ((eq var 'lexical-binding)
 			   (unless hack-local-variables--warned-lexical
@@ -4032,7 +4042,10 @@ major-mode."
 				         val)
                                    result))))))
 	        (forward-line 1)))))))
-    result))
+    (if (eq handle-mode t)
+        ;; Return the final mode: setting that's defined.
+        (car (seq-filter #'fboundp result))
+      result)))
 
 (defun hack-local-variables-apply ()
   "Apply the elements of `file-local-variables-alist'.
@@ -5094,7 +5107,11 @@ On most systems, this will be true:
         ;; If there's nothing left to peel off, we're at the root and
         ;; we can stop.
         (when (and dir (equal dir filename))
-          (push "" components)
+          (push (if (equal dir "") ""
+                  ;; On Windows, the first component might be "c:" or
+                  ;; the like.
+                  (substring dir 0 -1))
+                components)
           (setq filename nil))))
     components))
 
@@ -5349,7 +5366,14 @@ on a DOS/Windows machine, it returns FILENAME in expanded form."
     (let ((fremote (file-remote-p filename))
 	  (dremote (file-remote-p directory))
 	  (fold-case (or (file-name-case-insensitive-p filename)
-			 read-file-name-completion-ignore-case)))
+			 ;; During bootstrap, it can happen that
+                         ;; `read-file-name-completion-ignore-case' is
+                         ;; not defined yet.
+                         ;; FIXME: `read-file-name-completion-ignore-case' is
+                         ;; a user-config which we shouldn't trust to reflect
+                         ;; the actual file system's semantics.
+			 (and (boundp 'read-file-name-completion-ignore-case)
+			      read-file-name-completion-ignore-case))))
       (if ;; Conditions for separate trees
 	  (or
 	   ;; Test for different filesystems on DOS/Windows
@@ -5701,11 +5725,14 @@ Before and after saving the buffer, this function runs
 		     (signal (car err) (cdr err))))
 	    ;; Since we have created an entirely new file,
 	    ;; make sure it gets the right permission bits set.
-	    (setq setmodes (or setmodes
- 			       (list (or (file-modes buffer-file-name)
-					 (logand ?\666 (default-file-modes)))
-				     (file-extended-attributes buffer-file-name)
-				     buffer-file-name)))
+	    (setq setmodes
+                  (or setmodes
+                      (list (or (file-modes buffer-file-name)
+				(logand ?\666 (default-file-modes)))
+                            (with-demoted-errors
+                                "Error getting extended attributes: %s"
+			      (file-extended-attributes buffer-file-name))
+			    buffer-file-name)))
 	    ;; We succeeded in writing the temp file,
 	    ;; so rename it.
 	    (rename-file tempname
@@ -5722,9 +5749,12 @@ Before and after saving the buffer, this function runs
 	;; (setmodes is set) because that says we're superseding.
 	(cond ((and tempsetmodes (not setmodes))
 	       ;; Change the mode back, after writing.
-	       (setq setmodes (list (file-modes buffer-file-name)
-				    (file-extended-attributes buffer-file-name)
-				    buffer-file-name))
+	       (setq setmodes
+                     (list (file-modes buffer-file-name)
+                           (with-demoted-errors
+                               "Error getting extended attributes: %s"
+			     (file-extended-attributes buffer-file-name))
+			   buffer-file-name))
 	       ;; If set-file-extended-attributes fails, fall back on
 	       ;; set-file-modes.
 	       (unless
@@ -5845,7 +5875,18 @@ See `save-some-buffers' for PRED values."
                                   (funcall pred))))
                        buffer))
                  (buffer-list))))
-         (delq nil buffers)))
+    (delq nil buffers)))
+
+(defvar save-some-buffers-functions nil
+  "Functions to be run by `save-some-buffers' after saving the buffers.
+The functions can be called in two \"modes\", depending on the
+first argument.  If the first argument is `query', then the
+function should return non-nil if there is something to be
+saved (but it should not actually save anything).
+
+If the first argument is something else, then the function should
+save according to the value of the second argument, which is the
+ARG argument from `save-some-buffers'.")
 
 (defun save-some-buffers (&optional arg pred)
   "Save some modified file-visiting buffers.  Asks user about each one.
@@ -5871,7 +5912,10 @@ should return non-nil if that buffer should be considered.
 PRED defaults to the value of `save-some-buffers-default-predicate'.
 
 See `save-some-buffers-action-alist' if you want to
-change the additional actions you can take on files."
+change the additional actions you can take on files.
+
+The functions in `save-some-buffers-functions' will be called
+after saving the buffers."
   (interactive "P")
   (unless pred
     (setq pred
@@ -5887,7 +5931,7 @@ change the additional actions you can take on files."
           (lambda (buffer)
             (setq switched-buffer buffer)))
          queried autosaved-buffers
-	 files-done abbrevs-done)
+	 files-done inhibit-message)
     (unwind-protect
         (save-window-excursion
           (dolist (buffer (buffer-list))
@@ -5935,19 +5979,10 @@ change the additional actions you can take on files."
                  (files--buffers-needing-to-be-saved pred)
 	         '("buffer" "buffers" "save")
 	         save-some-buffers-action-alist))
-          ;; Maybe to save abbrevs, and record whether
-          ;; we either saved them or asked to.
-          (and save-abbrevs abbrevs-changed
-	       (progn
-	         (if (or arg
-		         (eq save-abbrevs 'silently)
-		         (y-or-n-p (format "Save abbrevs in %s? "
-                                           abbrev-file-name)))
-		     (write-abbrev-file nil))
-	         ;; Don't keep bothering user if he says no.
-	         (setq abbrevs-changed nil)
-	         (setq abbrevs-done t)))
-          (or queried (> files-done 0) abbrevs-done
+          ;; Allow other things to be saved at this time, like abbrevs.
+          (dolist (func save-some-buffers-functions)
+            (setq inhibit-message (or (funcall func nil arg) inhibit-message)))
+          (or queried (> files-done 0) inhibit-message
 	      (cond
 	       ((null autosaved-buffers)
                 (when (called-interactively-p 'any)
@@ -7188,13 +7223,21 @@ by `sh' are supported."
   :type 'string
   :group 'dired)
 
-(defun file-expand-wildcards (pattern &optional full)
+(defun file-expand-wildcards (pattern &optional full regexp)
   "Expand wildcard pattern PATTERN.
 This returns a list of file names that match the pattern.
-Files are sorted in `string<' order.
 
-If PATTERN is written as an absolute file name,
-the values are absolute also.
+PATTERN is, by default, a \"glob\"/wildcard string, e.g.,
+\"/tmp/*.png\" or \"/*/*/foo.png\", but can also be a regular
+expression if the optional REGEXP parameter is non-nil.  In any
+case, the matches are applied per sub-directory, so a match can't
+span a parent/sub directory, which means that a regexp bit can't
+contain the \"/\" character.
+
+The list of files returned are sorted in `string<' order.
+
+If PATTERN is written as an absolute file name, the values are
+absolute also.
 
 If PATTERN is written as a relative file name, it is interpreted
 relative to the current default directory, `default-directory'.
@@ -7209,7 +7252,8 @@ default directory.  However, if FULL is non-nil, they are absolute."
 	   (dirs (if (and dirpart
 			  (string-match "[[*?]" (file-local-name dirpart)))
 		     (mapcar 'file-name-as-directory
-			     (file-expand-wildcards (directory-file-name dirpart)))
+			     (file-expand-wildcards
+                              (directory-file-name dirpart) nil regexp))
 		   (list dirpart)))
 	   contents)
       (dolist (dir dirs)
@@ -7222,8 +7266,13 @@ default directory.  However, if FULL is non-nil, they are absolute."
                                  (unless (string-match "\\`\\.\\.?\\'"
                                                        (file-name-nondirectory name))
                                    name))
-			       (directory-files (or dir ".") full
-						(wildcard-to-regexp nondir))))))
+			       (directory-files
+                                (or dir ".") full
+                                (if regexp
+                                    ;; We're matching each file name
+                                    ;; element separately.
+                                    (concat "\\`" nondir "\\'")
+				  (wildcard-to-regexp nondir)))))))
 	    (setq contents
 		  (nconc
 		   (if (and dir (not full))
@@ -7232,6 +7281,95 @@ default directory.  However, if FULL is non-nil, they are absolute."
 		     this-dir-contents)
 		   contents)))))
       contents)))
+
+(defcustom find-sibling-rules nil
+  "Rules for finding \"sibling\" files.
+This is used by the `find-sibling-file' command.
+
+This variable is a list of (MATCH EXPANSION...) elements.
+
+MATCH is a regular expression that should match a file name that
+has a sibling.  It can contain sub-expressions that will be used
+in EXPANSIONS.
+
+EXPANSION is a string that matches file names.  For instance, to
+define \".h\" files as siblings of any \".c\", you could say:
+
+  (\"\\\\([^/]+\\\\)\\\\.c\\\\\\='\" \"\\\\1.h\")
+
+MATCH and EXPANSION can also be fuller paths.  For instance, if
+you want to define other versions of a project as being sibling
+files, you could say something like:
+
+  (\"src/emacs/[^/]+/\\\\(.*\\\\)\\\\\\='\" \"src/emacs/.*/\\\\1\\\\\\='\")
+
+In this example, if you're in src/emacs/emacs-27/lisp/abbrev.el,
+and you an src/emacs/emacs-28/lisp/abbrev.el file exists, it's
+now defined as a sibling."
+  :type 'sexp
+  :version "29.1")
+
+(defun find-sibling-file (file)
+  "Visit a \"sibling\" file of FILE.
+By default, return only files that exist, but if ALL is non-nil,
+return all matches.
+
+When called interactively, FILE is the currently visited file.
+
+The \"sibling\" file is defined by the `find-sibling-rules' variable."
+  (interactive (progn
+                 (unless buffer-file-name
+                   (user-error "Not visiting a file"))
+                 (list buffer-file-name)))
+  (unless find-sibling-rules
+    (user-error "The `find-sibling-rules' variable has not been configured"))
+  (let ((siblings (find-sibling-file--search (expand-file-name file))))
+    (cond
+     ((null siblings)
+      (user-error "Couldn't find any sibling files"))
+     ((length= siblings 1)
+      (find-file (car siblings)))
+     (t
+      (let ((relatives (mapcar (lambda (sibling)
+                                 (file-relative-name
+                                  sibling (file-name-directory file)))
+                               siblings)))
+        (find-file
+         (completing-read (format-prompt "Find file" (car relatives))
+                          relatives nil t nil nil (car relatives))))))))
+
+(defun find-sibling-file--search (file)
+  (let ((results nil))
+    (pcase-dolist (`(,match . ,expansions) find-sibling-rules)
+      ;; Go through the list and find matches.
+      (when (string-match match file)
+        (let ((match-data (match-data)))
+          (dolist (expansion expansions)
+            (let ((start 0))
+              ;; Expand \\1 forms in the expansions.
+              (while (string-match "\\\\\\([0-9]+\\)" expansion start)
+                (let ((index (string-to-number (match-string 1 expansion))))
+                  (setq start (match-end 0)
+                        expansion
+                        (replace-match
+                         (substring file
+                                    (elt match-data (* index 2))
+                                    (elt match-data (1+ (* index 2))))
+                         t t expansion)))))
+            ;; Then see which files we have that are matching.  (And
+            ;; expand from the end of the file's match, since we might
+            ;; be doing a relative match.)
+            (let ((default-directory (substring file 0 (car match-data))))
+              ;; Keep the first matches first.
+              (setq results
+                    (nconc
+                     results
+                     (mapcar #'expand-file-name
+                             (file-expand-wildcards expansion nil t)))))))))
+    ;; Delete the file itself (in case it matched), and remove
+    ;; duplicates, in case we have several expansions and some match
+    ;; the same subsets of files.
+    (delete file (delete-dups results))))
 
 ;; Let Tramp know that `file-expand-wildcards' does not need an advice.
 (provide 'files '(remote-wildcards))
@@ -7324,7 +7462,9 @@ need to be passed verbatim to shell commands."
 
 
 (defvar insert-directory-program (purecopy "ls")
-  "Absolute or relative name of the `ls' program used by `insert-directory'.")
+  "Absolute or relative name of the `ls'-like program.
+This is used by `insert-directory' and `dired-insert-directory'
+\(thus, also by `dired').")
 
 (defcustom directory-free-space-program (purecopy "df")
   "Program to get the amount of free space on a file system.
@@ -7759,18 +7899,25 @@ prompt the user before killing them."
   :group 'convenience
   :version "26.1")
 
-(defun save-buffers-kill-emacs (&optional arg)
+(defun save-buffers-kill-emacs (&optional arg restart)
   "Offer to save each buffer, then kill this Emacs process.
 With prefix ARG, silently save all file-visiting buffers without asking.
 If there are active processes where `process-query-on-exit-flag'
 returns non-nil and `confirm-kill-processes' is non-nil,
 asks whether processes should be killed.
+
 Runs the members of `kill-emacs-query-functions' in turn and stops
-if any returns nil.  If `confirm-kill-emacs' is non-nil, calls it."
+if any returns nil.  If `confirm-kill-emacs' is non-nil, calls it.
+
+If RESTART, restart Emacs after killing the current Emacs process."
   (interactive "P")
   ;; Don't use save-some-buffers-default-predicate, because we want
   ;; to ask about all the buffers before killing Emacs.
-    (when (files--buffers-needing-to-be-saved t)
+  (when (or (files--buffers-needing-to-be-saved t)
+            (catch 'need-save
+              (dolist (func save-some-buffers-functions)
+                (when (funcall func 'query)
+                  (throw 'need-save t)))))
       (if (use-dialog-box-p)
           (pcase (x-popup-dialog
                   t `("Unsaved Buffers"
@@ -7820,7 +7967,7 @@ if any returns nil.  If `confirm-kill-emacs' is non-nil, calls it."
      (run-hook-with-args-until-failure 'kill-emacs-query-functions)
      (or (null confirm)
          (funcall confirm "Really exit Emacs? "))
-     (kill-emacs))))
+     (kill-emacs nil restart))))
 
 (defun save-buffers-kill-terminal (&optional arg)
   "Offer to save each buffer, then kill the current connection.
@@ -7835,6 +7982,16 @@ only these files will be asked to be saved."
   (if (frame-parameter nil 'client)
       (server-save-buffers-kill-terminal arg)
     (save-buffers-kill-emacs arg)))
+
+(defun restart-emacs ()
+  "Kill the current Emacs process and start a new one.
+This goes through the same shutdown procedure as
+`save-buffers-kill-emacs', but instead of killing Emacs and
+exiting, it re-executes Emacs (using the same command line
+arguments as the running Emacs)."
+  (interactive)
+  (save-buffers-kill-emacs nil t))
+
 
 ;; We use /: as a prefix to "quote" a file name
 ;; so that magic file name handlers will not apply to it.

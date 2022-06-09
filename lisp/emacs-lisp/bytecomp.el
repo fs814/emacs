@@ -325,7 +325,8 @@ Elements of the list may be:
   constants   let-binding of, or assignment to, constants/nonvariables.
   docstrings  docstrings that are too wide (longer than
               `byte-compile-docstring-max-column' or
-              `fill-column' characters, whichever is bigger).
+              `fill-column' characters, whichever is bigger) or
+              have other stylistic issues.
   suspicious  constructs that usually don't do what the coder wanted.
 
 If the list begins with `not', then the remaining elements specify warnings to
@@ -471,7 +472,7 @@ Return the compile-time value of FORM."
   (let ((print-symbols-bare t))         ; Possibly redundant binding.
     (setf form (macroexp-macroexpand form byte-compile-macro-environment)))
   (if (eq (car-safe form) 'progn)
-      (cons 'progn
+      (cons (car form)
             (mapcar (lambda (subform)
                       (byte-compile-recurse-toplevel
                        subform non-toplevel-case))
@@ -500,8 +501,9 @@ Return the compile-time value of FORM."
                                         byte-compile-new-defuns))
                                    (setf result
                                          (byte-compile-eval
+                                          (byte-run-strip-symbol-positions
                                            (byte-compile-top-level
-                                            (byte-compile-preprocess form)))))))
+                                            (byte-compile-preprocess form))))))))
                               (list 'quote result))))
     (eval-and-compile . ,(lambda (&rest body)
                            (byte-compile-recurse-toplevel
@@ -512,9 +514,10 @@ Return the compile-time value of FORM."
                               ;; or byte-compile-file-form.
                               (let* ((print-symbols-bare t) ; Possibly redundant binding.
                                      (expanded
-                                      (macroexpand--all-toplevel
-                                       form
-                                       macroexpand-all-environment)))
+                                      (byte-run-strip-symbol-positions
+                                       (macroexpand--all-toplevel
+                                        form
+                                        macroexpand-all-environment))))
                                 (eval expanded lexical-binding)
                                 expanded)))))
     (with-suppressed-warnings
@@ -1007,13 +1010,22 @@ CONST2 may be evaluated multiple times."
 
     ;; Similarly, replace TAGs in all jump tables with the correct PC index.
     (dolist (hash-table byte-compile-jump-tables)
-      (maphash #'(lambda (value tag)
-                   (setq pc (cadr tag))
-                   ;; We don't need to split PC here, as it is stored as a lisp
-                   ;; object in the hash table (whereas other goto-* ops store
-                   ;; it within 2 bytes in the byte string).
-                   (puthash value pc hash-table))
-               hash-table))
+      (let (alist)
+        (maphash #'(lambda (value tag)
+                     (setq pc (cadr tag))
+                     ;; We don't need to split PC here, as it is stored as a
+                     ;; lisp object in the hash table (whereas other goto-*
+                     ;; ops store it within 2 bytes in the byte string).
+                     ;; De-position any symbols with position in `value'.
+                     ;; Since this may change the hash table key, we remove
+                     ;; the entry from the table and reinsert it outside the
+                     ;; scope of the `maphash'.
+                     (setq value (byte-run-strip-symbol-positions value))
+                     (push (cons value pc) alist)
+                     (remhash value hash-table))
+                 hash-table)
+        (dolist (elt alist)
+          (puthash (car elt) (cdr elt) hash-table))))
     (let ((bytecode (apply 'unibyte-string (nreverse bytes))))
       (when byte-native-compiling
         ;; Spill LAP for the native compiler here.
@@ -1045,8 +1057,14 @@ Each function's symbol gets added to `byte-compile-noruntime-functions'."
 		(dolist (s xs)
 		  (pcase s
 		    (`(defun . ,f)
-		     (unless (seq-some #'autoloadp
-		                       (get (cdr s) 'function-history))
+		     ;; If `f' has a history, it's presumably because
+		     ;; it was already defined beforehand (typically
+		     ;; as an autoload).  It could also be because it
+		     ;; was defined twice during `form', in which case
+		     ;; we arguably should add it to b-c-noruntime-functions,
+                     ;; but it's not clear it's worth the trouble
+		     ;; trying to recognize that case.
+		     (unless (get f 'function-history)
                        (push f byte-compile-noruntime-functions)))))))))))))
 
 (defun byte-compile-eval-before-compile (form)
@@ -1162,40 +1180,35 @@ message buffer `default-directory'."
         (f2 (file-relative-name file dir)))
     (if (< (length f2) (length f1)) f2 f1)))
 
-(defun byte-compile--first-symbol (form)
-  "Return the \"first\" symbol found in form, or 0 if there is none.
-Here, \"first\" is by a depth first search."
-  (let (sym)
-    (cond
-     ((symbolp form) form)
-     ((consp form)
-      (or (and (symbolp (setq sym (byte-compile--first-symbol (car form))))
-               sym)
-          (and (symbolp (setq sym (byte-compile--first-symbol (cdr form))))
-               sym)
-          0))
-     ((and (vectorp form)
-           (> (length form) 0))
-      (let ((i 0)
-            (len (length form))
-            elt)
-        (catch 'sym
-          (while (< i len)
-            (when (symbolp
-                   (setq elt (byte-compile--first-symbol (aref form i))))
-              (throw 'sym elt))
-            (setq i (1+ i)))
-          0)))
-     (t 0))))
+(defun byte-compile--first-symbol-with-pos (form)
+  "Return the first symbol with position in form, or nil if none.
+Order is by depth-first search."
+  (cond
+   ((symbol-with-pos-p form) form)
+   ((consp form)
+    (or (byte-compile--first-symbol-with-pos (car form))
+        (let ((sym nil))
+          (setq form (cdr form))
+          (while (and (consp form)
+                      (not (setq sym (byte-compile--first-symbol-with-pos
+                                      (car form)))))
+            (setq form (cdr form)))
+          (or sym
+              (and form (byte-compile--first-symbol-with-pos form))))))
+   ((or (vectorp form) (recordp form))
+    (let ((len (length form))
+          (i 0)
+          (sym nil))
+      (while (and (< i len)
+                  (not (setq sym (byte-compile--first-symbol-with-pos
+                                  (aref form i)))))
+        (setq i (1+ i)))
+      sym))))
 
 (defun byte-compile--warning-source-offset ()
-  "Return a source offset from `byte-compile-form-stack'.
-Return nil if such is not found."
-  (catch 'offset
-    (dolist (form byte-compile-form-stack)
-      (let ((s (byte-compile--first-symbol form)))
-        (if (symbol-with-pos-p s)
-            (throw 'offset (symbol-with-pos-pos s)))))))
+  "Return a source offset from `byte-compile-form-stack' or nil if none."
+  (let ((sym (byte-compile--first-symbol-with-pos byte-compile-form-stack)))
+    (and sym (symbol-with-pos-pos sym))))
 
 ;; This is used as warning-prefix for the compiler.
 ;; It is always called with the warnings buffer current.
@@ -1428,7 +1441,7 @@ when printing the error message."
   (and (eq 'macro (car-safe f)) (setq f (cdr f)))
   ;; Advice wrappers have "catch all" args, so fetch the actual underlying
   ;; function to find the real arguments.
-  (while (advice--p f) (setq f (advice--cdr f)))
+  (setq f (advice--cd*r f))
   (if (eq (car-safe f) 'declared)
       (byte-compile-arglist-signature (nth 1 f))
     (condition-case nil
@@ -1477,15 +1490,16 @@ when printing the error message."
                 byte-compile-unresolved-functions)))))
 
 (defun byte-compile-emit-callargs-warn (name actual-args min-args max-args)
-  (byte-compile-warn-x
-   name
-   "%s called with %d argument%s, but %s %s"
-   name actual-args
-   (if (= 1 actual-args) "" "s")
-   (if (< actual-args min-args)
-       "requires"
-     "accepts only")
-   (byte-compile-arglist-signature-string (cons min-args max-args))))
+  (when (byte-compile-warning-enabled-p 'callargs name)
+    (byte-compile-warn-x
+     name
+     "`%s' called with %d argument%s, but %s %s"
+     name actual-args
+     (if (= 1 actual-args) "" "s")
+     (if (< actual-args min-args)
+         "requires"
+       "accepts only")
+     (byte-compile-arglist-signature-string (cons min-args max-args)))))
 
 (defun byte-compile--check-arity-bytecode (form bytecode)
   "Check that the call in FORM matches that allowed by BYTECODE."
@@ -1551,15 +1565,39 @@ extra args."
 (dolist (elt '(format message error))
   (put elt 'byte-compile-format-like t))
 
+(defun byte-compile--suspicious-defcustom-choice (type)
+  "Say whether defcustom TYPE looks odd."
+  ;; Check whether there's anything like (choice (const :tag "foo" ;; 'bar)).
+  ;; We don't actually follow the syntax for defcustom types, but this
+  ;; should be good enough.
+  (catch 'found
+    (if (and (consp type)
+             (proper-list-p type))
+        (if (memq (car type) '(const other))
+            (when (assq 'quote type)
+              (throw 'found t))
+          (when (memq t (mapcar #'byte-compile--suspicious-defcustom-choice
+                                type))
+            (throw 'found t)))
+      nil)))
+
 ;; Warn if a custom definition fails to specify :group, or :type.
 (defun byte-compile-nogroup-warn (form)
   (let ((keyword-args (cdr (cdr (cdr (cdr form)))))
 	(name (cadr form)))
     (when (eq (car-safe name) 'quote)
-      (or (not (eq (car form) 'custom-declare-variable))
-	  (plist-get keyword-args :type)
-	  (byte-compile-warn-x (cadr name)
-	   "defcustom for `%s' fails to specify type" (cadr name)))
+      (when (eq (car form) 'custom-declare-variable)
+        (let ((type (plist-get keyword-args :type)))
+	  (cond
+           ((not type)
+	    (byte-compile-warn-x (cadr name)
+	                         "defcustom for `%s' fails to specify type"
+                                 (cadr name)))
+           ((byte-compile--suspicious-defcustom-choice type)
+	    (byte-compile-warn-x
+             (cadr name)
+	     "defcustom for `%s' has syntactically odd type `%s'"
+             (cadr name) type)))))
       (if (and (memq (car form) '(custom-declare-face custom-declare-variable))
 	       byte-compile-current-group)
 	  ;; The group will be provided implicitly.
@@ -1583,32 +1621,31 @@ extra args."
 ;; number of arguments.
 (defun byte-compile-arglist-warn (name arglist macrop)
   ;; This is the first definition.  See if previous calls are compatible.
-  (let ((calls (assq name byte-compile-unresolved-functions))
-        nums sig min max)
-    (when (and calls macrop)
-      (byte-compile-warn-x name "macro `%s' defined too late" name))
-    (setq byte-compile-unresolved-functions
-          (delq calls byte-compile-unresolved-functions))
-    (setq calls (delq t calls))      ;Ignore higher-order uses of the function.
-    (when (cddr calls)
-      (when (and (symbolp name)
-                 (eq (function-get name 'byte-optimizer)
-                     'byte-compile-inline-expand))
-        (byte-compile-warn-x name "defsubst `%s' was used before it was defined"
-                             name))
-      (setq sig (byte-compile-arglist-signature arglist)
-            nums (sort (copy-sequence (cddr calls)) (function <))
-            min (car nums)
-            max (car (nreverse nums)))
-      (when (or (< min (car sig))
-                (and (cdr sig) (> max (cdr sig))))
-        (byte-compile-warn-x
-         name
-         "%s being defined to take %s%s, but was previously called with %s"
-         name
-         (byte-compile-arglist-signature-string sig)
-         (if (equal sig '(1 . 1)) " arg" " args")
-         (byte-compile-arglist-signature-string (cons min max))))))
+  (let ((calls (assq name byte-compile-unresolved-functions)))
+    (when calls
+      (when macrop
+        (byte-compile-warn-x name "macro `%s' defined too late" name))
+      (setq byte-compile-unresolved-functions
+            (delq calls byte-compile-unresolved-functions))
+      (let ((nums (delq t (cddr calls))))  ; Ignore higher-order uses.
+        (when nums
+          (when (and (symbolp name)
+                     (eq (function-get name 'byte-optimizer)
+                         'byte-compile-inline-expand))
+            (byte-compile-warn-x
+             name "defsubst `%s' was used before it was defined" name))
+          (let ((sig (byte-compile-arglist-signature arglist))
+                (min (apply #'min nums))
+                (max (apply #'max nums)))
+            (when (or (< min (car sig))
+                      (and (cdr sig) (> max (cdr sig))))
+              (byte-compile-warn-x
+               name
+               "%s being defined to take %s%s, but was previously called with %s"
+               name
+               (byte-compile-arglist-signature-string sig)
+               (if (equal sig '(1 . 1)) " arg" " args")
+               (byte-compile-arglist-signature-string (cons min max)))))))))
   (let* ((old (byte-compile-fdefinition name macrop))
          (initial (and macrop
                        (cdr (assq name
@@ -1688,8 +1725,12 @@ value, it will override this variable."
   :safe #'integerp
   :version "28.1")
 
-(defun byte-compile-docstring-length-warn (form)
-  "Warn if documentation string of FORM is too wide.
+(define-obsolete-function-alias 'byte-compile-docstring-length-warn
+  'byte-compile-docstring-style-warn "29.1")
+
+(defun byte-compile-docstring-style-warn (form)
+  "Warn if there are stylistic problems with the docstring in FORM.
+Warn if documentation string of FORM is too wide.
 It is too wide if it has any lines longer than the largest of
 `fill-column' and `byte-compile-docstring-max-column'."
   (when (byte-compile-warning-enabled-p 'docstrings)
@@ -1709,12 +1750,18 @@ It is too wide if it has any lines longer than the largest of
       (when (and (consp name) (eq (car name) 'quote))
         (setq name (cadr name)))
       (setq name (if name (format " `%s' " name) ""))
-      (when (and kind docs (stringp docs)
-                 (byte-compile--wide-docstring-p docs col))
-        (byte-compile-warn-x
-         name
-         "%s%sdocstring wider than %s characters"
-         kind name col))))
+      (when (and kind docs (stringp docs))
+        (when (byte-compile--wide-docstring-p docs col)
+          (byte-compile-warn-x
+           name
+           "%s%sdocstring wider than %s characters"
+           kind name col))
+        ;; There's a "naked" ' character before a symbol/list, so it
+        ;; should probably be quoted with \=.
+        (when (string-match-p "\\( \"\\|[ \t]\\|^\\)'[a-z(]" docs)
+          (byte-compile-warn-x
+           name "%s%sdocstring has wrong usage of unescaped single quotes (use \\= or different quoting)"
+           kind name)))))
   form)
 
 ;; If we have compiled any calls to functions which are not known to be
@@ -2576,7 +2623,7 @@ list that represents a doc string reference.
   (if (stringp (nth 3 form))
       (prog1
           form
-        (byte-compile-docstring-length-warn form))
+        (byte-compile-docstring-style-warn form))
     ;; No doc string, so we can compile this as a normal form.
     (byte-compile-keep-pending form 'byte-compile-normal-call)))
 
@@ -2608,7 +2655,7 @@ list that represents a doc string reference.
   (if (and (null (cddr form))		;No `value' provided.
            (eq (car form) 'defvar))     ;Just a declaration.
       nil
-    (byte-compile-docstring-length-warn form)
+    (byte-compile-docstring-style-warn form)
     (setq form (copy-sequence form))
     (when (consp (nth 2 form))
       (setcar (cdr (cdr form))
@@ -2633,7 +2680,7 @@ list that represents a doc string reference.
            (byte-compile-warn-x
             newname
             "Alias for `%S' should be declared before its referent" newname)))))
-  (byte-compile-docstring-length-warn form)
+  (byte-compile-docstring-style-warn form)
   (byte-compile-keep-pending form))
 
 (put 'custom-declare-variable 'byte-hunk-handler
@@ -2879,6 +2926,7 @@ FUN should be either a `lambda' value or a `closure' value."
       (push (pop body) preamble))
     (when (eq (car-safe (car body)) 'interactive)
       (push (pop body) preamble))
+    (setq preamble (nreverse preamble))
     ;; Turn the function's closed vars (if any) into local let bindings.
     (dolist (binding env)
       (cond
@@ -3025,7 +3073,7 @@ lambda-expression."
       (setq fun (cons 'lambda fun))
     (unless (eq 'lambda (car-safe fun))
       (error "Not a lambda list: %S" fun)))
-  (byte-compile-docstring-length-warn fun)
+  (byte-compile-docstring-style-warn fun)
   (byte-compile-check-lambda-list (nth 1 fun))
   (let* ((arglist (nth 1 fun))
          (arglistvars (byte-run-strip-symbol-positions
@@ -3074,7 +3122,8 @@ lambda-expression."
                        ;; which may include "calls" to
                        ;; internal-make-closure (Bug#29988).
                        lexical-binding)
-                   (setq int `(interactive ,newform)))))
+                   (setq int `(,(car int) ,newform))
+                 (setq int (byte-run-strip-symbol-positions int))))) ; for compile-defun.
             ((cdr int)                  ; Invalid (interactive . something).
 	     (byte-compile-warn-x int "malformed interactive spec: %s"
 				  int))))
@@ -3089,7 +3138,7 @@ lambda-expression."
                                         (byte-compile-make-lambda-lexenv
                                          arglistvars))
                                    reserved-csts))
-          (bare-arglist arglist))
+          (bare-arglist (byte-run-strip-symbol-positions arglist))) ; for compile-defun.
       ;; Build the actual byte-coded function.
       (cl-assert (eq 'byte-code (car-safe compiled)))
       (let ((out
@@ -3797,12 +3846,13 @@ If it is nil, then the handler is \"byte-compile-SYMBOL.\""
 
 
 (defun byte-compile-subr-wrong-args (form n)
-  (byte-compile-warn-x (car form)
-                        "`%s' called with %d arg%s, but requires %s"
-                        (car form) (length (cdr form))
-                        (if (= 1 (length (cdr form))) "" "s") n)
-  ;; Get run-time wrong-number-of-args error.
-  (byte-compile-normal-call form))
+  (when (byte-compile-warning-enabled-p 'callargs (car form))
+    (byte-compile-warn-x (car form)
+                         "`%s' called with %d arg%s, but requires %s"
+                         (car form) (length (cdr form))
+                         (if (= 1 (length (cdr form))) "" "s") n)
+    ;; Get run-time wrong-number-of-args error.
+    (byte-compile-normal-call form)))
 
 (defun byte-compile-no-args (form)
   (if (not (= (length form) 1))
@@ -3911,7 +3961,9 @@ discarding."
 (byte-defop-compiler-1 internal-get-closed-var byte-compile-get-closed-var)
 
 (defun byte-compile-make-closure (form)
-  "Byte-compile the special `internal-make-closure' form."
+  "Byte-compile the special `internal-make-closure' form.
+
+This function is never called when `lexical-binding' is nil."
   (if byte-compile--for-effect (setq byte-compile--for-effect nil)
     (let* ((vars (nth 1 form))
            (env (nth 2 form))
@@ -3923,7 +3975,7 @@ discarding."
 		     docstring-exp))	;Otherwise, we don't need a closure.
       (cl-assert (byte-code-function-p fun))
       (byte-compile-form
-       (if (or (not docstring-exp) (stringp docstring-exp))
+       (if (macroexp-const-p docstring-exp)
            ;; Use symbols V0, V1 ... as placeholders for closure variables:
            ;; they should be short (to save space in the .elc file), yet
            ;; distinct when disassembled.
@@ -3933,24 +3985,33 @@ discarding."
                                     (number-sequence 4 (1- (length fun)))))
                   (proto-fun
                    (apply #'make-byte-code
-                          (aref fun 0) (aref fun 1)
+                          (aref fun 0)  ; The arglist is always the 15-bit
+                                        ; form, never the list of symbols.
+                          (aref fun 1)  ; The byte-code.
                           ;; Prepend dummy cells to the constant vector,
                           ;; to get the indices right when disassembling.
                           (vconcat dummy-vars (aref fun 2))
-                          (aref fun 3)
+                          (aref fun 3)  ; Stack depth of function
                           (if docstring-exp
-                              (cons docstring-exp (cdr opt-args))
+                              (cons
+                               (eval (byte-run-strip-symbol-positions
+                                      docstring-exp)
+                                     t)
+                               (cdr opt-args)) ; The interactive spec will
+                                               ; have been stripped in
+                                               ; `byte-compile-lambda'.
                             opt-args))))
              `(make-closure ,proto-fun ,@env))
          ;; Nontrivial doc string expression: create a bytecode object
          ;; from small pieces at run time.
          `(make-byte-code
-           ',(aref fun 0) ',(aref fun 1)
-           (vconcat (vector . ,env) ',(aref fun 2))
+           ',(aref fun 0)         ; 15-bit form of arglist descriptor.
+           ',(aref fun 1)         ; The byte-code.
+           (vconcat (vector . ,env) ',(aref fun 2)) ; constant vector.
            ,@(let ((rest (nthcdr 3 (mapcar (lambda (x) `',x) fun))))
                (if docstring-exp
                    `(,(car rest)
-                     ,docstring-exp
+                     ,(byte-run-strip-symbol-positions docstring-exp)
                      ,@(cddr rest))
                  rest))))
          ))))
@@ -4877,8 +4938,6 @@ binding slots have been popped."
     (push (nth 1 (nth 1 form)) byte-compile-global-not-obsolete-vars))
   (byte-compile-normal-call form))
 
-(defconst byte-compile-tmp-var (make-symbol "def-tmp-var"))
-
 (defun byte-compile-defvar (form)
   ;; This is not used for file-level defvar/consts.
   (when (and (symbolp (nth 1 form))
@@ -4888,7 +4947,7 @@ binding slots have been popped."
      (nth 1 form)
      "global/dynamic var `%s' lacks a prefix"
      (nth 1 form)))
-  (byte-compile-docstring-length-warn form)
+  (byte-compile-docstring-style-warn form)
   (let ((fun (nth 0 form))
 	(var (nth 1 form))
 	(value (nth 2 form))
@@ -4911,18 +4970,17 @@ binding slots have been popped."
        string
        "third arg to `%s %s' is not a string: %s"
        fun var string))
+    ;; Delegate the actual work to the function version of the
+    ;; special form, named with a "-1" suffix.
     (byte-compile-form-do-effect
-     (if (cddr form)  ; `value' provided
-         ;; Quote with `quote' to prevent byte-compiling the body,
-         ;; which would lead to an inf-loop.
-         `(funcall '(lambda (,byte-compile-tmp-var)
-                      (,fun ,var ,byte-compile-tmp-var ,@(nthcdr 3 form)))
-                   ,value)
-        (if (eq fun 'defconst)
-            ;; This will signal an appropriate error at runtime.
-            `(eval ',form)
-          ;; A simple (defvar foo) just returns foo.
-          `',var)))))
+     (cond
+      ((eq fun 'defconst) `(defconst-1 ',var ,@(nthcdr 2 form)))
+      ((not (cddr form)) `',var) ; A simple (defvar foo) just returns foo.
+      (t `(defvar-1 ',var
+                    ;; Don't eval `value' if `defvar' wouldn't eval it either.
+                    ,(if (macroexp-const-p value) value
+                       `(if (boundp ',var) nil ,value))
+                    ,@(nthcdr 3 form)))))))
 
 (defun byte-compile-autoload (form)
   (and (macroexp-const-p (nth 1 form))
@@ -4964,7 +5022,7 @@ binding slots have been popped."
       ;; - `arg' is the expression to which it is defined.
       ;; - `rest' is the rest of the arguments.
       (`(,_ ',name ,arg . ,rest)
-       (byte-compile-docstring-length-warn form)
+       (byte-compile-docstring-style-warn form)
        (pcase-let*
            ;; `macro' is non-nil if it defines a macro.
            ;; `fun' is the function part of `arg' (defaults to `arg').
@@ -5099,7 +5157,7 @@ binding slots have been popped."
 OP and OPERAND are as passed to `byte-compile-out'."
   (if (memq op '(byte-call byte-discardN byte-discardN-preserve-tos))
       ;; For calls, OPERAND is the number of args, so we pop OPERAND + 1
-      ;; elements, and the push the result, for a total of -OPERAND.
+      ;; elements, and then push the result, for a total of -OPERAND.
       ;; For discardN*, of course, we just pop OPERAND elements.
       (- operand)
     (or (aref byte-stack+-info (symbol-value op))
@@ -5109,7 +5167,11 @@ OP and OPERAND are as passed to `byte-compile-out'."
 	(- 1 operand))))
 
 (defun byte-compile-out (op &optional operand)
-  (setq operand (byte-run-strip-symbol-positions operand))
+  "Push the operation onto `byte-compile-output'.
+OP is an opcode, a symbol.  OPERAND is either nil or a number or
+a one-element list of a lisp form."
+  (when (and (consp operand) (null (cdr operand)))
+    (setq operand (byte-run-strip-symbol-positions operand)))
   (push (cons op operand) byte-compile-output)
   (if (eq op 'byte-return)
       ;; This is actually an unnecessary case, because there should be no
