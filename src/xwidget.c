@@ -4460,9 +4460,7 @@ syms_of_xwidget (void)
 
   DEFSYM (QCplist, ":plist");
 
-  DEFVAR_LISP (
-    "xwidget-list", Vxwidget_list, doc
-    : /* List of all xwidgets that have not been killed.  */);
+  DEFVAR_LISP ("xwidget-list", Vxwidget_list, doc: /* List of all xwidgets that have not been killed.  */);
   Vxwidget_list = Qnil;
 
   DEFVAR_LISP ("xwidget-view-list", Vxwidget_view_list, doc
