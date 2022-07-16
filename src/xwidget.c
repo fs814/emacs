@@ -324,7 +324,7 @@ fails.  */)
   CHECK_FIXNAT (height);
 
   if (!EQ (type, Qwebkit) && !EQ (type, Qglarea) && !EQ (type, Qmetal)
-      && !EQ (type, Qfilament))
+      && !EQ (type, Qfilament) && !EQ(type, Qvulkan))
     error ("Bad xwidget type");
 
   Frequire (Qxwidget, Qnil, Qnil);
@@ -4417,6 +4417,7 @@ syms_of_xwidget (void)
 
   DEFSYM (Qmetal, "metal");
   DEFSYM (Qfilament, "filament");
+  DEFSYM (Qvulkan, "vulkan");
 
   defsubr (&Sxwidget_glarea_make_current);
   DEFSYM (Qglarea, "glarea");

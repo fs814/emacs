@@ -1616,6 +1616,179 @@ Each line describes an entry in history."
   ;;(xwidget-filament-adjust-size-to-window (xwidget-filament-current-session) (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))))
   )
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(defun xwidget-vulkan-adjust-size-to-content ()
+  "Adjust webkit to content size."
+  (interactive nil xwidget-vulkan-mode)
+  (xwidget-adjust-size-to-content (xwidget-vulkan-current-session)))
+
+(defun xwidget-vulkan-adjust-size-dispatch ()
+  "Adjust size according to mode."
+  (interactive nil xwidget-vulkan-mode)
+  (xwidget-vulkan-adjust-size-to-window (xwidget-vulkan-current-session))
+  ;; The recenter is intended to correct a visual glitch.
+  ;; It errors out if the buffer isn't visible, but then we don't get
+  ;; the glitch, so silence errors.
+  (ignore-errors
+    (recenter-top-bottom)))
+
+;; Utility functions
+
+(defun xwidget-vulkan-adjust-size-to-window (xwidget &optional window)
+  "Adjust the size of the webkit XWIDGET to fit the WINDOW."
+  (xwidget-resize xwidget
+                  (xwidget-window-inside-pixel-width window)
+                  (xwidget-window-inside-pixel-height window)))
+
+(defun xwidget-vulkan-adjust-size (w h)
+  "Manually set webkit size to width W, height H."
+  ;; TODO shouldn't be tied to the webkit xwidget
+  (interactive "nWidth:\nnHeight:\n" xwidget-vulkan-mode)
+  (xwidget-resize (xwidget-vulkan-current-session) w h))
+
+(defun xwidget-vulkan-fit-width ()
+  "Adjust width of webkit to window width."
+  (interactive nil xwidget-vulkan-mode)
+  (xwidget-vulkan-adjust-size (- (nth 2 (window-inside-pixel-edges))
+                                 (car (window-inside-pixel-edges)))
+                              1000))
+
+(defun xwidget-vulkan-auto-adjust-size (window)
+  "Adjust the size of the webkit widget in the given WINDOW."
+  (with-current-buffer (window-buffer window)
+    (when (eq major-mode 'xwidget-vulkan-mode)
+      (let ((xwidget (xwidget-vulkan-current-session)))
+        (xwidget-vulkan-adjust-size-to-window xwidget window)))))
+
+(defun xwidget-vulkan-adjust-size-in-frame (frame)
+  "Dynamically adjust webkit widget for all windows of the FRAME."
+  (walk-windows 'xwidget-vulkan-auto-adjust-size 'no-minibuf frame))
+
+(eval-after-load 'xwidget-vulkan-mode
+  (add-to-list 'window-size-change-functions
+               'xwidget-vulkan-adjust-size-in-frame))
+
+(defvar xwidget-vulkan-last-session-buffer nil)
+
+(defun xwidget-vulkan-last-session ()
+  (if (buffer-live-p xwidget-vulkan-last-session-buffer)
+      (with-current-buffer xwidget-vulkan-last-session-buffer
+        (xwidget-at (point-min)))
+      nil))
+
+(defun xwidget-vulkan-callback (xwidget xwidget-event-type)
+  (if (not (buffer-live-p (xwidget-buffer xwidget)))
+      (xwidget-log "error: callback called for xwidget with dead buffer")
+    (cond (t (xwidget-log "unhandled event:%s" xwidget-event-type))
+          )
+      )
+  )
+
+(defun xwidget-vulkan-buffer-kill ()
+  )
+
+(defvar xwidget-vulkan-mode-map
+  (let ((map (make-sparse-keymap)))
+   map)
+  "Keymap for `xwidget-vulkan-mode'.")
+
+
+(define-derived-mode xwidget-vulkan-mode special-mode "xwidget-vulkan"
+  (setq buffer-read-only t)
+  (add-hook 'kill-buffer-hook #'xwidget-vulkan-buffer-kill)
+  ;;(setq-local tool-bar-map xwidget-vulkan-tool-bar-map)
+  (image-mode-setup-winprops)
+  )
+
+(defun xwidget-vulkan-current-session ()
+  (or (xwidget-at (point-min)) (xwidget-vulkan-last-session))
+  )
+
+(defun xwidget-vulkan-import-widget (xwidget)
+  (let* ((bufname
+          (generate-new-buffer-name (buffer-name)))
+         (callback #'xwidget-vulkan-callback)
+         (buffer (get-buffer-create bufname)))
+    (with-current-buffer buffer
+      (setq xwidget-vulkan-last-session-buffer buffer)
+      (save-excursion
+        (erase-buffer)
+        (insert ".")
+        (put-text-property (point-min) (point-max)
+                           'display (list 'xwidget :xwidget xwidget)))
+      (xwidget-put xwidget 'callback callback)
+      (xwidget-put xwidget 'display-callback #'xwidget-vulkan-display-callback)
+      (set-xwidget-buffer xwidget buffer)
+      (xwidget-vulkan-mode)
+      )
+    buffer))
+
+(defun xwidget-vulkan-display-callback (xwidget _source)
+  (display-buffer (xwidget-vulkan-import-widget xwidget))
+  )
+
+(defun xwidget-vulkan-display ()
+  (interactive)
+  (display-buffer (xwidget-vulkan-import-widget (xwidget-vulkan-current-session)))
+  )
+
+(defun xwidget-vulkan--create-new-session-buffer (&optional callback)
+  (let* ((bufname
+          (generate-new-buffer-name (buffer-name)))
+         (callback (or callback #'xwidget-vulkan-callback))
+         (current-session (xwidget-vulkan-current-session))
+         xw
+         )
+    (setq xwidget-vulkan-last-session-buffer (get-buffer-create bufname))
+    (with-current-buffer xwidget-vulkan-last-session-buffer
+      (let ((start (point)))
+        (insert "vulkan")
+        (put-text-property start (+ start (length "vulkan")) 'invisible t)
+        (setq xw (xwidget-insert
+                  start 'vulkan bufname
+                  (xwidget-window-inside-pixel-width (selected-window))
+                  (xwidget-window-inside-pixel-height (selected-window))
+                  nil current-session))
+        )
+      (xwidget-put xw 'callback callback)
+      (xwidget-put xw 'display-callback #'xwidget-vulkan-display-callback)
+      (xwidget-vulkan-mode)
+      )
+    xwidget-vulkan-last-session-buffer))
+
+(defun xwidget-vulkan-new-session ()
+  (switch-to-buffer (xwidget-vulkan--create-new-session-buffer)))
+
+(defun xwidget-vulkan-goto ()
+  (if (xwidget-vulkan-current-session)
+      (progn
+        (switch-to-buffer (xwidget-buffer (xwidget-vulkan-current-session))))
+    (xwidget-vulkan-new-session)
+    ))
+
+(defun xwidget-vulkan-browse (&optional new-session)
+  (interactive)
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-vulkan-new-session)
+    (xwidget-vulkan-goto))
+  ;;(xwidget-vulkan-refit)
+  )
+
+(defun xwidget-vulkan-refit ()
+  (interactive)
+  ;;(switch-to-buffer-other-window (xwidget-buffer (xwidget-metal-current-session)))
+  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-last-session) (selected-window))
+  ;;(message "%s" (window-resizable (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) 1 t))
+  (window-resize (get-buffer-window (xwidget-buffer (xwidget-vulkan-current-session))) 1 t)
+  ;;(display-buffer-reuse-window (xwidget-buffer (xwidget-metal-current-session)) nil)
+  ;;(window-resize (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) -1 t)
+
+  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-current-session) (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))))
+  )
+
 
 
 

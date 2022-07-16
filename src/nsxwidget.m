@@ -27,6 +27,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "nsterm.h"
 #include "xwidget.h"
 
+//#import "triangle.h"
+//#include "vulkanexamplebase.h"
+
 #import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <MetalKit/MetalKit.h>
@@ -37,6 +40,11 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #import "LcShaderTypes.h"
 
 #import "FilamentDelegate.h"
+#import "VulkanView.h"
+
+#import "VulkanDelegate.h"
+
+
 /* Thoughts on NS Cocoa xwidget and webkit2:
 
    Webkit2 process architecture seems to be very hostile for offscreen
@@ -552,6 +560,11 @@ void nsxwidget_init(struct xwidget *xw) {
         [[XwMetalView alloc] initWithFrame:rect
                                     device:MTLCreateSystemDefaultDevice()
                                    xwidget:xw];
+  } else if (EQ(xw->type, Qvulkan)){
+    xw->xwWidget =
+      [[XwVulkanView alloc] initWithFrame:rect
+                                    device:MTLCreateSystemDefaultDevice()
+                                    xwidget:xw];
   } else if (EQ(xw->type, Qfilament)) {
     xw->xwWidget =
         [[XwFilamentView alloc] initWithFrame:rect
