@@ -4500,7 +4500,7 @@ if test "$with_xwidgets" != "no"; then
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
     NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
-    NS_OBJCXX_OBJ="LcRender.o FilamentDelegate.o"
+    NS_OBJCXX_OBJ="LcRender.o FilamentDelegate.o VulkanView.o VulkanDelegate.o"
     #NS_CXX_OBJ="FilamentRender.o"
     CXXFLAGS="$CXXFLAGS -std=c++17"
     dnl Update NS_OBJC_OBJ with added nsxwidget.o
