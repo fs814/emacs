@@ -731,7 +731,7 @@ font_put_extra (Lisp_Object font, Lisp_Object prop, Lisp_Object val)
     {
       Lisp_Object prev = Qnil;
 
-      if (EQ (val, Qunbound))
+      if (BASE_EQ (val, Qunbound))
 	return val;
       while (CONSP (extra)
 	     && NILP (Fstring_lessp (prop, XCAR (XCAR (extra)))))
@@ -745,7 +745,7 @@ font_put_extra (Lisp_Object font, Lisp_Object prop, Lisp_Object val)
       return val;
     }
   XSETCDR (slot, val);
-  if (EQ (val, Qunbound))
+  if (BASE_EQ (val, Qunbound))
     ASET (font, FONT_EXTRA_INDEX, Fdelq (slot, extra));
   return val;
 }
@@ -3589,8 +3589,8 @@ font_open_by_name (struct frame *f, Lisp_Object name)
 
    The second is with frame F NULL.  In this case, DRIVER is globally
    registered in the variable `font_driver_list'.  All font-driver
-   implementations must call this function in its syms_of_XXXX
-   (e.g. syms_of_xfont).  */
+   implementations must call this function in its
+   syms_of_XXXX_for_pdumper (e.g. syms_of_xfont_for_pdumper).  */
 
 void
 register_font_driver (struct font_driver const *driver, struct frame *f)

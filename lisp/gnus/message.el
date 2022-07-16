@@ -1411,7 +1411,7 @@ text and it replaces `self-insert-command' with the other command, e.g.
       (file-name-as-directory (expand-file-name "drafts" message-directory))
     "~/")
   "Directory where Message auto-saves buffers if Gnus isn't running.
-If nil, Message won't auto-save."
+If nil, Message won't auto-save, whether or not Gnus is running."
   :group 'message-buffers
   :link '(custom-manual "(message)Various Message Variables")
   :type '(choice directory (const :tag "Don't auto-save" nil)))
@@ -1468,11 +1468,11 @@ candidates:
       (memq feature message-shoot-gnksa-feet)))
 
 (defcustom message-hidden-headers '("^References:" "^Face:" "^X-Face:"
-				    "^X-Draft-From:")
+				    "^X-Draft-From:" "^In-Reply-To:")
   "Regexp of headers to be hidden when composing new messages.
 This can also be a list of regexps to match headers.  Or a list
 starting with `not' and followed by regexps."
-  :version "22.1"
+  :version "29.1"
   :group 'message
   :link '(custom-manual "(message)Message Headers")
   :type '(choice
@@ -6881,13 +6881,14 @@ are not included."
     (or (bolp) (insert ?\n)))
   (insert (concat mail-header-separator "\n"))
   (forward-line -1)
-  ;; If a crash happens while replying, the auto-save file would *not* have a
-  ;; `References:' header if `message-generate-headers-first' was nil.
-  ;; Therefore, always generate it first.
+  ;; If a crash happens while replying, the auto-save file would *not*
+  ;; have a `References:' header if `message-generate-headers-first'
+  ;; was nil.  Therefore, always generate it first.  (And why not
+  ;; include the `In-Reply-To' header as well.)
   (let ((message-generate-headers-first
          (if (eq message-generate-headers-first t)
              t
-           (append message-generate-headers-first '(References)))))
+           (append message-generate-headers-first '(References In-Reply-To)))))
     (when (message-news-p)
       (when message-default-news-headers
         (insert message-default-news-headers)
@@ -7017,7 +7018,15 @@ is a function used to switch to and display the mail buffer."
 	;; https://lists.gnu.org/r/emacs-devel/2011-01/msg00337.html
 	;; We need to convert any string input, eg from rmail-start-mail.
 	(dolist (h other-headers other-headers)
-	  (if (stringp (car h)) (setcar h (intern (capitalize (car h)))))))
+	  (when (stringp (car h))
+            (setcar h (intern (capitalize (car h)))))
+          ;; Firefox sends us In-Reply-To headers that are Message-IDs
+          ;; without <> around them.  Fix that.
+          (when (and (eq (car h) 'In-Reply-To)
+                     ;; Looks like a Message-ID.
+                     (string-match-p "\\`[^ @]+@[^ @]+\\'" (cdr h))
+                     (not (string-match-p "\\`<.*>\\'" (cdr h))))
+            (setcdr h (concat "<" (cdr h) ">")))))
        yank-action send-actions continue switch-function
        return-action))))
 

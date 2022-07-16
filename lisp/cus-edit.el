@@ -1075,6 +1075,7 @@ plain variables.  This means that `setopt' will execute any
   (when-let ((type (get variable 'custom-type)))
     (unless (widget-apply (widget-convert type) :match value)
       (user-error "Value `%S' does not match type %s" value type)))
+  (put variable 'custom-check-value (list value))
   (funcall (or (get variable 'custom-set) #'set-default) variable value))
 
 ;;;###autoload
@@ -2583,7 +2584,13 @@ If INITIAL-STRING is non-nil, use that rather than \"Parent groups:\"."
 Normally just return the docstring.  But if VARIABLE automatically
 becomes buffer local when set, append a message to that effect.
 Also append any obsolescence information."
-  (format "%s%s%s" (documentation-property variable 'variable-documentation t)
+  (format "%s%s%s"
+          (with-temp-buffer
+            (insert
+             (or (documentation-property variable 'variable-documentation t)
+                 ""))
+            (untabify (point-min) (point-max))
+            (buffer-string))
 	  (if (and (local-variable-if-set-p variable)
 		   (or (not (local-variable-p variable))
 		       (with-temp-buffer

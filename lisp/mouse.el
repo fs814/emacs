@@ -53,9 +53,17 @@ mouse cursor to the echo area."
 This affects `mouse-save-then-kill' (\\[mouse-save-then-kill]) in
 addition to mouse drags.
 
+If this variable is `non-empty', only copy to the kill ring if
+the region is non-empty.  For instance, if you mouse drag an area
+that is less than a half a character, you'd normally get the
+empty string in your kill ring, but with this value, this short
+mouse drag won't affect the kill ring.
+
 This variable applies only to mouse adjustments in Emacs, not
 selecting and adjusting regions in other windows."
-  :type 'boolean
+  :type '(choice (const :tag "No" nil)
+                 (const :tag "Yes" t)
+                 (const :tag "Non-empty" non-empty))
   :version "24.1")
 
 (defcustom mouse-1-click-follows-link 450
@@ -647,7 +655,13 @@ This command must be bound to a mouse click."
   (interactive "e")
   (unless (one-window-p t)
     (mouse-minibuffer-check click)
-    (delete-window (posn-window (event-start click)))))
+    ;; Only delete the window if the user hasn't moved point out of
+    ;; the mode line before releasing the button.
+    (when (and (eq (posn-area (event-end click))
+                   'mode-line)
+               (eq (posn-window (event-end click))
+                   (posn-window (event-start click))))
+      (delete-window (posn-window (event-start click))))))
 
 (defun mouse-select-window (click)
   "Select the window clicked on; don't move point."
@@ -673,10 +687,13 @@ This command must be bound to a mouse click."
     (switch-to-buffer buf)
     (delete-window window)))
 
-(defun mouse-delete-other-windows ()
+(defun mouse-delete-other-windows (click)
   "Delete all windows except the one you click on."
-  (interactive "@")
-  (delete-other-windows))
+  (interactive "e")
+  (when (and (eq (posn-area (event-end click)) 'mode-line)
+             (eq (posn-window (event-start click))
+                 (posn-window (event-end click))))
+    (delete-other-windows (posn-window (event-start click)))))
 
 (defun mouse-split-window-vertically (click)
   "Select Emacs window mouse is on, then split it vertically in half.
@@ -1183,7 +1200,7 @@ frame with the mouse."
                            (<= (- right parent-right) snap-width)
                            snap-x (<= (- last-x snap-x) snap-width))
                       ;; Stay snapped when the mouse moved rightward but
-                      ;; not more more than `snap-width' pixels from the
+                      ;; not more than `snap-width' pixels from the
                       ;; time FRAME snapped.
                       (setq left (- parent-right native-width)))
                      (t
@@ -1205,7 +1222,7 @@ frame with the mouse."
                            (<= (- parent-top top) snap-width)
                            snap-y (<= (- snap-y last-y) snap-width))
                       ;; Stay snapped when the mouse moved upward but
-                      ;; not more more than `snap-width' pixels from the
+                      ;; not more than `snap-width' pixels from the
                       ;; time FRAME snapped.
                       (setq top parent-top))
                      (t
@@ -1227,7 +1244,7 @@ frame with the mouse."
                            (<= (- bottom parent-bottom) snap-width)
                            snap-y (<= (- last-y snap-y) snap-width))
                       ;; Stay snapped when the mouse moved downward but
-                      ;; not more more than `snap-width' pixels from the
+                      ;; not more than `snap-width' pixels from the
                       ;; time FRAME snapped.
                       (setq top (- parent-bottom native-height)))
                      (t
@@ -1423,11 +1440,16 @@ command alters the kill ring or not."
         (if (< end beg)
             (setq end (nth 0 range) beg (nth 1 range))
           (setq beg (nth 0 range) end (nth 1 range)))))
-    (and mouse-drag-copy-region (integerp beg) (integerp end)
+    (when (and mouse-drag-copy-region
+               (integerp beg)
+               (integerp end)
+               (or (not (eq mouse-drag-copy-region 'non-empty))
+                   (/= beg end)))
 	 ;; Don't set this-command to `kill-region', so a following
 	 ;; C-w won't double the text in the kill ring.  Ignore
 	 ;; `last-command' so we don't append to a preceding kill.
-	 (let (this-command last-command deactivate-mark)
+	 (let ((last-command last-command)
+               this-command deactivate-mark)
 	   (copy-region-as-kill beg end)))
     (if (numberp beg) (goto-char beg))
     ;; On a text terminal, bounce the cursor.
@@ -1530,6 +1552,7 @@ is dragged over to."
       (mouse-drag-and-drop-region start-event)
     ;; Give temporary modes such as isearch a chance to turn off.
     (run-hooks 'mouse-leave-buffer-hook)
+    (ignore-preserving-kill-region)
     (mouse-drag-track start-event)))
 
 ;; Inhibit the region-confinement when undoing mouse-drag-region
@@ -1739,7 +1762,8 @@ The region will be defined with mark and point."
                                             nil start-point))
                         ((>= mouse-row bottom)
                          (mouse-scroll-subr start-window (1+ (- mouse-row bottom))
-                                            nil start-point))))))))
+                                            nil start-point))))))
+                 (ignore-preserving-kill-region)))
              map)
            t (lambda ()
                (funcall cleanup)
@@ -2112,7 +2136,9 @@ if `mouse-drag-copy-region' is non-nil)."
 	(if before-scroll (goto-char before-scroll)))
       (exchange-point-and-mark)
       (mouse-set-region-1)
-      (when mouse-drag-copy-region
+      (when (and mouse-drag-copy-region
+                 (or (not (eq mouse-drag-copy-region 'non-empty))
+                     (not (/= (mark t) (point)))))
         (kill-new (filter-buffer-substring (mark t) (point))))
       (setq mouse-save-then-kill-posn click-pt)))))
 

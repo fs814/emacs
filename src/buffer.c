@@ -911,7 +911,8 @@ does not run the hooks `kill-buffer-hook',
       set_buffer_internal_1 (b);
       Fset (intern ("buffer-save-without-query"), Qnil);
       Fset (intern ("buffer-file-number"), Qnil);
-      Fset (intern ("buffer-stale-function"), Qnil);
+      if (!NILP (Flocal_variable_p (Qbuffer_stale_function, base_buffer)))
+	Fkill_local_variable (Qbuffer_stale_function);
       /* Cloned buffers need extra setup, to do things such as deep
 	 variable copies for list variables that might be mangled due
 	 to destructive operations in the indirect buffer. */
@@ -1065,7 +1066,7 @@ reset_buffer_local_variables (struct buffer *b, bool permanent_too)
           eassert (XSYMBOL (sym)->u.s.redirect == SYMBOL_LOCALIZED);
           /* Need not do anything if some other buffer's binding is
 	     now cached.  */
-          if (EQ (SYMBOL_BLV (XSYMBOL (sym))->where, buffer))
+          if (BASE_EQ (SYMBOL_BLV (XSYMBOL (sym))->where, buffer))
 	    {
 	      /* Symbol is set up for this buffer's old local value:
 	         swap it out!  */
@@ -1218,7 +1219,7 @@ is the default binding of the variable.  */)
 {
   register Lisp_Object result = buffer_local_value (variable, buffer);
 
-  if (EQ (result, Qunbound))
+  if (BASE_EQ (result, Qunbound))
     xsignal1 (Qvoid_variable, variable);
 
   return result;
@@ -1313,7 +1314,7 @@ buffer_lisp_local_variables (struct buffer *buf, bool clone)
       if (buf != current_buffer)
 	val = XCDR (elt);
 
-      result = Fcons (!clone && EQ (val, Qunbound)
+      result = Fcons (!clone && BASE_EQ (val, Qunbound)
 		      ? XCAR (elt)
 		      : Fcons (XCAR (elt), val),
 		      result);
@@ -1336,7 +1337,7 @@ buffer_local_variables_1 (struct buffer *buf, int offset, Lisp_Object sym)
     {
       sym = NILP (sym) ? PER_BUFFER_SYMBOL (offset) : sym;
       Lisp_Object val = per_buffer_value (buf, offset);
-      return EQ (val, Qunbound) ? sym : Fcons (sym, val);
+      return BASE_EQ (val, Qunbound) ? sym : Fcons (sym, val);
     }
   return Qnil;
 }
@@ -1607,7 +1608,7 @@ This does not change the name of the visited file (if any).  */)
 static bool
 candidate_buffer (Lisp_Object b, Lisp_Object buffer)
 {
-  return (BUFFERP (b) && !EQ (b, buffer)
+  return (BUFFERP (b) && !BASE_EQ (b, buffer)
 	  && BUFFER_LIVE_P (XBUFFER (b))
 	  && !BUFFER_HIDDEN_P (XBUFFER (b)));
 }
@@ -1809,10 +1810,12 @@ cleaning up all windows currently displaying the buffer to be killed. */)
     /* Query if the buffer is still modified.  */
     if (INTERACTIVE && modified)
       {
-	AUTO_STRING (format, "Buffer %s modified; kill anyway? ");
-	tem = do_yes_or_no_p (CALLN (Fformat, format, BVAR (b, name)));
-	if (NILP (tem))
+	/* Ask whether to kill the buffer, and exit if the user says
+	   "no".  */
+	if (NILP (call1 (Qkill_buffer__possibly_save, buffer)))
 	  return unbind_to (count, Qnil);
+	/* Recheck modified.  */
+	modified = BUF_MODIFF (b) > BUF_SAVE_MODIFF (b);
       }
 
     /* Delete the autosave file, if requested. */
@@ -1851,7 +1854,7 @@ cleaning up all windows currently displaying the buffer to be killed. */)
      since anything can happen within do_yes_or_no_p.  */
 
   /* Don't kill the minibuffer now current.  */
-  if (EQ (buffer, XWINDOW (minibuf_window)->contents))
+  if (BASE_EQ (buffer, XWINDOW (minibuf_window)->contents))
     return Qnil;
 
   /* When we kill an ordinary buffer which shares its buffer text
@@ -1895,7 +1898,7 @@ cleaning up all windows currently displaying the buffer to be killed. */)
      is the sole other buffer give up.  */
   XSETBUFFER (tem, current_buffer);
   if (EQ (tem, XWINDOW (minibuf_window)->contents)
-      && EQ (buffer, Fother_buffer (buffer, Qnil, Qnil)))
+      && BASE_EQ (buffer, Fother_buffer (buffer, Qnil, Qnil)))
     return Qnil;
 
   /* Now there is no question: we can kill the buffer.  */
@@ -2501,23 +2504,23 @@ results, see Info node `(elisp)Swapping Text'.  */)
       {
 	ws = Fcons (w, ws);
 	if (MARKERP (XWINDOW (w)->pointm)
-	    && (EQ (XWINDOW (w)->contents, buf1)
-		|| EQ (XWINDOW (w)->contents, buf2)))
+	    && (BASE_EQ (XWINDOW (w)->contents, buf1)
+		|| BASE_EQ (XWINDOW (w)->contents, buf2)))
 	  Fset_marker (XWINDOW (w)->pointm,
 		       make_fixnum
 		       (BUF_BEGV (XBUFFER (XWINDOW (w)->contents))),
 		       XWINDOW (w)->contents);
 	/* Blindly copied from pointm part.  */
 	if (MARKERP (XWINDOW (w)->old_pointm)
-	    && (EQ (XWINDOW (w)->contents, buf1)
-		|| EQ (XWINDOW (w)->contents, buf2)))
+	    && (BASE_EQ (XWINDOW (w)->contents, buf1)
+		|| BASE_EQ (XWINDOW (w)->contents, buf2)))
 	  Fset_marker (XWINDOW (w)->old_pointm,
 		       make_fixnum
 		       (BUF_BEGV (XBUFFER (XWINDOW (w)->contents))),
 		       XWINDOW (w)->contents);
 	if (MARKERP (XWINDOW (w)->start)
-	    && (EQ (XWINDOW (w)->contents, buf1)
-		|| EQ (XWINDOW (w)->contents, buf2)))
+	    && (BASE_EQ (XWINDOW (w)->contents, buf1)
+		|| BASE_EQ (XWINDOW (w)->contents, buf2)))
 	  Fset_marker (XWINDOW (w)->start,
 		       make_fixnum
 		       (XBUFFER (XWINDOW (w)->contents)->last_window_start),
@@ -2527,10 +2530,11 @@ results, see Info node `(elisp)Swapping Text'.  */)
   }
 
   if (current_buffer->text->intervals)
-    (eassert (EQ (current_buffer->text->intervals->up.obj, buffer)),
+    (eassert (BASE_EQ (current_buffer->text->intervals->up.obj, buffer)),
      XSETBUFFER (current_buffer->text->intervals->up.obj, current_buffer));
   if (other_buffer->text->intervals)
-    (eassert (EQ (other_buffer->text->intervals->up.obj, Fcurrent_buffer ())),
+    (eassert (BASE_EQ (other_buffer->text->intervals->up.obj,
+		       Fcurrent_buffer ())),
      XSETBUFFER (other_buffer->text->intervals->up.obj, other_buffer));
 
   return Qnil;
@@ -3940,9 +3944,9 @@ for the rear of the overlay advance when text is inserted there
   else
     CHECK_BUFFER (buffer);
 
-  if (MARKERP (beg) && !EQ (Fmarker_buffer (beg), buffer))
+  if (MARKERP (beg) && !BASE_EQ (Fmarker_buffer (beg), buffer))
     signal_error ("Marker points into wrong buffer", beg);
-  if (MARKERP (end) && !EQ (Fmarker_buffer (end), buffer))
+  if (MARKERP (end) && !BASE_EQ (Fmarker_buffer (end), buffer))
     signal_error ("Marker points into wrong buffer", end);
 
   CHECK_FIXNUM_COERCE_MARKER (beg);
@@ -4060,9 +4064,9 @@ buffer.  */)
   if (NILP (Fbuffer_live_p (buffer)))
     error ("Attempt to move overlay to a dead buffer");
 
-  if (MARKERP (beg) && !EQ (Fmarker_buffer (beg), buffer))
+  if (MARKERP (beg) && !BASE_EQ (Fmarker_buffer (beg), buffer))
     signal_error ("Marker points into wrong buffer", beg);
-  if (MARKERP (end) && !EQ (Fmarker_buffer (end), buffer))
+  if (MARKERP (end) && !BASE_EQ (Fmarker_buffer (end), buffer))
     signal_error ("Marker points into wrong buffer", end);
 
   CHECK_FIXNUM_COERCE_MARKER (beg);
@@ -6472,6 +6476,10 @@ will run for `clone-indirect-buffer' calls as well.  */);
   defsubr (&Srestore_buffer_modified_p);
 
   DEFSYM (Qautosaved, "autosaved");
+
+  DEFSYM (Qkill_buffer__possibly_save, "kill-buffer--possibly-save");
+
+  DEFSYM (Qbuffer_stale_function, "buffer-stale-function");
 
   Fput (intern_c_string ("erase-buffer"), Qdisabled, Qt);
 }

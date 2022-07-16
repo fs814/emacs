@@ -304,19 +304,17 @@ When nil, make them for files that have some already.
 The value `never' means do not make them."
   :type '(choice (const :tag "Never" never)
 		 (const :tag "If existing" nil)
-		 (other :tag "Always" t))
+                 (other :tag "Always" t))
+  :safe #'version-control-safe-local-p
   :group 'backup)
 
 (defun version-control-safe-local-p (x)
   "Return whether X is safe as local value for `version-control'."
   (or (booleanp x) (equal x 'never)))
 
-(put 'version-control 'safe-local-variable
-     #'version-control-safe-local-p)
-
 (defcustom dired-kept-versions 2
   "When cleaning directory, number of versions to keep."
-  :type 'integer
+  :type 'natnum
   :group 'backup
   :group 'dired)
 
@@ -330,16 +328,16 @@ If nil, ask confirmation.  Any other value prevents any trimming."
 
 (defcustom kept-old-versions 2
   "Number of oldest versions to keep when a new numbered backup is made."
-  :type 'integer
+  :type 'natnum
+  :safe #'natnump
   :group 'backup)
-(put 'kept-old-versions 'safe-local-variable 'integerp)
 
 (defcustom kept-new-versions 2
   "Number of newest versions to keep when a new numbered backup is made.
 Includes the new backup.  Must be greater than 0."
-  :type 'integer
+  :type 'natnum
+  :safe #'natnump
   :group 'backup)
-(put 'kept-new-versions 'safe-local-variable 'integerp)
 
 (defcustom require-final-newline nil
   "Whether to add a newline automatically at the end of the file.
@@ -443,18 +441,60 @@ idle for `auto-save-visited-interval' seconds."
          (when auto-save--timer
            (timer-set-idle-time auto-save--timer value :repeat))))
 
-(define-minor-mode auto-save-visited-mode
-  "Toggle automatic saving to file-visiting buffers on or off.
+(defcustom auto-save-visited-predicate nil
+  "Predicate function for `auto-save-visited-mode'.
 
-Unlike `auto-save-mode', this mode will auto-save buffer contents
-to the visited files directly and will also run all save-related
-hooks.  See Info node `Saving' for details of the save process.
+If non-nil, the value should be a function of no arguments; it
+will be called once in each file-visiting buffer when the time
+comes to auto-save.  A buffer will be saved only if the predicate
+function returns a non-nil value.
+
+For example, you could add this to your Init file to only save
+files that are both in Org mode and in a particular directory:
+
+    (setq auto-save-visited-predicate
+          (lambda () (and (eq major-mode \\='org-mode)
+                          (string-match \"^/home/skangas/org/\"
+                                        buffer-file-name))))
+
+If the value of this variable is not a function, it is ignored.
+This is the same as having a predicate that always returns
+non-nil."
+  :group 'auto-save
+  :type '(choice :tag "Function:"
+                 (const :tag "No extra predicate" :value nil)
+                 (function :tag "Predicate function" :value always))
+  :risky t
+  :version "29.1")
+
+(defcustom remote-file-name-inhibit-auto-save-visited nil
+  "When nil, `auto-save-visited-mode' will auto-save remote files.
+Any other value means that it will not."
+  :group 'auto-save
+  :type 'boolean
+  :version "29.1")
+
+(define-minor-mode auto-save-visited-mode
+  "Toggle automatic saving of file-visiting buffers to their files.
+
+When this mode is enabled, file-visiting buffers are automatically
+saved to their files.  This is in contrast to `auto-save-mode', which
+auto-saves those buffers to a separate file, leaving the original
+file intact.  See Info node `Saving' for details of the save process.
+
+The user option `auto-save-visited-interval' controls how often to
+auto-save a buffer into its visited file.
+
+You can use `auto-save-visited-predicate' to control which
+buffers are saved.
 
 You can also set the buffer-local value of the variable
 `auto-save-visited-mode' to nil.  A buffer where the buffer-local
 value of this variable is nil is ignored for the purpose of
 `auto-save-visited-mode', even if `auto-save-visited-mode' is
-enabled."
+enabled.
+
+For more details, see Info node `(emacs) Auto Save Files'."
   :group 'auto-save
   :global t
   (when auto-save--timer (cancel-timer auto-save--timer))
@@ -467,7 +507,11 @@ enabled."
              (and buffer-file-name
                   auto-save-visited-mode
                   (not (and buffer-auto-save-file-name
-                            auto-save-visited-file-name))))))))
+                            auto-save-visited-file-name))
+                  (or (not (file-remote-p buffer-file-name))
+                      (not remote-file-name-inhibit-auto-save-visited))
+                  (or (not (functionp auto-save-visited-predicate))
+                      (funcall auto-save-visited-predicate))))))))
 
 ;; The 'set' part is so we don't get a warning for using this variable
 ;; above, while still catching code that _sets_ the variable to get
@@ -1115,10 +1159,17 @@ directory if it does not exist."
 	     (if (file-directory-p user-emacs-directory)
 		 (or (file-accessible-directory-p user-emacs-directory)
 		     (setq errtype "access"))
-	       (with-file-modes ?\700
-		 (condition-case nil
-		     (make-directory user-emacs-directory t)
-		   (error (setq errtype "create")))))
+               ;; We don't want to create HOME if it doesn't exist.
+               (if (and (not (file-exists-p "~"))
+                        (string-prefix-p
+                         (expand-file-name "~")
+                         (expand-file-name user-emacs-directory)))
+                   (setq errtype "create")
+                 ;; Create `user-emacs-directory'.
+	         (with-file-modes ?\700
+		   (condition-case nil
+		       (make-directory user-emacs-directory t)
+		     (error (setq errtype "create"))))))
 	     (when (and errtype
 			user-emacs-directory-warning
 			(not (get 'user-emacs-directory-warning 'this-session)))
@@ -1223,28 +1274,17 @@ Tip: You can use this expansion of remote identifier components
 ;; It's not clear what the best file for this to be in is, but given
 ;; it uses custom-initialize-delay, it is easier if it is preloaded
 ;; rather than autoloaded.
-(defcustom remote-shell-program
-  ;; This used to try various hard-coded places for remsh, rsh, and
-  ;; rcmd, trying to guess based on location whether "rsh" was
-  ;; "restricted shell" or "remote shell", but I don't see the point
-  ;; in this day and age.  Almost everyone will use ssh, and have
-  ;; whatever command they want to use in PATH.
-  (purecopy
-   (let ((list '("ssh" "remsh" "rcmd" "rsh")))
-     (while (and list
-		 (not (executable-find (car list)))
-		 (setq list (cdr list))))
-     (or (car list) "ssh")))
-  "Program to use to execute commands on a remote host (e.g. ssh or rsh)."
-  :version "24.3"			; ssh rather than rsh, etc
+(defcustom remote-shell-program (or (executable-find "ssh") "ssh")
+  "Program to use to execute commands on a remote host (i.e. ssh)."
+  :version "29.1"
   :initialize 'custom-initialize-delay
   :group 'environment
   :type 'file)
 
 (defcustom remote-file-name-inhibit-cache 10
   "Whether to use the remote file-name cache for read access.
-When nil, never expire cached values (caution)
-When t, never use the cache (safe, but may be slow)
+When nil, never expire cached values (caution).
+When t, never use the cache (safe, but may be slow).
 A number means use cached values for that amount of seconds since caching.
 
 The attributes of remote files are cached for better performance.
@@ -2797,6 +2837,9 @@ since only a single case-insensitive search through the alist is made."
      ;; .dir-locals.el is not really Elisp.  Could use the
      ;; `dir-locals-file' constant if it weren't defined below.
      ("\\.dir-locals\\(?:-2\\)?\\.el\\'" . lisp-data-mode)
+     ("\\.eld\\'" . lisp-data-mode)
+     ;; FIXME: The lisp-data-mode files below should use the `.eld' extension
+     ;; (or a -*- mode cookie) so we don't need ad-hoc entries here.
      ("eww-bookmarks\\'" . lisp-data-mode)
      ("tramp\\'" . lisp-data-mode)
      ("/archive-contents\\'" . lisp-data-mode)
@@ -3108,9 +3151,6 @@ major mode MODE.
 
 See also `auto-mode-alist'.")
 
-(define-obsolete-variable-alias 'inhibit-first-line-modes-regexps
-  'inhibit-file-local-variables-regexps "24.1")
-
 ;; TODO really this should be a list of modes (eg tar-mode), not regexps,
 ;; because we are duplicating info from auto-mode-alist.
 ;; TODO many elements of this list are also in auto-coding-alist.
@@ -3130,9 +3170,6 @@ specifications, but are not really, or they may be containers for
 member files with their own local variable sections, which are
 not appropriate for the containing file.
 The function `inhibit-local-variables-p' uses this.")
-
-(define-obsolete-variable-alias 'inhibit-first-line-modes-suffixes
-  'inhibit-local-variables-suffixes "24.1")
 
 (defvar inhibit-local-variables-suffixes nil
   "List of regexps matching suffixes to remove from file names.
@@ -4494,7 +4531,7 @@ Return the new class name, which is a symbol named DIR."
     (with-demoted-errors "Error reading dir-locals: %S"
       (dolist (file files)
 	(let ((file-time (file-attribute-modification-time
-			  (file-attributes file))))
+			  (file-attributes (file-chase-links file)))))
 	  (if (time-less-p latest file-time)
 	    (setq latest file-time)))
         (with-temp-buffer
@@ -4814,6 +4851,26 @@ Interactively, confirmation is required unless you supply a prefix argument."
     ;; It's likely that the VC status at the new location is different from
     ;; the one at the old location.
     (vc-refresh-state)))
+
+(defun rename-visited-file (new-location)
+  "Rename the file visited by the current buffer to NEW-LOCATION.
+This command also sets the visited file name.  If the buffer
+isn't visiting any file, that's all it does.
+
+Interactively, this prompts for NEW-LOCATION."
+  (interactive
+   (list (if buffer-file-name
+             (read-file-name "Rename visited file to: ")
+           (read-file-name "Set visited file name: "
+                           default-directory
+                           (expand-file-name
+                            (file-name-nondirectory (buffer-name))
+                            default-directory)))))
+  (when (and buffer-file-name
+             (file-exists-p buffer-file-name))
+    (rename-file buffer-file-name new-location))
+  (set-visited-file-name new-location nil t))
+
 
 (defun file-extended-attributes (filename)
   "Return an alist of extended attributes of file FILENAME.
@@ -5114,6 +5171,24 @@ On most systems, this will be true:
                 components)
           (setq filename nil))))
     components))
+
+(defun file-parent-directory (filename)
+  "Return the directory name of the parent directory of FILENAME.
+If FILENAME is at the root of the filesystem, return nil.
+If FILENAME is relative, it is interpreted to be relative
+to `default-directory', and the result will also be relative."
+  (let* ((expanded-filename (expand-file-name filename))
+         (parent (file-name-directory (directory-file-name expanded-filename))))
+    (cond
+     ;; filename is at top-level, therefore no parent
+     ((or (null parent)
+          (file-equal-p parent expanded-filename))
+      nil)
+     ;; filename is relative, return relative parent
+     ((not (file-name-absolute-p filename))
+      (file-relative-name parent))
+     (t
+      parent))))
 
 (defcustom make-backup-file-name-function
   #'make-backup-file-name--default-function
@@ -7224,8 +7299,9 @@ by `sh' are supported."
   :group 'dired)
 
 (defun file-expand-wildcards (pattern &optional full regexp)
-  "Expand wildcard pattern PATTERN.
-This returns a list of file names that match the pattern.
+  "Expand (a.k.a. \"glob\") file-name wildcard pattern PATTERN.
+This returns a list of file names that match PATTERN.
+The returned list of file names is sorted in the `string<' order.
 
 PATTERN is, by default, a \"glob\"/wildcard string, e.g.,
 \"/tmp/*.png\" or \"/*/*/foo.png\", but can also be a regular
@@ -7234,13 +7310,13 @@ case, the matches are applied per sub-directory, so a match can't
 span a parent/sub directory, which means that a regexp bit can't
 contain the \"/\" character.
 
-The list of files returned are sorted in `string<' order.
+The returned list of file names is sorted in the `string<' order.
 
-If PATTERN is written as an absolute file name, the values are
-absolute also.
+If PATTERN is written as an absolute file name, the expansions in
+the returned list are also absolute.
 
 If PATTERN is written as a relative file name, it is interpreted
-relative to the current default directory, `default-directory'.
+relative to the current `default-directory'.
 The file names returned are normally also relative to the current
 default directory.  However, if FULL is non-nil, they are absolute."
   (save-match-data
@@ -7311,9 +7387,6 @@ now defined as a sibling."
 
 (defun find-sibling-file (file)
   "Visit a \"sibling\" file of FILE.
-By default, return only files that exist, but if ALL is non-nil,
-return all matches.
-
 When called interactively, FILE is the currently visited file.
 
 The \"sibling\" file is defined by the `find-sibling-rules' variable."
@@ -7323,7 +7396,8 @@ The \"sibling\" file is defined by the `find-sibling-rules' variable."
                  (list buffer-file-name)))
   (unless find-sibling-rules
     (user-error "The `find-sibling-rules' variable has not been configured"))
-  (let ((siblings (find-sibling-file--search (expand-file-name file))))
+  (let ((siblings (find-sibling-file-search (expand-file-name file)
+                                            find-sibling-rules)))
     (cond
      ((null siblings)
       (user-error "Couldn't find any sibling files"))
@@ -7338,16 +7412,19 @@ The \"sibling\" file is defined by the `find-sibling-rules' variable."
          (completing-read (format-prompt "Find file" (car relatives))
                           relatives nil t nil nil (car relatives))))))))
 
-(defun find-sibling-file--search (file)
+(defun find-sibling-file-search (file &optional rules)
+  "Return a list of FILE's \"siblings\"
+RULES should be a list on the form defined by `find-sibling-rules' (which
+see), and if nil, defaults to `find-sibling-rules'."
   (let ((results nil))
-    (pcase-dolist (`(,match . ,expansions) find-sibling-rules)
+    (pcase-dolist (`(,match . ,expansions) (or rules find-sibling-rules))
       ;; Go through the list and find matches.
       (when (string-match match file)
         (let ((match-data (match-data)))
           (dolist (expansion expansions)
             (let ((start 0))
               ;; Expand \\1 forms in the expansions.
-              (while (string-match "\\\\\\([0-9]+\\)" expansion start)
+              (while (string-match "\\\\\\([&0-9]+\\)" expansion start)
                 (let ((index (string-to-number (match-string 1 expansion))))
                   (setq start (match-end 0)
                         expansion
@@ -7385,12 +7462,11 @@ and `list-directory-verbose-switches'."
      (list (read-file-name
             (if pfx "List directory (verbose): "
 	      "List directory (brief): ")
-	    nil default-directory t
-            nil
+	    nil default-directory
             (lambda (file)
               (or (file-directory-p file)
                   (insert-directory-wildcard-in-dir-p
-                   (expand-file-name file)))))
+                   (file-name-as-directory (expand-file-name file))))))
            pfx)))
   (let ((switches (if verbose list-directory-verbose-switches
 		    list-directory-brief-switches))
@@ -7409,9 +7485,9 @@ and `list-directory-verbose-switches'."
     ;; Finishing with-output-to-temp-buffer seems to clobber default-directory.
     (with-current-buffer buffer
       (setq default-directory
-	    (if (file-directory-p dirname)
+	    (if (file-accessible-directory-p dirname)
 		(file-name-as-directory dirname)
-	      (file-name-directory dirname))))))
+	      (file-name-directory (directory-file-name dirname)))))))
 
 (defun shell-quote-wildcard-pattern (pattern)
   "Quote characters special to the shell in PATTERN, leave wildcards alone.
@@ -7924,7 +8000,7 @@ If RESTART, restart Emacs after killing the current Emacs process."
                       ("Close Without Saving" . no-save)
                       ("Save All" . save-all)
                       ("Cancel" . cancel)))
-            ('cancel (user-error "Exit cancelled"))
+            ('cancel (user-error "Exit canceled"))
             ('save-all (save-some-buffers t)))
         (save-some-buffers arg t)))
   (let ((confirm confirm-kill-emacs))

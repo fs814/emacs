@@ -885,6 +885,14 @@ The value depends on `grep-command', `grep-template',
   (setq-local compilation-disable-input t)
   (setq-local compilation-error-screen-columns
               grep-error-screen-columns)
+  ;; We normally use a nul byte to separate the file name from the
+  ;; contents, but display it as ":".  That's fine, but when yanking
+  ;; to other buffers, it's annoying to have the nul byte there.
+  (unless kill-transform-function
+    (setq-local kill-transform-function #'identity))
+  (add-function :filter-return (local 'kill-transform-function)
+                (lambda (string)
+                  (string-replace "\0" ":" string)))
   (add-hook 'compilation-filter-hook #'grep-filter nil t))
 
 (defun grep--save-buffers ()
@@ -1066,15 +1074,18 @@ REGEXP is used as a string in the prompt."
 	       default-extension
 	       (car grep-files-history)
 	       (car (car grep-files-aliases))))
+	 (defaults
+	   (delete-dups
+	    (delq nil
+		  (append (list default default-alias default-extension)
+			  (mapcar #'car grep-files-aliases)))))
          (files (completing-read
                  (format-prompt "Search for \"%s\" in files matching wildcard"
                                 default regexp)
-		 #'read-file-name-internal
-		 nil nil nil 'grep-files-history
-		 (delete-dups
-		  (delq nil
-                        (append (list default default-alias default-extension)
-				(mapcar #'car grep-files-aliases)))))))
+                 (completion-table-merge
+                  (lambda (_string _pred _action) defaults)
+                  #'read-file-name-internal)
+		 nil nil nil 'grep-files-history defaults)))
     (and files
 	 (or (cdr (assoc files grep-files-aliases))
 	     files))))
@@ -1205,7 +1216,11 @@ When called programmatically and FILES is nil, REGEXP is expected
 to specify a command to run.
 
 If CONFIRM is non-nil, the user will be given an opportunity to edit the
-command before it's run."
+command before it's run.
+
+Interactively, the user can use the \\`M-c' command while entering
+the regexp to indicate whether the grep should be case sensitive
+or not."
   (interactive
    (progn
      (grep-compute-defaults)
@@ -1233,7 +1248,8 @@ command before it's run."
 				   grep-find-command)))
 	    (compilation-start regexp #'grep-mode))
       (setq dir (file-name-as-directory (expand-file-name dir)))
-      (let ((command (rgrep-default-command regexp files nil)))
+      (let* ((case-fold-search (read-regexp-case-fold-search regexp))
+             (command (rgrep-default-command regexp files nil)))
 	(when command
 	  (if confirm
 	      (setq command

@@ -50,13 +50,10 @@ This file documents @w{@value{tramp} @value{trampver}}, a remote file
 editing package for Emacs.
 
 @value{tramp} stands for ``Transparent Remote (file) Access, Multiple
-Protocol''.  This package provides remote file editing, similar to
-Ange FTP@.
-
-The difference is that Ange FTP uses FTP to transfer files between the
-local and the remote host, whereas @value{tramp} uses a combination of
-@command{rsh} and @command{rcp} or other work-alike programs, such as
-@command{ssh}/@command{scp}.
+Protocol''.  This package provides an easy, convenient, and consistent
+interface to editing remote files transparently, just as if they are
+local files.  This extends to editing, version control, @code{dired},
+and more.
 
 You can find the latest version of this document on the web at
 @uref{@value{trampurl}}.
@@ -182,10 +179,10 @@ interface to remote files as if they are local files.  @value{tramp}'s
 transparency extends to editing, version control, and @code{dired}.
 
 @value{tramp} can access remote hosts using any number of access
-methods, such as @command{rsh}, @command{rlogin}, @command{telnet},
-and related programs.  If these programs can successfully pass
-@acronym{ASCII} characters, @value{tramp} can use them.
-@value{tramp} does not require or mandate 8-bit clean connections.
+methods, such as @command{ssh}, @command{scp}, @command{telnet}, and
+related programs.  If these programs can successfully pass
+@acronym{ASCII} characters, @value{tramp} can use them.  @value{tramp}
+does not require or mandate 8-bit clean connections.
 
 @value{tramp}'s most common access method is through @command{ssh}, a
 more secure alternative to @command{ftp} and other older access
@@ -233,10 +230,10 @@ first time connecting to that host, here's what happens:
 
 @itemize
 @item
-@value{tramp} invokes @samp{telnet @var{host}} or @samp{rsh @var{host}
--l @var{user}} and establishes an external process to connect to the
-remote host.  @value{tramp} communicates with the process through an
-Emacs buffer, which also shows output from the remote host.
+@value{tramp} invokes @samp{telnet @var{host}} or @samp{ssh -l
+@var{user} @var{host}} and establishes an external process to connect
+to the remote host.  @value{tramp} communicates with the process
+through an Emacs buffer, which also shows output from the remote host.
 
 @item
 The remote host may prompt for a login name (for @command{telnet}, for
@@ -246,7 +243,7 @@ followed by a newline.
 
 @item
 The remote host may then prompt for a password or passphrase (for
-@command{rsh} or for @command{telnet}).  @value{tramp} displays the
+@command{ssh} or for @command{telnet}).  @value{tramp} displays the
 password prompt in the minibuffer.  @value{tramp} then sends whatever
 is entered to the remote host, followed by a newline.
 
@@ -312,7 +309,7 @@ I hope this has provided you with a basic overview of what happens
 behind the scenes when you open a file with @value{tramp}.
 
 
-@c For the end user
+@c For the end user.
 @node Obtaining @value{tramp}
 @chapter Obtaining @value{tramp}
 @cindex obtaining @value{tramp}
@@ -669,6 +666,11 @@ may be used in your init file:
 @lisp
 (with-eval-after-load 'tramp (tramp-change-syntax 'simplified))
 @end lisp
+
+@vindex enable-remote-dir-locals
+Changing other variables via directory-local variables on a remote
+directory must be enabled by setting @code{enable-remote-dir-locals}
+to non-@code{nil}, @xref{Directory Variables, , , emacs}.
 
 
 @menu
@@ -2430,7 +2432,7 @@ example below:
 @end lisp
 
 @vindex password-word-equivalents
-This user option is, by default, initialised from
+This user option is, by default, initialized from
 @code{password-word-equivalents} when @value{tramp} is loaded, and it
 is usually more convenient to add new passphrases to that user option
 instead of altering this user option.
@@ -3123,6 +3125,14 @@ auto-saved files to the same directory as the original file.
 @vindex tramp-auto-save-directory
 Alternatively, set the user option @code{tramp-auto-save-directory}
 to direct all auto saves to that location.
+
+@c Since Emacs 29.
+@vindex remote-file-name-inhibit-auto-save-visited
+An alternative to @code{auto-save-mode} is
+@code{auto-save-visited-mode}.  In this mode, auto-saving is identical
+to explicit saving.  If you want to disable this behavior for remote
+files, set user option
+@code{remote-file-name-inhibit-auto-save-visited} to non-@code{nil}.
 
 @vindex lock-file-name-transforms
 And still more issues to handle.  Since @w{Emacs 28}, file locks use a
@@ -5325,13 +5335,6 @@ minibuffer:
   (before my-minibuffer-complete activate)
   (expand-abbrev))
 @end group
-
-@group
-;; If you use partial-completion-mode
-(defadvice PC-do-completion
-  (before my-PC-do-completion activate)
-  (expand-abbrev))
-@end group
 @end lisp
 
 The reduced typing: @kbd{C-x C-f xy @key{TAB}}.
@@ -5621,6 +5624,7 @@ Disable @value{tramp} file name completion:
 (customize-set-variable 'ido-enable-tramp-completion nil)
 @end lisp
 
+@c Obsolete since Emacs 29.1.
 @item
 @file{rlogin.el}
 
@@ -5679,10 +5683,19 @@ local host's root directory as @file{/ssh:example.com:}.
 To unload @value{tramp}, type @kbd{M-x tramp-unload-tramp @key{RET}}.
 Unloading @value{tramp} resets Ange FTP plugins also.
 @end itemize
+
+
+@item
+What is the difference between Ange FTP and @value{tramp}?
+
+The difference is that Ange FTP uses @command{ftp} to transfer files
+between the local and the remote host, whereas @value{tramp} uses a
+combination of @command{ssh} and @command{scp} or other work-alike
+programs.
 @end itemize
 
 
-@c For the developer
+@c For the developer.
 @node Files directories and localnames
 @chapter How file names, directories and localnames are mangled and managed
 
@@ -5811,15 +5824,15 @@ The verbosity levels are
 @*@indent @w{ 4}  activities
 @*@indent @w{ 5}  internal
 @*@indent @w{ 6}  sent and received strings
-@*@indent @w{ 7}  file caching
-@*@indent @w{ 8}  connection properties
+@*@indent @w{ 7}  connection properties
+@*@indent @w{ 8}  file caching
 @*@indent @w{ 9}  test commands
 @*@indent @w{10}  traces (huge)
 @*@indent @w{11}  call traces (maintainer only)
 
 With @code{tramp-verbose} greater than or equal to 4, messages are
 also written to a @value{tramp} debug buffer.  Such debug buffers are
-essential to bug and problem analyses.  For @value{tramp} bug reports,
+essential to bug and problem analyzes.  For @value{tramp} bug reports,
 set the @code{tramp-verbose} level to 6 (@pxref{Bug Reports}).
 
 The debug buffer is in

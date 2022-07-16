@@ -32,6 +32,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "haiku_support.h"
 #include "thread.h"
 #include "window.h"
+#include "haikuselect.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -286,11 +287,16 @@ haiku_clear_frame (struct frame *f)
 static Lisp_Object
 haiku_new_font (struct frame *f, Lisp_Object font_object, int fontset)
 {
-  struct font *font = XFONT_OBJECT (font_object);
+  struct font *font;
+  int ascent, descent, unit;
+
+  font = XFONT_OBJECT (font_object);
+
   if (fontset < 0)
     fontset = fontset_from_font (font_object);
 
   FRAME_FONTSET (f) = fontset;
+
   if (FRAME_FONT (f) == font)
     return font_object;
 
@@ -298,12 +304,11 @@ haiku_new_font (struct frame *f, Lisp_Object font_object, int fontset)
   FRAME_BASELINE_OFFSET (f) = font->baseline_offset;
   FRAME_COLUMN_WIDTH (f) = font->average_width;
 
-  int ascent, descent;
   get_font_ascent_descent (font, &ascent, &descent);
   FRAME_LINE_HEIGHT (f) = ascent + descent;
   FRAME_TAB_BAR_HEIGHT (f) = FRAME_TAB_BAR_LINES (f) * FRAME_LINE_HEIGHT (f);
 
-  int unit = FRAME_COLUMN_WIDTH (f);
+  unit = FRAME_COLUMN_WIDTH (f);
   if (FRAME_CONFIG_SCROLL_BAR_WIDTH (f) > 0)
     FRAME_CONFIG_SCROLL_BAR_COLS (f)
       = (FRAME_CONFIG_SCROLL_BAR_WIDTH (f) + unit - 1) / unit;
@@ -311,13 +316,10 @@ haiku_new_font (struct frame *f, Lisp_Object font_object, int fontset)
     FRAME_CONFIG_SCROLL_BAR_COLS (f) = (14 + unit - 1) / unit;
 
   if (FRAME_HAIKU_WINDOW (f) && !FRAME_TOOLTIP_P (f))
-    {
-      adjust_frame_size (f, FRAME_COLS (f) * FRAME_COLUMN_WIDTH (f),
-			 FRAME_LINES (f) * FRAME_LINE_HEIGHT (f),
-			 3, false, Qfont);
+    adjust_frame_size (f, FRAME_COLS (f) * FRAME_COLUMN_WIDTH (f),
+		       FRAME_LINES (f) * FRAME_LINE_HEIGHT (f),
+		       3, false, Qfont);
 
-      haiku_clear_under_internal_border (f);
-    }
   return font_object;
 }
 
@@ -514,6 +516,9 @@ haiku_scroll_bar_from_widget (void *scroll_bar, void *window)
   struct frame *frame = haiku_window_to_frame (window);
 
   if (!frame)
+    return NULL;
+
+  if (!scroll_bar)
     return NULL;
 
   if (!NILP (FRAME_SCROLL_BARS (frame)))
@@ -852,13 +857,13 @@ haiku_draw_text_decoration (struct glyph_string *s, struct face *face,
 	      val = (WINDOW_BUFFER_LOCAL_VALUE
 		     (Qx_underline_at_descent_line, s->w));
 	      underline_at_descent_line
-		= (!(NILP (val) || EQ (val, Qunbound))
+		= (!(NILP (val) || BASE_EQ (val, Qunbound))
 		   || s->face->underline_at_descent_line_p);
 
 	      val = (WINDOW_BUFFER_LOCAL_VALUE
 		     (Qx_use_underline_position_properties, s->w));
 	      use_underline_position_properties
-		= !(NILP (val) || EQ (val, Qunbound));
+		= !(NILP (val) || BASE_EQ (val, Qunbound));
 
 	      /* Get the underline thickness.  Default is 1 pixel.  */
 	      if (font && font->underline_thickness > 0)
@@ -1626,6 +1631,14 @@ haiku_draw_image_relief (struct glyph_string *s)
 }
 
 static void
+haiku_translate_transform (double (*transform)[3], double dx,
+			   double dy)
+{
+  transform[0][2] += dx;
+  transform[1][2] += dy;
+}
+
+static void
 haiku_draw_image_glyph_string (struct glyph_string *s)
 {
   struct face *face = s->face;
@@ -1636,6 +1649,7 @@ haiku_draw_image_glyph_string (struct glyph_string *s)
   struct haiku_rect nr;
   Emacs_Rectangle cr, ir, r;
   unsigned long background;
+  double image_transform[3][3];
 
   height = s->height;
   if (s->slice.y == 0)
@@ -1659,7 +1673,6 @@ haiku_draw_image_glyph_string (struct glyph_string *s)
   view = FRAME_HAIKU_VIEW (s->f);
   bitmap = s->img->pixmap;
 
-  /* TODO: implement stipples for images with masks.  */
   s->stippled_p = face->stipple != 0;
 
   if (s->hl == DRAW_CURSOR)
@@ -1667,8 +1680,8 @@ haiku_draw_image_glyph_string (struct glyph_string *s)
   else
     background = face->background;
 
-  BView_SetHighColor (view, background);
-  BView_FillRectangle (view, x, y, width, height);
+  haiku_draw_background_rect (s, face, x, y,
+			      width, height);
 
   if (bitmap)
     {
@@ -1697,34 +1710,66 @@ haiku_draw_image_glyph_string (struct glyph_string *s)
 
       if (gui_intersect_rectangles (&cr, &ir, &r))
 	{
-	  if (s->img->have_be_transforms_p)
+	  memcpy (&image_transform, &s->img->transform,
+		  sizeof image_transform);
+
+	  if (s->slice.x != x || s->slice.y != y
+	      || s->slice.width != s->img->width
+	      || s->slice.height != s->img->height)
 	    {
-	      bitmap = BBitmap_transform_bitmap (bitmap,
-						 s->img->mask,
-						 face->background,
-						 s->img->be_rotate,
-						 s->img->width,
-						 s->img->height);
-	      mask = NULL;
+	      BView_StartClip (view);
+	      BView_ClipToRect (view, r.x, r.y, r.width, r.height);
 	    }
 
-	  BView_DrawBitmap (view, bitmap,
-			    s->slice.x + r.x - x,
-			    s->slice.y + r.y - y,
-			    r.width, r.height,
-			    r.x, r.y, r.width, r.height);
-	  if (mask)
-	    {
-	      BView_DrawMask (mask, view,
-			      s->slice.x + r.x - x,
-			      s->slice.y + r.y - y,
-			      r.width, r.height,
-			      r.x, r.y, r.width, r.height,
-			      face->background);
-	    }
+	  haiku_translate_transform (image_transform,
+				     x - s->slice.x,
+				     y - s->slice.y);
 
-	  if (s->img->have_be_transforms_p)
-	    BBitmap_free (bitmap);
+	  be_apply_affine_transform (view,
+				     image_transform[0][0],
+				     image_transform[0][1],
+				     image_transform[0][2],
+				     image_transform[1][0],
+				     image_transform[1][1],
+				     image_transform[1][2]);
+
+	  if (!s->stippled_p || !mask)
+	    {
+	      BView_DrawBitmap (view, bitmap, 0, 0,
+				s->img->original_width,
+				s->img->original_height,
+				0, 0,
+				s->img->original_width,
+				s->img->original_height,
+				s->img->use_bilinear_filtering);
+
+	      if (mask)
+		be_draw_image_mask (mask, view, 0, 0,
+				    s->img->original_width,
+				    s->img->original_height,
+				    0, 0,
+				    s->img->original_width,
+				    s->img->original_height,
+				    background);
+	    }
+	  else
+	    /* In order to make sure the stipple background remains
+	       visible, use the mask for the alpha channel of BITMAP
+	       and composite it onto the view instead.  */
+	    be_draw_bitmap_with_mask (view, bitmap, mask, 0, 0,
+				      s->img->original_width,
+				      s->img->original_height,
+				      0, 0,
+				      s->img->original_width,
+				      s->img->original_height,
+				      s->img->use_bilinear_filtering);
+
+	  if (s->slice.x != x || s->slice.y != y
+	      || s->slice.width != s->img->width
+	      || s->slice.height != s->img->height)
+	    BView_EndClip (view);
+
+	  be_apply_affine_transform (view, 1, 0, 0, 0, 1, 0);
 	}
 
       if (!s->img->mask)
@@ -1918,10 +1963,8 @@ haiku_draw_glyph_string (struct glyph_string *s)
   /* Set the stipple_p flag indicating whether or not a stipple was
      drawn in s->row.  That is the case either when s is a stretch
      glyph string and s->face->stipple is not NULL, or when
-     s->face->stipple exists and s->hl is not DRAW_CURSOR, and s is
-     not an image.  This is different from X.  */
-  if (s->first_glyph->type != IMAGE_GLYPH
-      && s->face->stipple
+     s->face->stipple exists and s->hl is not DRAW_CURSOR.  */
+  if (s->face->stipple
       && (s->first_glyph->type == STRETCH_GLYPH
 	  || s->hl != DRAW_CURSOR))
     s->row->stipple_p = true;
@@ -2527,9 +2570,9 @@ haiku_scroll_bar_create (struct window *w, int left, int top,
   bar->update = -1;
   bar->horizontal = horizontal_p;
 
-  scroll_bar = BScrollBar_make_for_view (view, horizontal_p,
-					 left, top, left + width - 1,
-					 top + height - 1, bar);
+  scroll_bar = be_make_scroll_bar_for_view (view, horizontal_p,
+					    left, top, left + width - 1,
+					    top + height - 1);
   BView_publish_scroll_bar (view, left, top, width, height);
 
   bar->next = FRAME_SCROLL_BARS (f);
@@ -2884,7 +2927,7 @@ haiku_mouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 	  x_display_list->last_mouse_glyph_frame = f1;
 
 	  *bar_window = Qnil;
-	  *part = scroll_bar_above_handle;
+	  *part = scroll_bar_nowhere;
 
 	  /* If track-mouse is `drag-source' and the mouse pointer is
 	     certain to not be actually under the chosen frame, return
@@ -2939,7 +2982,7 @@ haiku_default_font_parameter (struct frame *f, Lisp_Object parms)
   Lisp_Object font_param = gui_display_get_arg (dpyinfo, parms, Qfont, NULL, NULL,
                                                 RES_TYPE_STRING);
   Lisp_Object font = Qnil;
-  if (EQ (font_param, Qunbound))
+  if (BASE_EQ (font_param, Qunbound))
     font_param = Qnil;
 
   if (NILP (font_param))
@@ -3160,6 +3203,11 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		FRAME_PIXEL_HEIGHT (f) = height;
 
 		haiku_clear_under_internal_border (f);
+
+		/* Flush the frame and flip buffers here.  It is
+		   necessary for tooltips displayed inside menus, as
+		   redisplay cannot happen.  */
+		haiku_flush (f);
 		continue;
 	      }
 
@@ -3471,13 +3519,13 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	    Lisp_Object tab_bar_arg = Qnil;
 	    int tab_bar_p = 0, tool_bar_p = 0;
 	    bool up_okay_p = false;
+	    struct scroll_bar *bar;
 
 	    if (popup_activated_p || !f)
 	      continue;
 
-	    struct haiku_display_info *dpyinfo = FRAME_DISPLAY_INFO (f);
-
 	    inev.modifiers = haiku_modifiers_to_emacs (b->modifiers);
+	    bar = haiku_scroll_bar_from_widget (b->scroll_bar, b->window);
 
 	    x_display_list->last_mouse_glyph_frame = 0;
 	    x_display_list->last_mouse_movement_time = b->time / 1000;
@@ -3525,34 +3573,64 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	    if (type == BUTTON_UP)
 	      {
 		inev.modifiers |= up_modifier;
-		up_okay_p = (dpyinfo->grabbed & (1 << b->btn_no));
-		dpyinfo->grabbed &= ~(1 << b->btn_no);
+		up_okay_p = (x_display_list->grabbed & (1 << b->btn_no));
+		x_display_list->grabbed &= ~(1 << b->btn_no);
 	      }
 	    else
 	      {
 		up_okay_p = true;
 		inev.modifiers |= down_modifier;
-		dpyinfo->last_mouse_frame = f;
-		dpyinfo->grabbed |= (1 << b->btn_no);
+		x_display_list->last_mouse_frame = f;
+		x_display_list->grabbed |= (1 << b->btn_no);
 		if (f && !tab_bar_p)
 		  f->last_tab_bar_item = -1;
 		if (f && !tool_bar_p)
 		  f->last_tool_bar_item = -1;
 	      }
 
-	    if (up_okay_p
-		&& !(tab_bar_p && NILP (tab_bar_arg))
-		&& !tool_bar_p)
+	    if (bar)
+	      {
+		inev.kind = (bar->horizontal
+			     ? HORIZONTAL_SCROLL_BAR_CLICK_EVENT
+			     : SCROLL_BAR_CLICK_EVENT);
+		inev.part = (bar->horizontal
+			     ? scroll_bar_horizontal_handle
+			     : scroll_bar_handle);
+	      }
+	    else if (up_okay_p
+		     && !(tab_bar_p && NILP (tab_bar_arg))
+		     && !tool_bar_p)
 	      inev.kind = MOUSE_CLICK_EVENT;
+
 	    inev.arg = tab_bar_arg;
 	    inev.code = b->btn_no;
 
 	    f->mouse_moved = false;
 
-	    XSETINT (inev.x, b->x);
-	    XSETINT (inev.y, b->y);
+	    if (bar)
+	      {
+		if (bar->horizontal)
+		  {
+		    XSETINT (inev.x, min (max (0, b->x - bar->left),
+					  bar->width));
+		    XSETINT (inev.y, bar->width);
+		  }
+		else
+		  {
+		    XSETINT (inev.x, min (max (0, b->y - bar->top),
+					  bar->height));
+		    XSETINT (inev.y, bar->height);
+		  }
 
-	    XSETFRAME (inev.frame_or_window, f);
+		inev.frame_or_window = bar->window;
+	      }
+	    else
+	      {
+		XSETINT (inev.x, b->x);
+		XSETINT (inev.y, b->y);
+		XSETFRAME (inev.frame_or_window, f);
+	      }
+
 	    break;
 	  }
 	case ICONIFICATION:
@@ -3652,8 +3730,9 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		inev.kind = (bar->horizontal
 			     ? HORIZONTAL_SCROLL_BAR_CLICK_EVENT :
 			     SCROLL_BAR_CLICK_EVENT);
-		inev.part = bar->horizontal ?
-		  scroll_bar_horizontal_handle : scroll_bar_handle;
+		inev.part = (bar->horizontal
+			     ? scroll_bar_horizontal_handle
+			     : scroll_bar_handle);
 
 		if (bar->horizontal)
 		  {
@@ -3932,6 +4011,9 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	    inev.timestamp = b->when / 1000;
 	    break;
 	  }
+	case CLIPBOARD_CHANGED_EVENT:
+	  be_handle_clipboard_changed_message ();
+	  break;
 	case APP_QUIT_REQUESTED_EVENT:
 	  inev.kind = SAVE_SESSION_EVENT;
 	  inev.arg = Qt;
@@ -4325,6 +4407,7 @@ haiku_term_init (void)
   else
     dpyinfo->default_name = build_string ("GNU Emacs");
 
+  haiku_start_watching_selections ();
   unblock_input ();
 
   return dpyinfo;
@@ -4365,6 +4448,7 @@ haiku_clear_under_internal_border (struct frame *f)
 	    : INTERNAL_BORDER_FACE_ID));
       struct face *face = FACE_FROM_ID_OR_NULL (f, face_id);
       void *view = FRAME_HAIKU_VIEW (f);
+
       block_input ();
       BView_draw_lock (view, true, 0, 0, FRAME_PIXEL_WIDTH (f),
 		       FRAME_PIXEL_HEIGHT (f));

@@ -1444,10 +1444,6 @@ affects all frames on the same terminal device.  */)
    If FRAME is a switch-frame event `(switch-frame FRAME1)', use
    FRAME1 as frame.
 
-   If TRACK is non-zero and the frame that currently has the focus
-   redirects its focus to the selected frame, redirect that focused
-   frame's focus to FRAME instead.
-
    FOR_DELETION non-zero means that the selected frame is being
    deleted, which includes the possibility that the frame's terminal
    is dead.
@@ -1455,7 +1451,7 @@ affects all frames on the same terminal device.  */)
    The value of NORECORD is passed as argument to Fselect_window.  */
 
 Lisp_Object
-do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object norecord)
+do_switch_frame (Lisp_Object frame, int for_deletion, Lisp_Object norecord)
 {
   struct frame *sf = SELECTED_FRAME (), *f;
 
@@ -1476,59 +1472,6 @@ do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object nor
     return Qnil;
   else if (f == sf)
     return frame;
-
-  /* If a frame's focus has been redirected toward the currently
-     selected frame, we should change the redirection to point to the
-     newly selected frame.  This means that if the focus is redirected
-     from a minibufferless frame to a surrogate minibuffer frame, we
-     can use `other-window' to switch between all the frames using
-     that minibuffer frame, and the focus redirection will follow us
-     around.  */
-#if 0
-  /* This is too greedy; it causes inappropriate focus redirection
-     that's hard to get rid of.  */
-  if (track)
-    {
-      Lisp_Object tail;
-
-      for (tail = Vframe_list; CONSP (tail); tail = XCDR (tail))
-	{
-	  Lisp_Object focus;
-
-	  if (!FRAMEP (XCAR (tail)))
-	    emacs_abort ();
-
-	  focus = FRAME_FOCUS_FRAME (XFRAME (XCAR (tail)));
-
-	  if (FRAMEP (focus) && XFRAME (focus) == SELECTED_FRAME ())
-	    Fredirect_frame_focus (XCAR (tail), frame);
-	}
-    }
-#else /* ! 0 */
-  /* Instead, apply it only to the frame we're pointing to.  */
-#ifdef HAVE_WINDOW_SYSTEM
-  if (track && FRAME_WINDOW_P (f) && FRAME_TERMINAL (f)->get_focus_frame)
-    {
-      Lisp_Object focus, gfocus;
-
-      gfocus = FRAME_TERMINAL (f)->get_focus_frame (f);
-      if (FRAMEP (gfocus))
-	{
-	  focus = FRAME_FOCUS_FRAME (XFRAME (gfocus));
-	  if (FRAMEP (focus) && XFRAME (focus) == SELECTED_FRAME ())
-	      /* Redirect frame focus also when FRAME has its minibuffer
-		 window on the selected frame (see Bug#24500).
-
-		 Don't do that: It causes redirection problem with a
-		 separate minibuffer frame (Bug#24803) and problems
-		 when updating the cursor on such frames.
-	      || (NILP (focus)
-		  && EQ (FRAME_MINIBUF_WINDOW (f), sf->selected_window)))  */
-	    Fredirect_frame_focus (gfocus, frame);
-	}
-    }
-#endif /* HAVE_X_WINDOWS */
-#endif /* ! 0 */
 
   if (!for_deletion && FRAME_HAS_MINIBUF_P (sf))
     resize_mini_window (XWINDOW (FRAME_MINIBUF_WINDOW (sf)), 1);
@@ -1627,7 +1570,7 @@ This function returns FRAME, or nil if FRAME has been deleted.  */)
     /* Do not select a tooltip frame (Bug#47207).  */
     error ("Cannot select a tooltip frame");
   else
-    return do_switch_frame (frame, 1, 0, norecord);
+    return do_switch_frame (frame, 0, norecord);
 }
 
 DEFUN ("handle-switch-frame", Fhandle_switch_frame,
@@ -1643,7 +1586,7 @@ necessarily represent user-visible input focus.  */)
   kset_prefix_arg (current_kboard, Vcurrent_prefix_arg);
   run_hook (Qmouse_leave_buffer_hook);
 
-  return do_switch_frame (event, 0, 0, Qnil);
+  return do_switch_frame (event, 0, Qnil);
 }
 
 DEFUN ("selected-frame", Fselected_frame, Sselected_frame, 0, 0, 0,
@@ -1990,6 +1933,9 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
   int is_tooltip_frame;
   bool nochild = !FRAME_PARENT_FRAME (f);
   Lisp_Object minibuffer_child_frame = Qnil;
+#ifdef HAVE_X_WINDOWS
+  specpdl_ref ref;
+#endif
 
   if (!FRAME_LIVE_P (f))
     return Qnil;
@@ -2158,7 +2104,7 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
 	Fraise_frame (frame1);
 #endif
 
-      do_switch_frame (frame1, 0, 1, Qnil);
+      do_switch_frame (frame1, 1, Qnil);
       sf = SELECTED_FRAME ();
     }
   else
@@ -2173,7 +2119,29 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
   /* Clear any X selections for this frame.  */
 #ifdef HAVE_X_WINDOWS
   if (FRAME_X_P (f))
-    x_clear_frame_selections (f);
+    {
+      /* Don't preserve selections when a display is going away, since
+	 that sends stuff down the wire.  */
+
+      ref = SPECPDL_INDEX ();
+
+      if (EQ (force, Qnoelisp))
+	specbind (Qx_auto_preserve_selections, Qnil);
+
+      x_clear_frame_selections (f);
+      unbind_to (ref, Qnil);
+    }
+#endif
+
+#ifdef HAVE_PGTK
+  if (FRAME_PGTK_P (f))
+    {
+      /* Do special selection events now, in case the window gets
+	 destroyed by this deletion.  Does this run Lisp code?  */
+      swallow_events (false);
+
+      pgtk_clear_frame_selections (f);
+    }
 #endif
 
   /* Free glyphs.
@@ -4291,7 +4259,7 @@ gui_set_frame_parameters (struct frame *f, Lisp_Object alist)
     }
 
   /* Don't die if just one of these was set.  */
-  if (EQ (left, Qunbound))
+  if (BASE_EQ (left, Qunbound))
     {
       left_no_change = 1;
       if (f->left_pos < 0)
@@ -4299,7 +4267,7 @@ gui_set_frame_parameters (struct frame *f, Lisp_Object alist)
       else
 	XSETINT (left, f->left_pos);
     }
-  if (EQ (top, Qunbound))
+  if (BASE_EQ (top, Qunbound))
     {
       top_no_change = 1;
       if (f->top_pos < 0)
@@ -5119,7 +5087,9 @@ gui_set_no_special_glyphs (struct frame *f, Lisp_Object new_value, Lisp_Object o
 bool
 gui_mouse_grabbed (Display_Info *dpyinfo)
 {
-  return (dpyinfo->grabbed
+  return ((dpyinfo->grabbed
+	   || (dpyinfo->terminal->any_grab_hook
+	       && dpyinfo->terminal->any_grab_hook (dpyinfo)))
 	  && dpyinfo->last_mouse_frame
 	  && FRAME_LIVE_P (dpyinfo->last_mouse_frame));
 }
@@ -5457,7 +5427,7 @@ gui_frame_get_and_record_arg (struct frame *f, Lisp_Object alist,
 
   value = gui_display_get_arg (FRAME_DISPLAY_INFO (f), alist, param,
                                attribute, class, type);
-  if (! NILP (value) && ! EQ (value, Qunbound))
+  if (! NILP (value) && ! BASE_EQ (value, Qunbound))
     store_frame_param (f, param, value);
 
   return value;
@@ -5478,7 +5448,7 @@ gui_default_parameter (struct frame *f, Lisp_Object alist, Lisp_Object prop,
   Lisp_Object tem;
 
   tem = gui_frame_get_arg (f, alist, prop, xprop, xclass, type);
-  if (EQ (tem, Qunbound))
+  if (BASE_EQ (tem, Qunbound))
     tem = deflt;
   AUTO_FRAME_ARG (arg, prop, tem);
   gui_set_frame_parameters (f, arg);
@@ -5740,9 +5710,9 @@ gui_figure_window_size (struct frame *f, Lisp_Object parms, bool tabbar_p,
 
   height = gui_display_get_arg (dpyinfo, parms, Qheight, 0, 0, RES_TYPE_NUMBER);
   width = gui_display_get_arg (dpyinfo, parms, Qwidth, 0, 0, RES_TYPE_NUMBER);
-  if (!EQ (width, Qunbound) || !EQ (height, Qunbound))
+  if (!BASE_EQ (width, Qunbound) || !BASE_EQ (height, Qunbound))
     {
-      if (!EQ (width, Qunbound))
+      if (!BASE_EQ (width, Qunbound))
 	{
 	  if (CONSP (width) && EQ (XCAR (width), Qtext_pixels))
 	    {
@@ -5778,7 +5748,7 @@ gui_figure_window_size (struct frame *f, Lisp_Object parms, bool tabbar_p,
 	    }
 	}
 
-      if (!EQ (height, Qunbound))
+      if (!BASE_EQ (height, Qunbound))
 	{
 	  if (CONSP (height) && EQ (XCAR (height), Qtext_pixels))
 	    {
@@ -5816,7 +5786,7 @@ gui_figure_window_size (struct frame *f, Lisp_Object parms, bool tabbar_p,
 
       user_size = gui_display_get_arg (dpyinfo, parms, Quser_size, 0, 0,
                                        RES_TYPE_NUMBER);
-      if (!NILP (user_size) && !EQ (user_size, Qunbound))
+      if (!NILP (user_size) && !BASE_EQ (user_size, Qunbound))
 	window_prompting |= USSize;
       else
 	window_prompting |= PSize;
@@ -5829,7 +5799,7 @@ gui_figure_window_size (struct frame *f, Lisp_Object parms, bool tabbar_p,
   left = gui_display_get_arg (dpyinfo, parms, Qleft, 0, 0, RES_TYPE_NUMBER);
   user_position = gui_display_get_arg (dpyinfo, parms, Quser_position, 0, 0,
                                        RES_TYPE_NUMBER);
-  if (! EQ (top, Qunbound) || ! EQ (left, Qunbound))
+  if (! BASE_EQ (top, Qunbound) || ! BASE_EQ (left, Qunbound))
     {
       if (EQ (top, Qminus))
 	{
@@ -5852,7 +5822,7 @@ gui_figure_window_size (struct frame *f, Lisp_Object parms, bool tabbar_p,
       else if (FLOATP (top))
 	f->top_pos = frame_float (f, top, FRAME_FLOAT_TOP, &parent_done,
 				  &outer_done, 0);
-      else if (EQ (top, Qunbound))
+      else if (BASE_EQ (top, Qunbound))
 	f->top_pos = 0;
       else
 	{
@@ -5882,7 +5852,7 @@ gui_figure_window_size (struct frame *f, Lisp_Object parms, bool tabbar_p,
       else if (FLOATP (left))
 	f->left_pos = frame_float (f, left, FRAME_FLOAT_LEFT, &parent_done,
 				   &outer_done, 0);
-      else if (EQ (left, Qunbound))
+      else if (BASE_EQ (left, Qunbound))
 	f->left_pos = 0;
       else
 	{
@@ -5891,7 +5861,7 @@ gui_figure_window_size (struct frame *f, Lisp_Object parms, bool tabbar_p,
 	    window_prompting |= XNegative;
 	}
 
-      if (!NILP (user_position) && ! EQ (user_position, Qunbound))
+      if (!NILP (user_position) && ! BASE_EQ (user_position, Qunbound))
 	window_prompting |= USPosition;
       else
 	window_prompting |= PPosition;

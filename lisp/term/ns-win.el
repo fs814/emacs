@@ -97,8 +97,6 @@ The properties returned may include `top', `left', `height', and `width'."
 
 ;;;; Keyboard mapping.
 
-(define-obsolete-variable-alias 'ns-alternatives-map 'x-alternatives-map "24.1")
-
 ;; Here are some Nextstep-like bindings for command key sequences.
 (define-key global-map [?\s-,] 'customize)
 (define-key global-map [?\s-'] 'next-window-any-frame)
@@ -142,7 +140,7 @@ The properties returned may include `top', `left', `height', and `width'."
 (define-key global-map [?\s-p] 'ns-print-buffer)
 (define-key global-map [?\s-q] 'save-buffers-kill-emacs)
 (define-key global-map [?\s-s] 'save-buffer)
-(define-key global-map [?\s-t] 'ns-popup-font-panel)
+(define-key global-map [?\s-t] 'menu-set-font)
 (define-key global-map [?\s-u] 'revert-buffer)
 (define-key global-map [?\s-v] 'yank)
 (define-key global-map [?\s-w] 'delete-frame)
@@ -681,10 +679,6 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 
 
 ;;;; Pasteboard support.
-
-(define-obsolete-function-alias 'ns-store-cut-buffer-internal
-  'gui-set-selection "24.1")
-
 
 (defun ns-copy-including-secondary ()
   (interactive)

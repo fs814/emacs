@@ -341,7 +341,7 @@ set_properties (Lisp_Object properties, INTERVAL interval, Lisp_Object object)
       for (sym = properties;
 	   PLIST_ELT_P (sym, value);
 	   sym = XCDR (value))
-	if (EQ (property_value (interval->plist, XCAR (sym)), Qunbound))
+	if (BASE_EQ (property_value (interval->plist, XCAR (sym)), Qunbound))
 	  {
 	    record_property_change (interval->position, LENGTH (interval),
 				    XCAR (sym), Qnil,
@@ -1407,8 +1407,8 @@ set_text_properties (Lisp_Object start, Lisp_Object end, Lisp_Object properties,
   /* If we want no properties for a whole string,
      get rid of its intervals.  */
   if (NILP (properties) && STRINGP (object)
-      && EQ (start, make_fixnum (0))
-      && EQ (end, make_fixnum (SCHARS (object))))
+      && BASE_EQ (start, make_fixnum (0))
+      && BASE_EQ (end, make_fixnum (SCHARS (object))))
     {
       if (!string_intervals (object))
 	return Qnil;
@@ -2249,7 +2249,7 @@ verify_interval_modification (struct buffer *buf,
 
 		      tem = textget (i->plist, Qfront_sticky);
 		      if (TMEM (Qread_only, tem)
-			  || (NILP (Fplist_get (i->plist, Qread_only))
+			  || (NILP (plist_get (i->plist, Qread_only))
 			      && TMEM (Qcategory, tem)))
 			text_read_only (after);
 		    }
@@ -2269,7 +2269,7 @@ verify_interval_modification (struct buffer *buf,
 
 		      tem = textget (prev->plist, Qrear_nonsticky);
 		      if (! TMEM (Qread_only, tem)
-			  && (! NILP (Fplist_get (prev->plist,Qread_only))
+			  && (! NILP (plist_get (prev->plist,Qread_only))
 			      || ! TMEM (Qcategory, tem)))
 			text_read_only (before);
 		    }
@@ -2288,13 +2288,13 @@ verify_interval_modification (struct buffer *buf,
 
 		  tem = textget (i->plist, Qfront_sticky);
 		  if (TMEM (Qread_only, tem)
-		      || (NILP (Fplist_get (i->plist, Qread_only))
+		      || (NILP (plist_get (i->plist, Qread_only))
 			  && TMEM (Qcategory, tem)))
 		    text_read_only (after);
 
 		  tem = textget (prev->plist, Qrear_nonsticky);
 		  if (! TMEM (Qread_only, tem)
-		      && (! NILP (Fplist_get (prev->plist, Qread_only))
+		      && (! NILP (plist_get (prev->plist, Qread_only))
 			  || ! TMEM (Qcategory, tem)))
 		    text_read_only (after);
 		}

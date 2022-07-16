@@ -708,7 +708,7 @@ This function does not grok magic file names.  */)
   memset (data + prefix_len, 'X', nX);
   memcpy (data + prefix_len + nX, SSDATA (encoded_suffix), suffix_len);
   int kind = (NILP (dir_flag) ? GT_FILE
-	      : EQ (dir_flag, make_fixnum (0)) ? GT_NOCREATE
+	      : BASE_EQ (dir_flag, make_fixnum (0)) ? GT_NOCREATE
 	      : GT_DIR);
   int fd = gen_tempname (data, suffix_len, O_BINARY | O_CLOEXEC, kind);
   bool failed = fd < 0;
@@ -2601,9 +2601,9 @@ is case-insensitive.  */)
       if (err <= 0)
 	return err < 0 ? Qt : Qnil;
       Lisp_Object parent = file_name_directory (filename);
-      /* Avoid infinite loop if the root has trouble
-	 (impossible?).  */
-      if (!NILP (Fstring_equal (parent, filename)))
+      /* Avoid infinite loop if the root has trouble (if that's even possible).
+	 Without a parent, we just don't know and return nil as well.  */
+      if (!STRINGP (parent) || !NILP (Fstring_equal (parent, filename)))
 	return Qnil;
       filename = parent;
     }
@@ -3532,8 +3532,9 @@ DEFUN ("set-file-modes", Fset_file_modes, Sset_file_modes, 2, 3,
 Only the 12 low bits of MODE are used.  If optional FLAG is `nofollow',
 do not follow FILENAME if it is a symbolic link.
 
-Interactively, mode bits are read by `read-file-modes', which accepts
-symbolic notation, like the `chmod' command from GNU Coreutils.  */)
+Interactively, prompt for FILENAME, and read MODE with
+`read-file-modes', which accepts symbolic notation, like the `chmod'
+command from GNU Coreutils.  */)
   (Lisp_Object filename, Lisp_Object mode, Lisp_Object flag)
 {
   CHECK_FIXNUM (mode);
@@ -3898,6 +3899,10 @@ The optional third and fourth arguments BEG and END specify what portion
 of the file to insert.  These arguments count bytes in the file, not
 characters in the buffer.  If VISIT is non-nil, BEG and END must be nil.
 
+When inserting data from a special file (e.g., /dev/urandom), you
+can't specify VISIT or BEG, and END should be specified to avoid
+inserting unlimited data into the buffer.
+
 If optional fifth argument REPLACE is non-nil, replace the current
 buffer contents (in the accessible portion) with the file contents.
 This is better than simply deleting and inserting the whole thing
@@ -3925,7 +3930,7 @@ by calling `format-decode', which see.  */)
   Lisp_Object handler, val, insval, orig_filename, old_undo;
   Lisp_Object p;
   ptrdiff_t total = 0;
-  bool not_regular = 0;
+  bool regular = true;
   int save_errno = 0;
   char read_buf[READ_BUF_SIZE];
   struct coding_system coding;
@@ -3948,6 +3953,7 @@ by calling `format-decode', which see.  */)
   /* SAME_AT_END_CHARPOS counts characters, because
      restore_window_points needs the old character count.  */
   ptrdiff_t same_at_end_charpos = ZV;
+  bool seekable = true;
 
   if (current_buffer->base_buffer && ! NILP (visit))
     error ("Cannot do file visiting in an indirect buffer");
@@ -4021,7 +4027,8 @@ by calling `format-decode', which see.  */)
      least signal an error.  */
   if (!S_ISREG (st.st_mode))
     {
-      not_regular = 1;
+      regular = false;
+      seekable = lseek (fd, 0, SEEK_CUR) < 0;
 
       if (! NILP (visit))
         {
@@ -4029,7 +4036,12 @@ by calling `format-decode', which see.  */)
 	  goto notfound;
         }
 
-      if (! NILP (replace) || ! NILP (beg) || ! NILP (end))
+      if (!NILP (beg) && !seekable)
+	xsignal2 (Qfile_error,
+		  build_string ("cannot use a start position in a non-seekable file/device"),
+		  orig_filename);
+
+      if (!NILP (replace))
 	xsignal2 (Qfile_error,
 		  build_string ("not a regular file"), orig_filename);
     }
@@ -4051,7 +4063,7 @@ by calling `format-decode', which see.  */)
     end_offset = file_offset (end);
   else
     {
-      if (not_regular)
+      if (!regular)
 	end_offset = TYPE_MAXIMUM (off_t);
       else
 	{
@@ -4073,7 +4085,7 @@ by calling `format-decode', which see.  */)
   /* Check now whether the buffer will become too large,
      in the likely case where the file's length is not changing.
      This saves a lot of needless work before a buffer overflow.  */
-  if (! not_regular)
+  if (regular)
     {
       /* The likely offset where we will stop reading.  We could read
 	 more (or less), if the file grows (or shrinks) as we read it.  */
@@ -4111,7 +4123,7 @@ by calling `format-decode', which see.  */)
 	{
 	  /* Don't try looking inside a file for a coding system
 	     specification if it is not seekable.  */
-	  if (! not_regular && ! NILP (Vset_auto_coding_function))
+	  if (regular && !NILP (Vset_auto_coding_function))
 	    {
 	      /* Find a coding system specified in the heading two
 		 lines or in the tailing several lines of the file.
@@ -4573,7 +4585,7 @@ by calling `format-decode', which see.  */)
       goto handled;
     }
 
-  if (! not_regular)
+  if (seekable || !NILP (end))
     total = end_offset - beg_offset;
   else
     /* For a special file, all we can do is guess.  */
@@ -4619,7 +4631,7 @@ by calling `format-decode', which see.  */)
 	ptrdiff_t trytry = min (total - how_much, READ_BUF_SIZE);
 	ptrdiff_t this;
 
-	if (not_regular)
+	if (!seekable && NILP (end))
 	  {
 	    Lisp_Object nbytes;
 
@@ -4670,7 +4682,7 @@ by calling `format-decode', which see.  */)
 	   For a special file, where TOTAL is just a buffer size,
 	   so don't bother counting in HOW_MUCH.
 	   (INSERTED is where we count the number of characters inserted.)  */
-	if (! not_regular)
+	if (seekable || !NILP (end))
 	  how_much += this;
 	inserted += this;
       }
@@ -4848,7 +4860,7 @@ by calling `format-decode', which see.  */)
 	    Funlock_file (BVAR (current_buffer, file_truename));
 	  Funlock_file (filename);
 	}
-      if (not_regular)
+      if (!regular)
 	xsignal2 (Qfile_error,
 		  build_string ("not a regular file"), orig_filename);
     }
@@ -5820,6 +5832,15 @@ See Info node `(elisp)Modification Time' for more details.  */)
   return Qnil;
 }
 
+Lisp_Object
+buffer_visited_file_modtime (struct buffer *buf)
+{
+  int ns = buf->modtime.tv_nsec;
+  if (ns < 0)
+    return make_fixnum (UNKNOWN_MODTIME_NSECS - ns);
+  return make_lisp_time (buf->modtime);
+}
+
 DEFUN ("visited-file-modtime", Fvisited_file_modtime,
        Svisited_file_modtime, 0, 0, 0,
        doc: /* Return the current buffer's recorded visited file modification time.
@@ -5829,10 +5850,7 @@ visited file doesn't exist.
 See Info node `(elisp)Modification Time' for more details.  */)
   (void)
 {
-  int ns = current_buffer->modtime.tv_nsec;
-  if (ns < 0)
-    return make_fixnum (UNKNOWN_MODTIME_NSECS - ns);
-  return make_lisp_time (current_buffer->modtime);
+  return buffer_visited_file_modtime (current_buffer);
 }
 
 DEFUN ("set-visited-file-modtime", Fset_visited_file_modtime,
@@ -5859,6 +5877,8 @@ in `current-time' or an integer flag as returned by `visited-file-modtime'.  */)
       current_buffer->modtime = mtime;
       current_buffer->modtime_size = -1;
     }
+  else if (current_buffer->base_buffer)
+    error ("An indirect buffer does not have a visited file");
   else
     {
       register Lisp_Object filename;

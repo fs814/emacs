@@ -1171,9 +1171,6 @@ as returned by `x-server-vendor'."
 
 ;;;; Selections
 
-(define-obsolete-function-alias 'x-cut-buffer-or-selection-value
-  'x-selection-value "24.1")
-
 ;; Arrange for the kill and yank functions to set and check the clipboard.
 
 (defun x-clipboard-yank ()
@@ -1182,8 +1179,12 @@ as returned by `x-server-vendor'."
   (interactive "*")
   (let ((clipboard-text (gui--selection-value-internal 'CLIPBOARD))
 	(select-enable-clipboard t))
-    (if (and clipboard-text (> (length clipboard-text) 0))
-	(kill-new clipboard-text))
+    (when (and clipboard-text (> (length clipboard-text) 0))
+      ;; Avoid asserting ownership of CLIPBOARD, which will cause
+      ;; `gui-selection-value' to return nil in the future.
+      ;; (bug#56273)
+      (let ((select-enable-clipboard nil))
+        (kill-new clipboard-text)))
     (yank)))
 
 (declare-function accelerate-menu "xmenu.c" (&optional frame) t)
@@ -1291,14 +1292,6 @@ This returns an error if any Emacs frames are X frames."
 		    (cons (cons 'width (cdr (assq 'width parsed)))
 			  default-frame-alist))))))
 
-  ;; Check the reverseVideo resource.
-  (let ((case-fold-search t))
-    (let ((rv (x-get-resource "reverseVideo" "ReverseVideo")))
-      (if (and rv
-	       (string-match "^\\(true\\|yes\\|on\\)$" rv))
-	  (setq default-frame-alist
-		(cons '(reverse . t) default-frame-alist)))))
-
   ;; Set x-selection-timeout, measured in milliseconds.
   (let ((res-selection-timeout (x-get-resource "selectionTimeout"
 					       "SelectionTimeout")))
@@ -1374,7 +1367,8 @@ This returns an error if any Emacs frames are X frames."
 (cl-defmethod gui-backend-get-selection (selection-symbol target-type
                                          &context (window-system x)
                                          &optional time-stamp terminal)
-  (x-get-selection-internal selection-symbol target-type time-stamp terminal))
+  (x-get-selection-internal selection-symbol target-type
+                            time-stamp terminal))
 
 ;; Initiate drag and drop
 (add-hook 'after-make-frame-functions 'x-dnd-init-frame)

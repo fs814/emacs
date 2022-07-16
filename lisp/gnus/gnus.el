@@ -1110,14 +1110,6 @@ that case, just return a fully prefixed name of the group --
 		 sexp
 		 string))
 
-(defcustom gnus-secondary-servers nil
-  "List of NNTP servers that the user can choose between interactively.
-To make Gnus query you for a server, you have to give `gnus' a
-non-numeric prefix - `\\[universal-argument] \\[gnus]', in short."
-  :group 'gnus-server
-  :type '(repeat string))
-(make-obsolete-variable 'gnus-secondary-servers 'gnus-select-method "24.1")
-
 (defcustom gnus-secondary-select-methods nil
   "A list of secondary methods that will be used for reading news.
 This is a list where each element is a complete select method (see
@@ -1129,16 +1121,6 @@ you could set this variable:
 \(setq gnus-secondary-select-methods \\='((nnml \"\")))"
   :group 'gnus-server
   :type '(repeat gnus-select-method))
-
-(defcustom gnus-local-domain nil
-  "Local domain name without a host name.
-The DOMAINNAME environment variable is used instead if it is defined.
-If the function `system-name' returns the full Internet name, there is
-no need to set this variable."
-  :group 'gnus-message
-  :type '(choice (const :tag "default" nil)
-		 string))
-(make-obsolete-variable 'gnus-local-domain nil "24.1")
 
 ;; Customization variables
 
@@ -2263,12 +2245,12 @@ a string, be sure to use a valid format, see RFC 2616."
   :version "22.1"
   :group 'gnus-message
   :type '(choice (list (set :inline t
-			    (const gnus  :tag "Gnus version")
-			    (const emacs :tag "Emacs version")
+                            (const :value gnus  :tag "Gnus version")
+                            (const :value emacs :tag "Emacs version")
 			    (choice :tag "system"
-				    (const type   :tag "system type")
-				    (const config :tag "system configuration"))
-			    (const codename :tag "Emacs codename")))
+                                    (const :value type   :tag "system type")
+                                    (const :value config :tag "system configuration"))
+                            (const :value codename :tag "Emacs codename")))
 		 (string)))
 
 ;; Convert old (< 2005-01-10) symbol type values:
@@ -2315,11 +2297,6 @@ automatically cache the article in the agent cache."
 (defvar gnus-ephemeral-servers nil)
 (defvar gnus-server-method-cache nil)
 (defvar gnus-extended-servers nil)
-
-;; The carpal mode has been removed, but define the variable for
-;; backwards compatibility.
-(defvar gnus-carpal nil)
-(make-obsolete-variable 'gnus-carpal nil "24.1")
 
 (defvar gnus-agent-fetching nil
   "Whether Gnus agent is in fetching mode.")

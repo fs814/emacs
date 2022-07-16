@@ -1146,8 +1146,8 @@ component is used as the target of the symlink."
 
 	    ;; Use Perl implementation.
 	    ((and (tramp-get-remote-perl v)
-		  (tramp-get-connection-property v "perl-file-spec" nil)
-		  (tramp-get-connection-property v "perl-cwd-realpath" nil))
+		  (tramp-get-connection-property v "perl-file-spec")
+		  (tramp-get-connection-property v "perl-cwd-realpath"))
 	     (tramp-maybe-send-script
 	      v tramp-perl-file-truename "tramp_perl_file_truename")
 	     (setq result
@@ -1185,9 +1185,9 @@ component is used as the target of the symlink."
     (with-parsed-tramp-file-name filename nil
       (with-tramp-file-property v localname "file-exists-p"
 	(or (not (null (tramp-get-file-property
-			v localname "file-attributes-integer" nil)))
+			v localname "file-attributes-integer")))
             (not (null (tramp-get-file-property
-			v localname "file-attributes-string" nil)))
+			v localname "file-attributes-string")))
 	    (tramp-send-command-and-check
 	     v
 	     (format
@@ -1463,7 +1463,7 @@ of."
 	 v (format
 	    "env TZ=UTC %s %s %s %s"
 	    (tramp-get-remote-touch v)
-	    (if (tramp-get-connection-property v "touch-t" nil)
+	    (if (tramp-get-connection-property v "touch-t")
 		(format "-t %s" (format-time-string "%Y%m%d%H%M.%S" time t))
 	      "")
 	    (if (eq flag 'nofollow) "-h" "")
@@ -2350,7 +2350,7 @@ The method used must be an out-of-band method."
 		  ?h (or (tramp-file-name-host v) "")
 		  ?u (or (tramp-file-name-user v)
 			 ;; There might be an interactive setting.
-			 (tramp-get-connection-property v "login-as" nil)
+			 (tramp-get-connection-property v "login-as")
 			 "")
 		  ;; For direct remote copying, the port must be the
 		  ;; same for source and target.
@@ -2417,53 +2417,53 @@ The method used must be an out-of-band method."
 
       (with-temp-buffer
 	(unwind-protect
-	    ;; The default directory must be remote.
-	    (let ((default-directory
-		   (file-name-directory (if v1 filename newname)))
-		  (process-environment (copy-sequence process-environment)))
-	      ;; Set the transfer process properties.
-	      (tramp-set-connection-property
-	       v "process-name" (buffer-name (current-buffer)))
-	      (tramp-set-connection-property
-	       v "process-buffer" (current-buffer))
-	      (when copy-env
-		(tramp-message
-		 v 6 "%s=\"%s\""
-		 (car copy-env) (string-join (cdr copy-env) " "))
-		(setenv (car copy-env) (string-join (cdr copy-env) " ")))
-	      (setq
-	       copy-args
-	       (append
-		copy-args
-		(if remote-copy-program
-		    (list (if v1 (concat ">" target) (concat "<" source)))
-		  (list source target)))
-	       ;; Use an asynchronous process.  By this, password can
-	       ;; be handled.  We don't set a timeout, because the
-	       ;; copying of large files can last longer than 60 secs.
-	       p (let ((default-directory
-			tramp-compat-temporary-file-directory))
-		   (apply
-		    #'start-process
-		    (tramp-get-connection-name v)
-		    (tramp-get-connection-buffer v)
-		    copy-program copy-args)))
-	      (tramp-message v 6 "%s" (string-join (process-command p) " "))
-	      (process-put p 'vector v)
-	      (process-put p 'adjust-window-size-function #'ignore)
-	      (set-process-query-on-exit-flag p nil)
+	    (with-tramp-saved-connection-property v "process-name"
+	      (with-tramp-saved-connection-property v "process-buffer"
+		;; The default directory must be remote.
+		(let ((default-directory
+		       (file-name-directory (if v1 filename newname)))
+		      (process-environment (copy-sequence process-environment)))
+		  ;; Set the transfer process properties.
+		  (tramp-set-connection-property
+		   v "process-name" (buffer-name (current-buffer)))
+		  (tramp-set-connection-property
+		   v "process-buffer" (current-buffer))
+		  (when copy-env
+		    (tramp-message
+		     v 6 "%s=\"%s\""
+		     (car copy-env) (string-join (cdr copy-env) " "))
+		    (setenv (car copy-env) (string-join (cdr copy-env) " ")))
+		  (setq
+		   copy-args
+		   (append
+		    copy-args
+		    (if remote-copy-program
+			(list (if v1 (concat ">" target) (concat "<" source)))
+		      (list source target)))
+		   ;; Use an asynchronous process.  By this, password
+		   ;; can be handled.  We don't set a timeout, because
+		   ;; the copying of large files can last longer than
+		   ;; 60 secs.
+		   p (let ((default-directory
+			    tramp-compat-temporary-file-directory))
+		       (apply
+			#'start-process
+			(tramp-get-connection-name v)
+			(tramp-get-connection-buffer v)
+			copy-program copy-args)))
+		  (tramp-message v 6 "%s" (string-join (process-command p) " "))
+		  (process-put p 'vector v)
+		  (process-put p 'adjust-window-size-function #'ignore)
+		  (set-process-query-on-exit-flag p nil)
 
-	      ;; We must adapt `tramp-local-end-of-line' for sending
-	      ;; the password.  Also, we indicate that perhaps several
-	      ;; password prompts might appear.
-	      (let ((tramp-local-end-of-line tramp-rsh-end-of-line)
-		    (tramp-password-prompt-not-unique (and v1 v2)))
-		(tramp-process-actions
-		 p v nil tramp-actions-copy-out-of-band)))
+		  ;; We must adapt `tramp-local-end-of-line' for sending
+		  ;; the password.  Also, we indicate that perhaps several
+		  ;; password prompts might appear.
+		  (let ((tramp-local-end-of-line tramp-rsh-end-of-line)
+			(tramp-password-prompt-not-unique (and v1 v2)))
+		    (tramp-process-actions
+		     p v nil tramp-actions-copy-out-of-band)))))
 
-	  ;; Reset the transfer process properties.
-	  (tramp-flush-connection-property v "process-name")
-	  (tramp-flush-connection-property v "process-buffer")
 	  ;; Clear the remote prompt.
 	  (when (and remote-copy-program
 		     (not (tramp-send-command-and-check v nil)))
@@ -2771,7 +2771,7 @@ the result will be a local, non-Tramp, file name."
     (with-parsed-tramp-file-name name nil
       ;; If connection is not established yet, run the real handler.
       (if (not (tramp-connectable-p v))
-	  (tramp-run-real-handler #'expand-file-name (list name nil))
+	  (tramp-run-real-handler #'expand-file-name (list name))
 	(unless (tramp-run-real-handler #'file-name-absolute-p (list localname))
 	  (setq localname (concat "~/" localname)))
 	;; Tilde expansion if necessary.  This needs a shell which
@@ -2976,94 +2976,103 @@ implementation will be used."
 	      (setq i (1+ i)
 		    name1 (format "%s<%d>" name i)))
 	    (setq name name1)
-	    ;; Set the new process properties.
-	    (tramp-set-connection-property v "process-name" name)
-	    (tramp-set-connection-property v "process-buffer" buffer)
 
-	    (with-current-buffer (tramp-get-connection-buffer v)
-	      (unwind-protect
-		  ;; We catch this event.  Otherwise, `make-process'
-		  ;; could be called on the local host.
-		  (save-excursion
-		    (save-restriction
-		      ;; Activate narrowing in order to save BUFFER
-		      ;; contents.  Clear also the modification time;
-		      ;; otherwise we might be interrupted by
-		      ;; `verify-visited-file-modtime'.
-		      (let ((buffer-undo-list t)
-			    (inhibit-read-only t)
-			    (mark (point-max))
-			    (coding-system-for-write
-			     (if (symbolp coding) coding (car coding)))
-			    (coding-system-for-read
-			     (if (symbolp coding) coding (cdr coding))))
-			(clear-visited-file-modtime)
-			(narrow-to-region (point-max) (point-max))
-			(catch 'suppress
-			  ;; Set the pid of the remote shell.  This is
-			  ;; needed when sending signals remotely.
-			  (let ((pid (tramp-send-command-and-read v "echo $$")))
-			    (setq p (tramp-get-connection-process v))
-			    (process-put p 'remote-pid pid)
-			    (tramp-set-connection-property p "remote-pid" pid))
-			  ;; Disable carriage return to newline
-			  ;; translation.  This does not work on
-			  ;; macOS, see Bug#50748.
-			  (when (and (memq connection-type '(nil pipe))
-                                     (not (tramp-check-remote-uname v "Darwin")))
-			    (tramp-send-command v "stty -icrnl"))
-			  ;; `tramp-maybe-open-connection' and
-			  ;; `tramp-send-command-and-read' could have
-			  ;; trashed the connection buffer.  Remove this.
-			  (widen)
-			  (delete-region mark (point-max))
-			  (narrow-to-region (point-max) (point-max))
-			  ;; Now do it.
-			  (if command
-			      ;; Send the command.
-			      (tramp-send-command v command nil t) ; nooutput
-			    ;; Check, whether a pty is associated.
-			    (unless (process-get p 'remote-tty)
-			      (tramp-error
-			       v 'file-error
-			       "pty association is not supported for `%s'"
-			       name))))
-			;; Set sentinel and filter.
-			(when sentinel
-			  (set-process-sentinel p sentinel))
-			(when filter
-			  (set-process-filter p filter))
-			(process-put p 'remote-command orig-command)
-			(tramp-set-connection-property
-			 p "remote-command" orig-command)
-			;; Set query flag and process marker for this
-			;; process.  We ignore errors, because the
-			;; process could have finished already.
+	    (with-tramp-saved-connection-property v "process-name"
+	      (with-tramp-saved-connection-property v "process-buffer"
+		;; Set the new process properties.
+		(tramp-set-connection-property v "process-name" name)
+		(tramp-set-connection-property v "process-buffer" buffer)
+		(with-current-buffer (tramp-get-connection-buffer v)
+		  (unwind-protect
+		      ;; We catch this event.  Otherwise,
+		      ;; `make-process' could be called on the local
+		      ;; host.
+		      (save-excursion
+			(save-restriction
+			  ;; Activate narrowing in order to save
+			  ;; BUFFER contents.  Clear also the
+			  ;; modification time; otherwise we might be
+			  ;; interrupted by `verify-visited-file-modtime'.
+			  (let ((buffer-undo-list t)
+				(inhibit-read-only t)
+				(mark (point-max))
+				(coding-system-for-write
+				 (if (symbolp coding) coding (car coding)))
+				(coding-system-for-read
+				 (if (symbolp coding) coding (cdr coding))))
+			    (clear-visited-file-modtime)
+			    (narrow-to-region (point-max) (point-max))
+			    (catch 'suppress
+			      ;; Set the pid of the remote shell.  This is
+			      ;; needed when sending signals remotely.
+			      (let ((pid
+				     (tramp-send-command-and-read v "echo $$")))
+				(setq p (tramp-get-connection-process v))
+				(process-put p 'remote-pid pid)
+				(tramp-set-connection-property
+				 p "remote-pid" pid))
+			      ;; Disable carriage return to newline
+			      ;; translation.  This does not work on
+			      ;; macOS, see Bug#50748.
+			      (when (and (memq connection-type '(nil pipe))
+					 (not
+					  (tramp-check-remote-uname v "Darwin")))
+				(tramp-send-command v "stty -icrnl"))
+			      ;; `tramp-maybe-open-connection' and
+			      ;; `tramp-send-command-and-read' could have
+			      ;; trashed the connection buffer.  Remove this.
+			      (widen)
+			      (delete-region mark (point-max))
+			      (narrow-to-region (point-max) (point-max))
+			      ;; Now do it.
+			      (if command
+				  ;; Send the command.
+				  (tramp-send-command v command nil t) ; nooutput
+				;; Check, whether a pty is associated.
+				(unless (process-get p 'remote-tty)
+				  (tramp-error
+				   v 'file-error
+				   "pty association is not supported for `%s'"
+				   name))))
+			    ;; Set sentinel and filter.
+			    (when sentinel
+			      (set-process-sentinel p sentinel))
+			    (when filter
+			      (set-process-filter p filter))
+			    (process-put p 'remote-command orig-command)
+			    (tramp-set-connection-property
+			     p "remote-command" orig-command)
+			    ;; Set query flag and process marker for
+			    ;; this process.  We ignore errors,
+			    ;; because the process could have finished
+			    ;; already.
+			    (ignore-errors
+			      (set-process-query-on-exit-flag p (null noquery))
+			      (set-marker (process-mark p) (point)))
+			    ;; We must flush them here already;
+			    ;; otherwise `delete-file' will fail.
+			    (tramp-flush-connection-property v "process-name")
+			    (tramp-flush-connection-property v "process-buffer")
+			    ;; Kill stderr process and delete named pipe.
+			    (when (bufferp stderr)
+			      (add-function
+			       :after (process-sentinel p)
+			       (lambda (_proc _msg)
+				 (ignore-errors
+				   (while (accept-process-output
+					   (get-buffer-process stderr) 0 nil t))
+				   (delete-process (get-buffer-process stderr)))
+				 (ignore-errors
+				   (delete-file remote-tmpstderr)))))
+			    ;; Return process.
+			    p)))
+
+		    ;; Save exit.
+		    (if (string-prefix-p tramp-temp-buffer-name (buffer-name))
 			(ignore-errors
-			  (set-process-query-on-exit-flag p (null noquery))
-			  (set-marker (process-mark p) (point)))
-			;; Kill stderr process and delete named pipe.
-			(when (bufferp stderr)
-			  (add-function
-			   :after (process-sentinel p)
-			   (lambda (_proc _msg)
-			     (ignore-errors
-			       (while (accept-process-output
-				       (get-buffer-process stderr) 0 nil t))
-			       (delete-process (get-buffer-process stderr)))
-			     (ignore-errors
-			       (delete-file remote-tmpstderr)))))
-			;; Return process.
-			p)))
-
-		;; Save exit.
-		(if (string-prefix-p tramp-temp-buffer-name (buffer-name))
-		    (ignore-errors
-		      (set-process-buffer p nil)
-		      (kill-buffer (current-buffer)))
-		  (set-buffer-modified-p bmp))
-		(tramp-flush-connection-property v "process-name")
-		(tramp-flush-connection-property v "process-buffer")))))))))
+			  (set-process-buffer p nil)
+			  (kill-buffer (current-buffer)))
+		      (set-buffer-modified-p bmp))))))))))))
 
 (defun tramp-sh-get-signal-strings (vec)
   "Strings to return by `process-file' in case of signals."
@@ -3967,7 +3976,7 @@ Only send the definition if it has not already been done."
   ;; We cannot let-bind (tramp-get-connection-process vec) because it
   ;; might be nil.
   (let ((scripts (tramp-get-connection-property
-		  (tramp-get-connection-process vec) "scripts" nil)))
+		  (tramp-get-connection-process vec) "scripts")))
     (unless (member name scripts)
       (with-tramp-progress-reporter
 	  vec 5 (format-message "Sending script `%s'" name)
@@ -4217,7 +4226,7 @@ file exists and nonzero exit status otherwise."
 (defun tramp-find-shell (vec)
   "Open a shell on the remote host which groks tilde expansion."
   ;; If we are in `make-process', we don't need another shell.
-  (unless (tramp-get-connection-property vec "process-name" nil)
+  (unless (tramp-get-connection-property vec "process-name")
     (with-current-buffer (tramp-get-buffer vec)
       (let ((default-shell (tramp-get-method-parameter vec 'tramp-remote-shell))
 	    shell)
@@ -4314,11 +4323,10 @@ process to set up.  VEC specifies the connection."
   ;; connection properties.  We start again with
   ;; `tramp-maybe-open-connection', it will be caught there.
   (tramp-message vec 5 "Checking system information")
-  (let* ((old-uname (tramp-get-connection-property vec "uname" nil))
+  (let* ((old-uname (tramp-get-connection-property vec "uname"))
 	 (uname
 	  ;; If we are in `make-process', we don't need to recompute.
-	  (if (and old-uname
-		   (tramp-get-connection-property vec "process-name" nil))
+	  (if (and old-uname (tramp-get-connection-property vec "process-name"))
 	      old-uname
 	    (tramp-set-connection-property
 	     vec "uname"
@@ -4926,7 +4934,7 @@ Goes through the list `tramp-inline-compress-commands'."
   "Close the connection VEC after a session timeout.
 If there is just some editing, retry it after 5 seconds."
   (if (and (tramp-get-connection-property
-	    (tramp-get-connection-process vec) "locked" nil)
+	    (tramp-get-connection-process vec) "locked")
 	   (tramp-file-name-equal-p vec (car tramp-current-connection)))
       (progn
 	(tramp-message
@@ -4945,7 +4953,7 @@ connection if a previous connection has died for some reason."
     (throw 'non-essential 'non-essential))
 
   (let ((p (tramp-get-connection-process vec))
-	(process-name (tramp-get-connection-property vec "process-name" nil))
+	(process-name (tramp-get-connection-property vec "process-name"))
 	(process-environment (copy-sequence process-environment))
 	(pos (with-current-buffer (tramp-get-connection-buffer vec) (point))))
 
@@ -5159,9 +5167,9 @@ connection if a previous connection has died for some reason."
 			  previous-hop hop)))
 
 		;; Activate session timeout.
-		(when (tramp-get-connection-property p "session-timeout" nil)
+		(when (tramp-get-connection-property p "session-timeout")
 		  (run-at-time
-		   (tramp-get-connection-property p "session-timeout" nil) nil
+		   (tramp-get-connection-property p "session-timeout") nil
 		   #'tramp-timeout-session vec))
 
 		;; Make initial shell settings.
@@ -5183,7 +5191,7 @@ is meant to be used from `tramp-maybe-open-connection' only.  The
 function waits for output unless NOOUTPUT is set."
   (unless neveropen (tramp-maybe-open-connection vec))
   (let ((p (tramp-get-connection-process vec)))
-    (when (tramp-get-connection-property p "remote-echo" nil)
+    (when (tramp-get-connection-property p "remote-echo")
       ;; We mark the command string that it can be erased in the output buffer.
       (tramp-set-connection-property p "check-remote-echo" t)
       ;; If we put `tramp-echo-mark' after a trailing newline (which
@@ -5950,7 +5958,7 @@ If no corresponding command is found, nil is returned."
 	     (> size tramp-inline-compress-start-size))
     (with-tramp-connection-property (tramp-get-process vec) prop
       (tramp-find-inline-compress vec)
-      (tramp-get-connection-property (tramp-get-process vec) prop nil))))
+      (tramp-get-connection-property (tramp-get-process vec) prop))))
 
 (defun tramp-get-inline-coding (vec prop size)
   "Return the coding command related to PROP.
@@ -5970,7 +5978,7 @@ function cell is returned to be applied on a buffer."
     (let ((coding
 	   (with-tramp-connection-property (tramp-get-process vec) prop
 	     (tramp-find-inline-encoding vec)
-	     (tramp-get-connection-property (tramp-get-process vec) prop nil)))
+	     (tramp-get-connection-property (tramp-get-process vec) prop)))
 	  (prop1 (if (tramp-compat-string-search "encoding" prop)
 		     "inline-compress" "inline-decompress"))
 	  compress)
@@ -6132,6 +6140,5 @@ function cell is returned to be applied on a buffer."
 ;;
 ;; * Support hostname canonicalization in ~/.ssh/config.
 ;;   <https://stackoverflow.com/questions/70205232/>
-
 
 ;;; tramp-sh.el ends here

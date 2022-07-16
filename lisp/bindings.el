@@ -1,7 +1,6 @@
 ;;; bindings.el --- define standard key bindings and some variables  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1987, 1992-1996, 1999-2022 Free Software
-;; Foundation, Inc.
+;; Copyright (C) 1985-2022 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -231,6 +230,7 @@ mnemonics of the following coding systems:
     (:propertize ("" (:eval (if (frame-parameter nil 'client) "@" "")))
 		 help-echo ,(purecopy "emacsclient frame")))
   "Mode line construct for identifying emacsclient frames.")
+;; Autoload if this file no longer dumped.
 ;;;###autoload
 (put 'mode-line-client 'risky-local-variable t)
 
@@ -458,8 +458,8 @@ displayed in `mode-line-position', a component of the default
           (const :tag "\"%q\": Offsets of both top and bottom of window"
                  (6 "%q")))
   :version "26.1"
+  :risky t
   :group 'mode-line)
-(put 'mode-line-percent-position 'risky-local-variable t)
 
 (defcustom mode-line-position-line-format '(" L%l")
   "Format used to display line numbers in the mode line.
@@ -1013,7 +1013,7 @@ if `inhibit-field-text-motion' is non-nil."
   (let ((map (make-sparse-keymap)))
     (define-key map "u" 'undo)
     map)
-  "Keymap to repeat undo key sequences `C-x u u'.  Used in `repeat-mode'.")
+  "Keymap to repeat undo key sequences \\`C-x u u'.  Used in `repeat-mode'.")
 (put 'undo 'repeat-map 'undo-repeat-map)
 
 (define-key global-map '[(control ??)] 'undo-redo)
@@ -1339,7 +1339,15 @@ if `inhibit-field-text-motion' is non-nil."
 ;; can use S-tab instead to access that binding.
 (define-key function-key-map [S-tab] [backtab])
 
-(define-key global-map [mouse-movement] 'ignore)
+(defun ignore-preserving-kill-region (&rest _)
+  "Like `ignore', but don't overwrite `last-event' if it's `kill-region'."
+  (declare (completion ignore))
+  (interactive)
+  (when (eq last-command 'kill-region)
+    (setq this-command 'kill-region))
+  nil)
+
+(define-key global-map [mouse-movement] #'ignore-preserving-kill-region)
 
 (define-key global-map "\C-t" 'transpose-chars)
 (define-key esc-map "t" 'transpose-words)

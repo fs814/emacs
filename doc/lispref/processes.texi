@@ -1512,7 +1512,7 @@ This variable is a list of functions to be called for
 for @code{signal-process}.  These functions are called in the order of
 the list, until one of them returns non-@code{nil}.  The default
 function, which shall always be the last in this list, is
-@code{signal-default-interrupt-process}.
+@code{internal-default-signal-process}.
 
 This is the mechanism, how Tramp implements @code{signal-process}.
 @end defvar
@@ -3470,13 +3470,15 @@ type values:
 @itemx byte
 Unsigned byte, with length 1.
 
-@item uint @var{bitlen}
-Unsigned integer in network byte order, with @var{bitlen} bits.
+@item uint @var{bitlen} &optional @var{le}
+Unsigned integer in network byte order (big-endian), with @var{bitlen} bits.
 @var{bitlen} has to be a multiple of 8.
+If @var{le} is non-@code{nil}, then use little-endian byte order.
 
-@item uintr @var{bitlen}
-Unsigned integer in little endian order, with @var{bitlen} bits.
+@item sint @var{bitlen} @var{le}
+Signed integer in network byte order (big-endian), with @var{bitlen} bits.
 @var{bitlen} has to be a multiple of 8.
+If @var{le} is non-@code{nil}, then use little-endian byte order.
 
 @item str @var{len}
 Unibyte string (@pxref{Text Representations}) of length @var{len} bytes.
@@ -3484,35 +3486,47 @@ When packing, the first @var{len} bytes of the input string are copied
 to the packed output.  If the input string is shorter than @var{len},
 the remaining bytes will be null (zero) unless a pre-allocated string
 was provided to @code{bindat-pack}, in which case the remaining bytes
-are left unmodified.  When unpacking, any null bytes in the packed
-input string will appear in the unpacked output.
+are left unmodified.  If the input string is multibyte with only ASCII
+and @code{eight-bit} characters, it is converted to unibyte before it
+is packed; other multibyte strings signal an error.  When unpacking,
+any null bytes in the packed input string will appear in the unpacked
+output.
 
 @item strz &optional @var{len}
-If @var{len} is not provided: Variable-length null-terminated unibyte
-string (@pxref{Text Representations}).  When packing, the entire input
-string is copied to the packed output followed by a null byte.  The
-length of the packed output is the length of the input string plus one
-(for the added null byte).  The input string must not contain any null
-bytes.  When unpacking, the resulting string contains all bytes up to
-(but excluding) the null byte.
+If @var{len} is not provided, this is a variable-length
+null-terminated unibyte string (@pxref{Text Representations}).  When
+packing into @code{strz}, the entire input string is copied to the
+packed output followed by a null (zero) byte.  (If pre-allocated
+string is provided for packing into @code{strz}, that pre-allocated
+string should have enough space for the additional null byte appended
+to the output string contents, @pxref{Bindat Functions}).  The length
+of the packed output is the length of the input string plus one (for
+the null terminator).  The input string must not contain any null
+bytes.  If the input string is multibyte with only ASCII and
+@code{eight-bit} characters, it is converted to unibyte before it is
+packed; other multibyte strings signal an error.  When unpacking a
+@code{strz}, the resulting output string will contain all bytes up to
+(but excluding) the null byte that terminated the input string.
 
-If @var{len} is provided: @code{strz} behaves the same as @code{str}
-with one difference: When unpacking, the first null byte encountered
-in the packed string and all subsequent bytes are excluded from the
-unpacked result.
+If @var{len} is provided, @code{strz} behaves the same as @code{str},
+but with a couple of differences:
+
+@itemize @bullet
+@item
+When packing, a null terminator is written after the packed input
+string if the number of characters in the input string is less than
+@var{len}.
+
+@item
+When unpacking, the first null byte encountered in the packed string
+is interpreted as the terminating byte, and it and all subsequent
+bytes are excluded from the result of the unpacking.
+@end itemize
 
 @quotation Caution
-The packed output will not be null-terminated unless one of the
-following is true:
-@itemize
-@item
-The input string is shorter than @var{len} bytes and either no pre-allocated
-string was provided to @code{bindat-pack} or the appropriate byte in
-the pre-allocated string was already null.
-@item
-The input string contains a null byte within the first @var{len}
-bytes.
-@end itemize
+The packed output will not be null-terminated unless the input string
+is shorter than @var{len} bytes or it contains a null byte within the
+first @var{len} bytes.
 @end quotation
 
 @item vec @var{len} [@var{type}]
@@ -3533,7 +3547,7 @@ and @code{#x1c} @code{#x28} to @w{@code{(3 5 10 11 12)}}.
 
 @item fill @var{len}
 @var{len} bytes used as a mere filler.  In packing, these bytes are
-are left unchanged, which normally means they remain zero.
+left unchanged, which normally means they remain zero.
 When unpacking, this just returns nil.
 
 @item align @var{len}

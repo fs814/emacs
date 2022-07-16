@@ -475,7 +475,7 @@ enum mem_type
 static bool
 deadp (Lisp_Object x)
 {
-  return EQ (x, dead_object ());
+  return BASE_EQ (x, dead_object ());
 }
 
 #ifdef GC_MALLOC_CHECK
@@ -6204,6 +6204,10 @@ garbage_collect (void)
   mark_xterm ();
 #endif
 
+#ifdef HAVE_NS
+  mark_nsterm ();
+#endif
+
   /* Everything is now marked, except for the data in font caches,
      undo lists, and finalizers.  The first two are compacted by
      removing an items which aren't reachable otherwise.  */
@@ -6261,6 +6265,11 @@ garbage_collect (void)
 
   /* GC is complete: now we can run our finalizer callbacks.  */
   run_finalizers (&doomed_finalizers);
+
+#ifdef HAVE_WINDOW_SYSTEM
+  /* Eject unused image cache entries.  */
+  image_prune_animation_caches (false);
+#endif
 
   if (!NILP (Vpost_gc_hook))
     {

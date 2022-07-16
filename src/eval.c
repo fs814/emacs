@@ -707,7 +707,7 @@ DEFUN ("default-toplevel-value", Fdefault_toplevel_value, Sdefault_toplevel_valu
   union specbinding *binding = default_toplevel_binding (symbol);
   Lisp_Object value
     = binding ? specpdl_old_value (binding) : Fdefault_value (symbol);
-  if (!EQ (value, Qunbound))
+  if (!BASE_EQ (value, Qunbound))
     return value;
   xsignal1 (Qvoid_variable, symbol);
 }
@@ -774,7 +774,7 @@ defvar (Lisp_Object sym, Lisp_Object initvalue, Lisp_Object docstring, bool eval
     { /* Check if there is really a global binding rather than just a let
 	     binding that shadows the global unboundness of the var.  */
       union specbinding *binding = default_toplevel_binding (sym);
-      if (binding && EQ (specpdl_old_value (binding), Qunbound))
+      if (binding && BASE_EQ (specpdl_old_value (binding), Qunbound))
 	{
 	  set_specpdl_old_value (binding,
 	                         eval ? eval_sub (initvalue) : initvalue);
@@ -2195,7 +2195,7 @@ this does nothing and returns nil.  */)
       && !AUTOLOADP (XSYMBOL (function)->u.s.function))
     return Qnil;
 
-  if (!NILP (Vpurify_flag) && EQ (docstring, make_fixnum (0)))
+  if (!NILP (Vpurify_flag) && BASE_EQ (docstring, make_fixnum (0)))
     /* `read1' in lread.c has found the docstring starting with "\
        and assumed the docstring will be provided by Snarf-documentation, so it
        passed us 0 instead.  But that leads to accidental sharing in purecopy's
@@ -2216,7 +2216,7 @@ un_autoload (Lisp_Object oldqueue)
   while (CONSP (queue))
     {
       Lisp_Object first = XCAR (queue);
-      if (CONSP (first) && EQ (XCAR (first), make_fixnum (0)))
+      if (CONSP (first) && BASE_EQ (XCAR (first), make_fixnum (0)))
 	Vfeatures = XCDR (first);
       else
 	Ffset (first, Fcar (Fcdr (Fget (first, Qfunction_history))));
@@ -2273,8 +2273,13 @@ it defines a macro.  */)
   /* This is to make sure that loadup.el gives a clear picture
      of what files are preloaded and when.  */
   if (will_dump_p () && !will_bootstrap_p ())
-    error ("Attempt to autoload %s while preparing to dump",
-	   SDATA (SYMBOL_NAME (funname)));
+    {
+      /* Avoid landing here recursively while outputting the
+	 backtrace from the error.  */
+      gflags.will_dump_ = false;
+      error ("Attempt to autoload %s while preparing to dump",
+	     SDATA (SYMBOL_NAME (funname)));
+    }
 
   CHECK_SYMBOL (funname);
 
@@ -2765,7 +2770,7 @@ run_hook_with_args (ptrdiff_t nargs, Lisp_Object *args,
   sym = args[0];
   val = find_symbol_value (sym);
 
-  if (EQ (val, Qunbound) || NILP (val))
+  if (BASE_EQ (val, Qunbound) || NILP (val))
     return ret;
   else if (!CONSP (val) || FUNCTIONP (val))
     {
@@ -3451,7 +3456,7 @@ specbind (Lisp_Object symbol, Lisp_Object value)
 	specpdl_ptr->let.where = Fcurrent_buffer ();
 
 	eassert (sym->u.s.redirect != SYMBOL_LOCALIZED
-		 || (EQ (SYMBOL_BLV (sym)->where, Fcurrent_buffer ())));
+		 || (BASE_EQ (SYMBOL_BLV (sym)->where, Fcurrent_buffer ())));
 
 	if (sym->u.s.redirect == SYMBOL_LOCALIZED)
 	  {

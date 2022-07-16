@@ -709,14 +709,14 @@ a.k.a. `regular'), `semi-expanded' (a.k.a. `demi-expanded'),
 
 `:height'
 
-VALUE specifies the relative or absolute height of the font.  An
-absolute height is an integer, and specifies font height in units
-of 1/10 pt.  A relative height is either a floating point number,
-which specifies a scaling factor for the underlying face height;
-or a function that takes a single argument (the underlying face
-height) and returns the new height.  Note that for the `default'
-face, you must specify an absolute height (since there is nothing
-for it to be relative to).
+VALUE specifies the relative or absolute font size (height of the
+font).  An absolute height is an integer, and specifies font height in
+units of 1/10 pt.  A relative height is either a floating point
+number, which specifies a scaling factor for the underlying face
+height; or a function that takes a single argument (the underlying
+face height) and returns the new height.  Note that for the `default'
+face, you must specify an absolute height (since there is nothing for
+it to be relative to).
 
 `:weight'
 
@@ -1883,7 +1883,7 @@ This value was determined experimentally.")
   "Whether RGB is more readable against white than black.
 RGB is a 3-element list (R G B), each component in the range [0,1].
 This predicate can be used both for determining a suitable (black or white)
-contrast colour with RGB as background and as foreground."
+contrast color with RGB as background and as foreground."
   (unless (<= 0 (apply #'min rgb) (apply #'max rgb) 1)
     (error "RGB components %S not in [0,1]" rgb))
   ;; Compute the relative luminance after gamma-correcting (assuming sRGB),

@@ -368,6 +368,11 @@ typedef EMACS_INT Lisp_Word;
    ((ok) ? (void) 0 : wrong_type_argument (predicate, x))
 #define lisp_h_CONSP(x) TAGGEDP (x, Lisp_Cons)
 #define lisp_h_BASE_EQ(x, y) (XLI (x) == XLI (y))
+#define lisp_h_BASE2_EQ(x, y)				    \
+  (BASE_EQ (x, y)					    \
+   || (symbols_with_pos_enabled				    \
+       && SYMBOL_WITH_POS_P (x)				    \
+       && BASE_EQ (XSYMBOL_WITH_POS (x)->sym, y)))
 
 /* FIXME: Do we really need to inline the whole thing?
  * What about keeping the part after `symbols_with_pos_enabled` in
@@ -453,6 +458,7 @@ typedef EMACS_INT Lisp_Word;
 # define CHECK_TYPE(ok, predicate, x) lisp_h_CHECK_TYPE (ok, predicate, x)
 # define CONSP(x) lisp_h_CONSP (x)
 # define BASE_EQ(x, y) lisp_h_BASE_EQ (x, y)
+# define BASE2_EQ(x, y) lisp_h_BASE2_EQ (x, y)
 # define FLOATP(x) lisp_h_FLOATP (x)
 # define FIXNUMP(x) lisp_h_FIXNUMP (x)
 # define NILP(x) lisp_h_NILP (x)
@@ -1318,6 +1324,14 @@ INLINE bool
   return lisp_h_BASE_EQ (x, y);
 }
 
+/* Return true if X and Y are the same object, reckoning X to be the
+   same as a bare symbol Y if X is Y with position.  */
+INLINE bool
+(BASE2_EQ) (Lisp_Object x, Lisp_Object y)
+{
+  return lisp_h_BASE2_EQ (x, y);
+}
+
 /* Return true if X and Y are the same object, reckoning a symbol with
    position as being the same as the bare symbol.  */
 INLINE bool
@@ -1626,13 +1640,13 @@ STRING_MULTIBYTE (Lisp_Object str)
 
 /* Mark STR as a multibyte string.  Assure that STR contains only
    ASCII characters in advance.  */
-#define STRING_SET_MULTIBYTE(STR)			\
-  do {							\
-    if (XSTRING (STR)->u.s.size == 0)			\
-      (STR) = empty_multibyte_string;			\
-    else						\
-      XSTRING (STR)->u.s.size_byte = XSTRING (STR)->u.s.size; \
-  } while (false)
+INLINE void
+STRING_SET_MULTIBYTE (Lisp_Object str)
+{
+  /* The 0-length strings are unique&shared so we can't modify them.  */
+  eassert (XSTRING (str)->u.s.size > 0);
+  XSTRING (str)->u.s.size_byte = XSTRING (str)->u.s.size;
+}
 
 /* Convenience functions for dealing with Lisp strings.  */
 
@@ -3437,7 +3451,7 @@ union specbinding
 #define WRAP_SPECPDL_REF 1
 #endif
 
-/* Abstract reference to to a specpdl entry.
+/* Abstract reference to a specpdl entry.
    The number is always a multiple of sizeof (union specbinding).  */
 #ifdef WRAP_SPECPDL_REF
 /* Use a proper type for specpdl_ref if it does not make the code slower,
@@ -4020,6 +4034,10 @@ extern ptrdiff_t string_char_to_byte (Lisp_Object, ptrdiff_t);
 extern ptrdiff_t string_byte_to_char (Lisp_Object, ptrdiff_t);
 extern Lisp_Object string_to_multibyte (Lisp_Object);
 extern Lisp_Object string_make_unibyte (Lisp_Object);
+extern Lisp_Object plist_get (Lisp_Object plist, Lisp_Object prop);
+extern Lisp_Object plist_put (Lisp_Object plist, Lisp_Object prop,
+			      Lisp_Object val);
+extern Lisp_Object plist_member (Lisp_Object plist, Lisp_Object prop);
 extern void syms_of_fns (void);
 
 /* Defined in sort.c  */
@@ -4715,6 +4733,7 @@ extern bool internal_delete_file (Lisp_Object);
 extern Lisp_Object check_emacs_readlinkat (int, Lisp_Object, char const *);
 extern bool file_directory_p (Lisp_Object);
 extern bool file_accessible_directory_p (Lisp_Object);
+extern Lisp_Object buffer_visited_file_modtime (struct buffer *);
 extern void init_fileio (void);
 extern void syms_of_fileio (void);
 
@@ -4823,7 +4842,7 @@ extern void syms_of_indent (void);
 /* Defined in frame.c.  */
 extern void store_frame_param (struct frame *, Lisp_Object, Lisp_Object);
 extern void store_in_alist (Lisp_Object *, Lisp_Object, Lisp_Object);
-extern Lisp_Object do_switch_frame (Lisp_Object, int, int, Lisp_Object);
+extern Lisp_Object do_switch_frame (Lisp_Object, int, Lisp_Object);
 extern Lisp_Object get_frame_param (struct frame *, Lisp_Object);
 extern void frames_discard_buffer (Lisp_Object);
 extern void init_frame_once (void);
