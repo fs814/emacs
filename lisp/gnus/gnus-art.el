@@ -743,7 +743,7 @@ Each element is a regular expression."
   "Face used for highlighting buttons in the article buffer.
 
 An article button is a piece of text that you can activate by pressing
-`RET' or `mouse-2' above it."
+\\`RET' or `mouse-2' above it."
   :type 'face
   :group 'gnus-article-buttons)
 
@@ -1091,9 +1091,9 @@ positive (negative), move point forward (backwards) this many
 parts.  When nil, redisplay article."
   :version "23.1" ;; No Gnus
   :group 'gnus-article-mime
-  :type '(choice (const nil :tag "Redisplay article.")
-		 (const 1 :tag "Next part.")
-		 (const 0 :tag "Current part.")
+  :type '(choice (const :value nil :tag "Redisplay article")
+                 (const :value 1   :tag "Next part")
+                 (const :value 0   :tag "Current part")
 		 integer))
 
 ;;;

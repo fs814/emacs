@@ -2742,11 +2742,11 @@ struct it
   /* The line number of point's line, or zero if not computed yet.  */
   ptrdiff_t pt_lnum;
 
-  /* Number of pixels to offset tab stops due to width fixup of the
-     first glyph that crosses first_visible_x.  This is only needed on
-     GUI frames, only when display-line-numbers is in effect, and only
-     in hscrolled windows.  */
-  int tab_offset;
+  /* Number of pixels to adjust tab stops and stretch glyphs due to
+     width fixup of the first stretch glyph that crosses first_visible_x.
+     This is only needed on GUI frames, only when display-line-numbers
+     is in effect, and only in hscrolled windows.  */
+  int stretch_adjust;
 
   /* Left fringe bitmap number (enum fringe_bitmap_type).  */
   unsigned left_user_fringe_bitmap : FRINGE_ID_BITS;
@@ -3085,12 +3085,15 @@ struct image
   XFORM xform;
 #endif
 #ifdef HAVE_HAIKU
-  /* Non-zero if the image has not yet been transformed for display.  */
-  int have_be_transforms_p;
+  /* The affine transformation to apply to this image.  */
+  double transform[3][3];
 
-  double be_rotate;
-  double be_scale_x;
-  double be_scale_y;
+  /* The original width and height of the image.  */
+  int original_width, original_height;
+
+  /* Whether or not bilinear filtering should be used to "smooth" the
+     image.  */
+  bool use_bilinear_filtering;
 #endif
 
   /* Colors allocated for this image, if any.  Allocated via xmalloc.  */
@@ -3407,6 +3410,8 @@ int partial_line_height (struct it *it_origin);
 bool in_display_vector_p (struct it *);
 int frame_mode_line_height (struct frame *);
 extern bool redisplaying_p;
+extern bool display_working_on_window_p;
+extern void unwind_display_working_on_window (void);
 extern bool help_echo_showing_p;
 extern Lisp_Object help_echo_string, help_echo_window;
 extern Lisp_Object help_echo_object, previous_help_echo_string;
@@ -3470,6 +3475,7 @@ extern void expose_frame (struct frame *, int, int, int, int);
 extern bool gui_intersect_rectangles (const Emacs_Rectangle *,
                                       const Emacs_Rectangle *,
                                       Emacs_Rectangle *);
+extern void gui_consider_frame_title (Lisp_Object);
 #endif	/* HAVE_WINDOW_SYSTEM */
 
 extern void note_mouse_highlight (struct frame *, int, int);
@@ -3504,6 +3510,8 @@ extern unsigned row_hash (struct glyph_row *);
 
 extern bool buffer_flipping_blocked_p (void);
 
+extern void update_redisplay_ticks (int, struct window *);
+
 /* Defined in image.c */
 
 #ifdef HAVE_WINDOW_SYSTEM
@@ -3532,6 +3540,7 @@ struct image_cache *make_image_cache (void);
 void free_image_cache (struct frame *);
 void clear_image_caches (Lisp_Object);
 void mark_image_cache (struct image_cache *);
+void image_prune_animation_caches (bool);
 bool valid_image_p (Lisp_Object);
 void prepare_image_for_display (struct frame *, struct image *);
 ptrdiff_t lookup_image (struct frame *, Lisp_Object, int);

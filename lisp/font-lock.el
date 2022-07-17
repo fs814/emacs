@@ -47,9 +47,9 @@
 ;;
 ;; Fontification for a particular mode may be available in a number of levels
 ;; of decoration.  The higher the level, the more decoration, but the more time
-;; it takes to fontify.  See the variable `font-lock-maximum-decoration', and
-;; also the variable `font-lock-maximum-size'.  Support modes for Font Lock
-;; mode can be used to speed up Font Lock mode.  See `font-lock-support-mode'.
+;; it takes to fontify.  See the variable `font-lock-maximum-decoration'.
+;; Support modes for Font Lock mode can be used to speed up Font Lock
+;; mode.  See `font-lock-support-mode'.
 
 ;;;; How Font Lock mode fontifies:
 
@@ -227,32 +227,6 @@
   :group 'font-lock)
 
 ;; User variables.
-
-(defcustom font-lock-maximum-size 256000
-  "Maximum buffer size for unsupported buffer fontification.
-When `font-lock-support-mode' is nil, only buffers smaller than
-this are fontified.  This variable has no effect if a Font Lock
-support mode (usually `jit-lock-mode') is enabled.
-
-If nil, means size is irrelevant.
-If a list, each element should be a cons pair of the form (MAJOR-MODE . SIZE),
-where MAJOR-MODE is a symbol or t (meaning the default).  For example:
- ((c-mode . 256000) (c++-mode . 256000) (rmail-mode . 1048576))
-means that the maximum size is 250K for buffers in C or C++ modes, one megabyte
-for buffers in Rmail mode, and size is irrelevant otherwise."
-  :type '(choice (const :tag "none" nil)
-		 (integer :tag "size")
-		 (repeat :menu-tag "mode specific" :tag "mode specific"
-			 :value ((t . nil))
-			 (cons :tag "Instance"
-			       (radio :tag "Mode"
-				      (const :tag "all" t)
-				      (symbol :tag "name"))
-			       (radio :tag "Size"
-				      (const :tag "none" nil)
-				      (integer :tag "size")))))
-  :group 'font-lock)
-(make-obsolete-variable 'font-lock-maximum-size nil "24.1")
 
 (defcustom font-lock-maximum-decoration t
   "Maximum decoration level for fontification.
@@ -695,15 +669,9 @@ be enabled."
   ;; The first fontification after turning the mode on.  This must
   ;;  only be called after the mode hooks have been run.
   (when (and font-lock-mode
-	     (font-lock-specified-p t))
-    (let ((max-size (font-lock-value-in-major-mode font-lock-maximum-size)))
-      (cond (font-lock-fontified
-	     nil)
-	    ((or (null max-size) (> max-size (buffer-size)))
-             (with-no-warnings (font-lock-fontify-buffer)))
-	    (font-lock-verbose
-	     (message "Fontifying %s...buffer size greater than font-lock-maximum-size"
-		      (buffer-name)))))))
+             (font-lock-specified-p t)
+             (not font-lock-fontified))
+    (with-no-warnings (font-lock-fontify-buffer))))
 
 (defun font-lock-mode-internal (arg)
   ;; Turn on Font Lock mode.
@@ -1245,28 +1213,26 @@ Put first the functions more likely to cause a change and cheaper to compute.")
       (setq font-lock-beg (or (previous-single-property-change
                                font-lock-beg 'font-lock-multiline)
                               (point-min))))
-    ;;
-    (when (get-text-property font-lock-end 'font-lock-multiline)
-      (setq changed t)
-      (setq font-lock-end (or (text-property-any font-lock-end (point-max)
-                                                 'font-lock-multiline nil)
-                              (point-max))))
+    ;; If `font-lock-multiline' starts at `font-lock-end', do not
+    ;; extend the region.
+    (let ((before-end (max (point-min) (1- font-lock-end)))
+          (new-end nil))
+      (when (get-text-property before-end 'font-lock-multiline)
+        (setq new-end (or (text-property-any before-end (point-max)
+                                             'font-lock-multiline nil)
+                          (point-max)))
+        (when (/= new-end font-lock-end)
+          (setq changed t)
+          (setq font-lock-end new-end))))
     changed))
 
 (defun font-lock-extend-region-wholelines ()
   "Move fontification boundaries to beginning of lines."
-  (let ((changed nil))
-    (goto-char font-lock-beg)
-    (unless (bolp)
-      (setq changed t font-lock-beg
-            (let ((inhibit-field-text-motion t))
-              (line-beginning-position))))
-    (goto-char font-lock-end)
-    (unless (bolp)
-      (unless (eq font-lock-end
-                  (setq font-lock-end (line-beginning-position 2)))
-        (setq changed t)))
-    changed))
+  (let ((new (syntax-propertize-wholelines font-lock-beg font-lock-end)))
+    (when new
+      (setq font-lock-beg (car new))
+      (setq font-lock-end (cdr new))
+      t)))
 
 (defun font-lock-default-fontify-region (beg end loudly)
   "Fontify the text between BEG and END.
@@ -1560,7 +1526,7 @@ see `font-lock-syntactic-keywords'."
 	(or (nth 3 highlight)
 	    (error "No match %d in highlight %S" match highlight))
       (when (and (consp value) (not (numberp (car value))))
-	(setq value (eval value)))
+	(setq value (eval value t)))
       (when (stringp value) (setq value (string-to-syntax value)))
       ;; Flush the syntax-cache.  I believe this is not necessary for
       ;; font-lock's use of syntax-ppss, but I'm not 100% sure and it can
@@ -1584,7 +1550,7 @@ KEYWORDS should be of the form MATCH-ANCHORED, see `font-lock-keywords',
 LIMIT can be modified by the value of its PRE-MATCH-FORM."
   (let ((matcher (nth 0 keywords)) (lowdarks (nthcdr 3 keywords)) highlights
 	;; Evaluate PRE-MATCH-FORM.
-	(pre-match-value (eval (nth 1 keywords))))
+	(pre-match-value (eval (nth 1 keywords) t)))
     ;; Set LIMIT to value of PRE-MATCH-FORM or the end of line.
     (if (and (numberp pre-match-value) (> pre-match-value (point)))
 	(setq limit pre-match-value)
@@ -1600,7 +1566,7 @@ LIMIT can be modified by the value of its PRE-MATCH-FORM."
 	  (font-lock-apply-syntactic-highlight (car highlights))
 	  (setq highlights (cdr highlights)))))
     ;; Evaluate POST-MATCH-FORM.
-    (eval (nth 2 keywords))))
+    (eval (nth 2 keywords) t)))
 
 (defun font-lock-fontify-syntactic-keywords-region (start end)
   "Fontify according to `font-lock-syntactic-keywords' between START and END.
@@ -1713,7 +1679,7 @@ HIGHLIGHT should be of the form MATCH-HIGHLIGHT, see `font-lock-keywords'."
 	;; No match but we might not signal an error.
 	(or (nth 3 highlight)
 	    (error "No match %d in highlight %S" match highlight))
-      (let ((val (eval (nth 1 highlight))))
+      (let ((val (eval (nth 1 highlight) t)))
 	(when (eq (car-safe val) 'face)
 	  (add-text-properties start end (cddr val))
 	  (setq val (cadr val)))
@@ -1748,7 +1714,7 @@ LIMIT can be modified by the value of its PRE-MATCH-FORM."
   (let ((matcher (nth 0 keywords)) (lowdarks (nthcdr 3 keywords)) highlights
 	(lead-start (match-beginning 0))
 	;; Evaluate PRE-MATCH-FORM.
-	(pre-match-value (eval (nth 1 keywords))))
+	(pre-match-value (eval (nth 1 keywords) t)))
     ;; Set LIMIT to value of PRE-MATCH-FORM or the end of line.
     (if (not (and (numberp pre-match-value) (> pre-match-value (point))))
 	(setq limit (line-end-position))
@@ -1773,7 +1739,7 @@ LIMIT can be modified by the value of its PRE-MATCH-FORM."
 	  (font-lock-apply-highlight (car highlights))
 	  (setq highlights (cdr highlights)))))
     ;; Evaluate POST-MATCH-FORM.
-    (eval (nth 2 keywords))))
+    (eval (nth 2 keywords) t)))
 
 (defun font-lock-fontify-keywords-region (start end &optional loudly)
   "Fontify according to `font-lock-keywords' between START and END.
@@ -1879,7 +1845,7 @@ If SYNTACTIC-KEYWORDS is non-nil, it means these keywords are used for
   (cond ((or (functionp keyword) (nlistp keyword)) ; MATCHER
 	 (list keyword '(0 font-lock-keyword-face)))
 	((eq (car keyword) 'eval)		; (eval . FORM)
-	 (font-lock-compile-keyword (eval (cdr keyword))))
+	 (font-lock-compile-keyword (eval (cdr keyword) t)))
 	((eq (car-safe (cdr keyword)) 'quote)	; (MATCHER . 'FORM)
 	 ;; If FORM is a FACENAME then quote it.  Otherwise ignore the quote.
 	 (if (symbolp (nth 2 keyword))
@@ -1900,7 +1866,7 @@ If SYNTACTIC-KEYWORDS is non-nil, it means these keywords are used for
       keywords
     (font-lock-eval-keywords (if (fboundp keywords)
 				 (funcall keywords)
-			       (eval keywords)))))
+			       (eval keywords t)))))
 
 (defun font-lock-value-in-major-mode (values)
   "If VALUES is a list, use `major-mode' as a key and return the `assq' value.
@@ -2363,7 +2329,7 @@ This function could be MATCHER in a MATCH-ANCHORED `font-lock-keywords' item."
 ;; e.g. assembler code and GNU linker script in Linux kernel.
 ;; `cpp-font-lock-keywords' is handy for modes for the files.
 ;;
-;; Here we cannot use `regexp-opt' because because regex-opt is not preloaded
+;; Here we cannot use `regexp-opt' because regex-opt is not preloaded
 ;; while font-lock.el is preloaded to emacs. So values pre-calculated with
 ;; regexp-opt are used here.
 

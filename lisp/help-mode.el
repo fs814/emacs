@@ -31,25 +31,23 @@
 
 (require 'cl-lib)
 
-(defvar help-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map (make-composed-keymap button-buffer-map
-                                                 special-mode-map))
-    (define-key map "n" 'help-goto-next-page)
-    (define-key map "p" 'help-goto-previous-page)
-    (define-key map "l" 'help-go-back)
-    (define-key map "r" 'help-go-forward)
-    (define-key map "\C-c\C-b" 'help-go-back)
-    (define-key map "\C-c\C-f" 'help-go-forward)
-    (define-key map [XF86Back] 'help-go-back)
-    (define-key map [XF86Forward] 'help-go-forward)
-    (define-key map "\C-c\C-c" 'help-follow-symbol)
-    (define-key map "s" 'help-view-source)
-    (define-key map "I" 'help-goto-lispref-info)
-    (define-key map "i" 'help-goto-info)
-    (define-key map "c" 'help-customize)
-    map)
-  "Keymap for Help mode.")
+(defvar-keymap help-mode-map
+  :doc "Keymap for Help mode."
+  :parent (make-composed-keymap button-buffer-map
+                                special-mode-map)
+  "n"             #'help-goto-next-page
+  "p"             #'help-goto-previous-page
+  "l"             #'help-go-back
+  "r"             #'help-go-forward
+  "C-c C-b"       #'help-go-back
+  "C-c C-f"       #'help-go-forward
+  "<XF86Back>"    #'help-go-back
+  "<XF86Forward>" #'help-go-forward
+  "C-c C-c"       #'help-follow-symbol
+  "s"             #'help-view-source
+  "I"             #'help-goto-lispref-info
+  "i"             #'help-goto-info
+  "c"             #'help-customize)
 
 (easy-menu-define help-mode-menu help-mode-map
   "Menu for Help mode."
@@ -543,6 +541,12 @@ Each element has the form (NAME TESTFUN DESCFUN) where:
     and a frame), inserts the description of that symbol in the current buffer
     and returns that text as well.")
 
+(defcustom help-clean-buttons nil
+  "If non-nil, remove quotes around link buttons."
+  :version "29.1"
+  :type 'boolean
+  :group 'help)
+
 ;;;###autoload
 (defun help-make-xrefs (&optional buffer)
   "Parse and hyperlink documentation cross-references in the given BUFFER.
@@ -691,12 +695,26 @@ that."
 MATCH-NUMBER is the subexpression of interest in the last matched
 regexp.  TYPE is the type of button to use.  Any remaining arguments are
 passed to the button's help-function when it is invoked.
-See `help-make-xrefs'."
+See `help-make-xrefs'.
+
+This function removes quotes surrounding the match if the
+variable `help-clean-buttons' is non-nil."
   ;; Don't mung properties we've added specially in some instances.
-  (unless (button-at (match-beginning match-number))
-    (make-text-button (match-beginning match-number)
-		      (match-end match-number)
-		      'type type 'help-args args)))
+  (let ((beg (match-beginning match-number))
+        (end (match-end match-number)))
+    (unless (button-at beg)
+      (make-text-button beg end 'type type 'help-args args)
+      (when (and help-clean-buttons
+                 (> beg (point-min))
+                 (save-excursion
+                   (goto-char (1- beg))
+                   (looking-at "['`‘]"))
+                 (< end (point-max))
+                 (save-excursion
+                   (goto-char end)
+                   (looking-at "['’]")))
+        (delete-region end (1+ end))
+        (delete-region (1- beg) beg)))))
 
 ;;;###autoload
 (defun help-insert-xref-button (string type &rest args)

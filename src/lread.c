@@ -1735,13 +1735,24 @@ maybe_swap_for_eln (bool no_native, Lisp_Object *filename, int *fd,
 	{
 	  if (!NILP (find_symbol_value (
 		       Qnative_comp_warning_on_missing_source)))
-	    call2 (intern_c_string ("display-warning"),
-		   Qcomp,
-		   CALLN (Fformat,
-			  build_string ("Cannot look-up eln file as no source "
-					"file was found for %s"),
-			  *filename));
-	  return;
+	    {
+	      /* If we have an installation without any .el files,
+		 there's really no point in giving a warning here,
+		 because that will trigger a cascade of warnings.  So
+		 just do a sanity check and refuse to do anything if we
+		 can't find even central .el files.  */
+	      if (NILP (Flocate_file_internal (build_string ("simple.el"),
+					       Vload_path,
+					       Qnil, Qnil)))
+		return;
+	      call2 (intern_c_string ("display-warning"),
+		     Qcomp,
+		     CALLN (Fformat,
+			    build_string ("Cannot look up eln file as "
+					  "no source file was found for %s"),
+			    *filename));
+	      return;
+	    }
 	}
     }
   Lisp_Object eln_rel_name = Fcomp_el_to_eln_rel_filename (src_name);
@@ -2216,7 +2227,7 @@ readevalloop (Lisp_Object readcharfun,
      lexical environment, otherwise, turn off lexical binding.  */
   lex_bound = find_symbol_value (Qlexical_binding);
   specbind (Qinternal_interpreter_environment,
-	    (NILP (lex_bound) || EQ (lex_bound, Qunbound)
+	    (NILP (lex_bound) || BASE_EQ (lex_bound, Qunbound)
 	     ? Qnil : list1 (Qt)));
   specbind (Qmacroexp__dynvars, Vmacroexp__dynvars);
 
@@ -3175,7 +3186,7 @@ hash_table_from_plist (Lisp_Object plist)
   /* This is repetitive but fast and simple.  */
 #define ADDPARAM(name)					\
   do {							\
-    Lisp_Object val = Fplist_get (plist, Q ## name);	\
+    Lisp_Object val = plist_get (plist, Q ## name);	\
     if (!NILP (val))					\
       {							\
 	*par++ = QC ## name;				\
@@ -3190,7 +3201,7 @@ hash_table_from_plist (Lisp_Object plist)
   ADDPARAM (rehash_threshold);
   ADDPARAM (purecopy);
 
-  Lisp_Object data = Fplist_get (plist, Qdata);
+  Lisp_Object data = plist_get (plist, Qdata);
 
   /* Now use params to make a new hash table and fill it.  */
   Lisp_Object ht = Fmake_hash_table (par - params, params);
@@ -4265,7 +4276,7 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 		  /* Catch silly games like #1=#1# */
 		  invalid_syntax ("nonsensical self-reference", readcharfun);
 
-		/* Optimisation: since the placeholder is already
+		/* Optimization: since the placeholder is already
 		   a cons, repurpose it as the actual value.
 		   This allows us to skip the substitution below,
 		   since the placeholder is already referenced
@@ -4667,7 +4678,7 @@ define_symbol (Lisp_Object sym, char const *str)
 
   /* Qunbound is uninterned, so that it's not confused with any symbol
      'unbound' created by a Lisp program.  */
-  if (! EQ (sym, Qunbound))
+  if (! BASE_EQ (sym, Qunbound))
     {
       Lisp_Object bucket = oblookup (initial_obarray, str, len, len);
       eassert (FIXNUMP (bucket));
@@ -4855,7 +4866,7 @@ oblookup (Lisp_Object obarray, register const char *ptr, ptrdiff_t size, ptrdiff
   hash = hash_string (ptr, size_byte) % obsize;
   bucket = AREF (obarray, hash);
   oblookup_last_bucket_number = hash;
-  if (EQ (bucket, make_fixnum (0)))
+  if (BASE_EQ (bucket, make_fixnum (0)))
     ;
   else if (!SYMBOLP (bucket))
     /* Like CADR error message.  */
@@ -4877,7 +4888,7 @@ oblookup (Lisp_Object obarray, register const char *ptr, ptrdiff_t size, ptrdiff
 
 /* Like 'oblookup', but considers 'Vread_symbol_shorthands',
    potentially recognizing that IN is shorthand for some other
-   longhand name, which is then then placed in OUT.  In that case,
+   longhand name, which is then placed in OUT.  In that case,
    memory is malloc'ed for OUT (which the caller must free) while
    SIZE_OUT and SIZE_BYTE_OUT respectively hold the character and byte
    sizes of the transformed symbol name.  If IN is not recognized

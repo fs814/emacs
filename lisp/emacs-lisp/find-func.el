@@ -269,11 +269,7 @@ defined in C.")
 If FUNC is not a symbol, return it.  Else, if it's not advised,
 return the symbol's function definition."
   (or (and (symbolp func)
-           (featurep 'nadvice)
-           (let ((ofunc (symbol-function func)))
-             (if (advice--p ofunc)
-                 (advice--cd*r ofunc)
-               ofunc)))
+           (advice--cd*r (symbol-function func)))
       func))
 
 (defun find-function-C-source (fun-or-var file type)
@@ -804,7 +800,10 @@ See `find-function-on-key'."
   (define-key ctl-x-5-map "K" 'find-function-on-key-other-frame)
   (define-key ctl-x-map "V" 'find-variable)
   (define-key ctl-x-4-map "V" 'find-variable-other-window)
-  (define-key ctl-x-5-map "V" 'find-variable-other-frame))
+  (define-key ctl-x-5-map "V" 'find-variable-other-frame)
+  (define-key ctl-x-map "L" 'find-library)
+  (define-key ctl-x-4-map "L" 'find-library-other-window)
+  (define-key ctl-x-5-map "L" 'find-library-other-frame))
 
 (provide 'find-func)
 

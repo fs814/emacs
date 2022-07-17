@@ -24,6 +24,7 @@
 ;;; Code:
 
 (eval-when-compile (require 'cl-lib))
+(require 'outline)
 
 (defgroup emacs-news-mode nil
   "Major mode for editing and viewing the Emacs NEWS file."
@@ -39,12 +40,26 @@
   "Face used for displaying the \"does not need documentation\" tag."
   :version "29.1")
 
+(defvar-keymap emacs-news-common-map
+  ;; Navigation like `org-mode'/`outline-minor-mode'.
+  "C-c C-f" #'outline-forward-same-level
+  "C-c C-b" #'outline-backward-same-level
+  "C-c C-n" #'outline-next-visible-heading
+  "C-c C-p" #'outline-previous-visible-heading
+  "C-c C-u" #'outline-up-heading)
+
 (defvar-keymap emacs-news-mode-map
+  :parent emacs-news-common-map
   "C-c C-s" #'emacs-news-next-untagged-entry
   "C-c C-r" #'emacs-news-previous-untagged-entry
+  "C-c C-t" #'emacs-news-toggle-tag
   "C-c C-g" #'emacs-news-goto-section
-  "C-c C-f" #'emacs-news-find-heading
-  "C-c C-n" #'emacs-news-count-untagged-entries)
+  "C-c C-j" #'emacs-news-find-heading
+  "C-c C-e" #'emacs-news-count-untagged-entries
+  "<remap> <open-line>" #'emacs-news-open-line)
+
+(defvar-keymap emacs-news-view-mode-map
+  :parent emacs-news-common-map)
 
 (defvar emacs-news-mode-font-lock-keywords
   `(("^---$" 0 'emacs-news-does-not-need-documentation)
@@ -148,6 +163,26 @@ untagged NEWS entry."
   (interactive nil emacs-news-mode)
   (emacs-news-next-untagged-entry t))
 
+(defun emacs-news-toggle-tag ()
+  "Toggle documentation tag of current headline in the Emacs NEWS file."
+  (interactive nil emacs-news-mode)
+  (save-excursion
+    (goto-char (line-beginning-position))
+    (cond ((or (looking-at (rx bol (or "---" "+++") eol)))
+           (forward-line 2))
+          ((or (looking-at (rx bol "*** ")))
+           (forward-line 1)))
+    (outline-previous-visible-heading 1)
+    (forward-line -1)
+    (cond ((not (looking-at (rx bol (or "---" "+++") eol)))
+           (insert "\n---"))
+          ((looking-at (rx bol "---" eol))
+           (delete-char 3)
+           (insert "+++"))
+          ((looking-at (rx bol "+++" eol))
+           (delete-char 4))
+          (t (user-error "Invalid headline tag; can't toggle")))))
+
 (defun emacs-news-count-untagged-entries ()
   "Say how many untagged entries there are in the current NEWS buffer."
   (interactive nil emacs-news-mode)
@@ -218,6 +253,16 @@ untagged NEWS entry."
   (goto-char (point-min))
   (when (re-search-forward (concat "^*+ " (regexp-quote heading)) nil t)
     (beginning-of-line)))
+
+(defun emacs-news-open-line (n)
+  "Open a new line in a NEWS file.
+This is like `open-line', but skips any temporary NEWS-style
+documentation marks on the previous line."
+  (interactive "*p" emacs-news-mode)
+  (when (save-excursion (forward-line -1)
+                        (looking-at (rx bol (or "---" "+++") eol)))
+    (forward-line -1))
+  (open-line n))
 
 (provide 'emacs-news-mode)
 

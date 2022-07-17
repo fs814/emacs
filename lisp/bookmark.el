@@ -160,7 +160,7 @@ This includes the annotations column.")
 (defcustom bookmark-bmenu-file-column 30
   "Column at which to display filenames in a buffer listing bookmarks.
 You can toggle whether files are shown with \\<bookmark-bmenu-mode-map>\\[bookmark-bmenu-toggle-filenames]."
-  :type 'integer)
+  :type 'natnum)
 
 
 (defcustom bookmark-bmenu-toggle-filenames t
@@ -174,7 +174,7 @@ A non-nil value may result in truncated bookmark names."
 
 (defcustom bookmark-menu-length 70
   "Maximum length of a bookmark name displayed on a popup menu."
-  :type 'integer)
+  :type 'natnum)
 
 ;; FIXME: Is it really worth a customization option?
 (defcustom bookmark-search-delay 0.2
@@ -216,10 +216,10 @@ A non-nil value may result in truncated bookmark names."
 ;; Set up these bindings dumping time *only*;
 ;; if the user alters them, don't override the user when loading bookmark.el.
 
-;;;###autoload (define-key ctl-x-r-map "b" 'bookmark-jump)
-;;;###autoload (define-key ctl-x-r-map "m" 'bookmark-set)
-;;;###autoload (define-key ctl-x-r-map "M" 'bookmark-set-no-overwrite)
-;;;###autoload (define-key ctl-x-r-map "l" 'bookmark-bmenu-list)
+;;;###autoload (keymap-set ctl-x-r-map "b" #'bookmark-jump)
+;;;###autoload (keymap-set ctl-x-r-map "m" #'bookmark-set)
+;;;###autoload (keymap-set ctl-x-r-map "M" #'bookmark-set-no-overwrite)
+;;;###autoload (keymap-set ctl-x-r-map "l" #'bookmark-bmenu-list)
 
 ;;;###autoload
 (defvar-keymap bookmark-map
@@ -1027,10 +1027,13 @@ annotations."
            bookmark-name)
 	  (format-message
            "#  All lines which start with a `#' will be deleted.\n")
-	  "#  Type C-c C-c when done.\n#\n"
+          (substitute-command-keys
+           (concat
+            "#  Type \\[bookmark-edit-annotation-confirm] when done.  Type "
+            "\\[bookmark-edit-annotation-cancel] to cancel.\n#\n"))
 	  "#  Author: " (user-full-name) " <" (user-login-name) "@"
 	  (system-name) ">\n"
-	  "#  Date:    " (current-time-string) "\n"))
+          "#  Date:   " (current-time-string) "\n"))
 
 
 (defvar bookmark-edit-annotation-text-func 'bookmark-default-annotation-text
@@ -1040,7 +1043,8 @@ It takes one argument, the name of the bookmark, as a string.")
 (defvar-keymap bookmark-edit-annotation-mode-map
   :doc "Keymap for editing an annotation of a bookmark."
   :parent text-mode-map
-  "C-c C-c" #'bookmark-send-edited-annotation)
+  "C-c C-c" #'bookmark-edit-annotation-confirm
+  "C-c C-k" #'bookmark-edit-annotation-cancel)
 
 (defun bookmark-insert-annotation (bookmark-name-or-record)
   "Insert annotation for BOOKMARK-NAME-OR-RECORD at point."
@@ -1054,12 +1058,32 @@ It takes one argument, the name of the bookmark, as a string.")
 (define-derived-mode bookmark-edit-annotation-mode
   text-mode "Edit Bookmark Annotation"
   "Mode for editing the annotation of bookmarks.
-When you have finished composing, type \\[bookmark-send-edited-annotation].
+\\<bookmark-edit-annotation-mode-map>\
+When you have finished composing, type \\[bookmark-edit-annotation-confirm] \
+or \\[bookmark-edit-annotation-cancel] to cancel.
 
 \\{bookmark-edit-annotation-mode-map}")
 
+(defmacro bookmark-edit-annotation--maybe-display-list (&rest body)
+  "Display bookmark list after editing if appropriate."
+  `(let ((from-bookmark-list bookmark--annotation-from-bookmark-list)
+         (old-buffer (current-buffer)))
+     ,@body
+     (quit-window)
+     (bookmark-bmenu-surreptitiously-rebuild-list)
+     (when from-bookmark-list
+       (pop-to-buffer (get-buffer bookmark-bmenu-buffer))
+       (goto-char (point-min))
+       (bookmark-bmenu-bookmark))
+     (kill-buffer old-buffer)))
 
-(defun bookmark-send-edited-annotation ()
+(defun bookmark-edit-annotation-cancel ()
+  "Cancel the current annotation edit."
+  (interactive nil bookmark-edit-annotation-mode)
+  (bookmark-edit-annotation--maybe-display-list
+   (message "Canceled by user")))
+
+(defun bookmark-edit-annotation-confirm ()
   "Use buffer contents as annotation for a bookmark.
 Lines beginning with `#' are ignored."
   (interactive nil bookmark-edit-annotation-mode)
@@ -1071,22 +1095,14 @@ Lines beginning with `#' are ignored."
         (bookmark-kill-line t)
       (forward-line 1)))
   ;; Take no chances with text properties.
-  (let ((annotation (buffer-substring-no-properties (point-min) (point-max)))
-        (bookmark-name bookmark-annotation-name)
-        (from-bookmark-list bookmark--annotation-from-bookmark-list)
-        (old-buffer (current-buffer)))
-    (bookmark-set-annotation bookmark-name annotation)
-    (bookmark-update-last-modified bookmark-name)
-    (setq bookmark-alist-modification-count
-          (1+ bookmark-alist-modification-count))
-    (message "Annotation updated for \"%s\"" bookmark-name)
-    (quit-window)
-    (bookmark-bmenu-surreptitiously-rebuild-list)
-    (when from-bookmark-list
-      (pop-to-buffer (get-buffer bookmark-bmenu-buffer))
-      (goto-char (point-min))
-      (bookmark-bmenu-bookmark))
-    (kill-buffer old-buffer)))
+  (bookmark-edit-annotation--maybe-display-list
+   (let ((annotation (buffer-substring-no-properties (point-min) (point-max)))
+         (bookmark-name bookmark-annotation-name))
+     (bookmark-set-annotation bookmark-name annotation)
+     (bookmark-update-last-modified bookmark-name)
+     (setq bookmark-alist-modification-count
+           (1+ bookmark-alist-modification-count))
+     (message "Annotation updated for \"%s\"" bookmark-name))))
 
 
 (defun bookmark-edit-annotation (bookmark-name-or-record &optional from-bookmark-list)
@@ -1094,8 +1110,8 @@ Lines beginning with `#' are ignored."
 If optional argument FROM-BOOKMARK-LIST is non-nil, return to the
 bookmark list when editing is done."
   (pop-to-buffer (generate-new-buffer-name "*Bookmark Annotation Compose*"))
-  (bookmark-insert-annotation bookmark-name-or-record)
   (bookmark-edit-annotation-mode)
+  (bookmark-insert-annotation bookmark-name-or-record)
   (setq bookmark--annotation-from-bookmark-list from-bookmark-list)
   (setq bookmark-annotation-name bookmark-name-or-record))
 
@@ -1420,9 +1436,9 @@ name."
              (read-from-minibuffer
               "New name: "
               nil
-              (let ((now-map (copy-keymap minibuffer-local-map)))
-                (define-key now-map "\C-w" 'bookmark-yank-word)
-                now-map)
+              (define-keymap
+                :parent minibuffer-local-map
+                "C-w" #'bookmark-yank-word)
               nil
               'bookmark-history))))
     (bookmark-set-name old-name final-new-name)
@@ -2554,6 +2570,12 @@ This also runs `bookmark-exit-hook'."
 
 
 (run-hooks 'bookmark-load-hook)
+
+
+;;; Obsolete:
+
+(define-obsolete-function-alias 'bookmark-send-edited-annotation
+  #'bookmark-edit-annotation-confirm "29.1")
 
 (provide 'bookmark)
 

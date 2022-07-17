@@ -699,7 +699,7 @@ global value outside of any lexical scope.  */)
     default: emacs_abort ();
     }
 
-  return (EQ (valcontents, Qunbound) ? Qnil : Qt);
+  return (BASE_EQ (valcontents, Qunbound) ? Qnil : Qt);
 }
 
 /* It has been previously suggested to make this function an alias for
@@ -874,7 +874,7 @@ add_to_function_history (Lisp_Object symbol, Lisp_Object olddef)
     if (NILP (XCDR (tail)) && STRINGP (XCAR (tail)))
       file = XCAR (tail);
 
-  Lisp_Object tem = Fplist_member (past, file);
+  Lisp_Object tem = plist_member (past, file);
   if (!NILP (tem))
     { /* New def from a file used before.
          Overwrite the previous record associated with this file.  */
@@ -1546,8 +1546,13 @@ swap_in_symval_forwarding (struct Lisp_Symbol *symbol, struct Lisp_Buffer_Local_
 /* Find the value of a symbol, returning Qunbound if it's not bound.
    This is helpful for code which just wants to get a variable's value
    if it has one, without signaling an error.
-   Note that it must not be possible to quit
-   within this function.  Great care is required for this.  */
+
+   This function is very similar to buffer_local_value, but we have
+   two separate code paths here since find_symbol_value has to be very
+   efficient, while buffer_local_value doesn't have to be.
+
+   Note that it must not be possible to quit within this function.
+   Great care is required for this.  */
 
 Lisp_Object
 find_symbol_value (Lisp_Object symbol)
@@ -1585,7 +1590,7 @@ global value outside of any lexical scope.  */)
   Lisp_Object val;
 
   val = find_symbol_value (symbol);
-  if (!EQ (val, Qunbound))
+  if (!BASE_EQ (val, Qunbound))
     return val;
 
   xsignal1 (Qvoid_variable, symbol);
@@ -1612,7 +1617,7 @@ void
 set_internal (Lisp_Object symbol, Lisp_Object newval, Lisp_Object where,
               enum Set_Internal_Bind bindflag)
 {
-  bool voide = EQ (newval, Qunbound);
+  bool voide = BASE_EQ (newval, Qunbound);
 
   /* If restoring in a dead buffer, do nothing.  */
   /* if (BUFFERP (where) && NILP (XBUFFER (where)->name))
@@ -1939,15 +1944,15 @@ default_value (Lisp_Object symbol)
 
 DEFUN ("default-boundp", Fdefault_boundp, Sdefault_boundp, 1, 1, 0,
        doc: /* Return t if SYMBOL has a non-void default value.
-A variable may have a buffer-local or a `let'-bound local value.  This
-function says whether the variable has a non-void value outside of the
-current context.  Also see `default-value'.  */)
+A variable may have a buffer-local value.  This function says whether
+the variable has a non-void value outside of the current buffer
+context.  Also see `default-value'.  */)
   (Lisp_Object symbol)
 {
   register Lisp_Object value;
 
   value = default_value (symbol);
-  return (EQ (value, Qunbound) ? Qnil : Qt);
+  return (BASE_EQ (value, Qunbound) ? Qnil : Qt);
 }
 
 DEFUN ("default-value", Fdefault_value, Sdefault_value, 1, 1, 0,
@@ -1958,7 +1963,7 @@ local bindings in certain buffers.  */)
   (Lisp_Object symbol)
 {
   Lisp_Object value = default_value (symbol);
-  if (!EQ (value, Qunbound))
+  if (!BASE_EQ (value, Qunbound))
     return value;
 
   xsignal1 (Qvoid_variable, symbol);
@@ -2138,7 +2143,7 @@ See also `defvar-local'.  */)
     case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
     case SYMBOL_PLAINVAL:
       forwarded = 0; valcontents.value = SYMBOL_VAL (sym);
-      if (EQ (valcontents.value, Qunbound))
+      if (BASE_EQ (valcontents.value, Qunbound))
 	valcontents.value = Qnil;
       break;
     case SYMBOL_LOCALIZED:
@@ -2330,7 +2335,7 @@ From now on the default value will apply in this buffer.  Return VARIABLE.  */)
      forwarded objects won't work right.  */
   {
     Lisp_Object buf; XSETBUFFER (buf, current_buffer);
-    if (EQ (buf, blv->where))
+    if (BASE_EQ (buf, blv->where))
       swap_in_global_binding (sym);
   }
 
@@ -3522,7 +3527,7 @@ In this case, the sign bit is duplicated.  */)
 
   if (! FIXNUMP (count))
     {
-      if (EQ (value, make_fixnum (0)))
+      if (BASE_EQ (value, make_fixnum (0)))
 	return value;
       if (mpz_sgn (*xbignum_val (count)) < 0)
 	{
@@ -3567,11 +3572,11 @@ Lisp_Object
 expt_integer (Lisp_Object x, Lisp_Object y)
 {
   /* Special cases for -1 <= x <= 1, which never overflow.  */
-  if (EQ (x, make_fixnum (1)))
+  if (BASE_EQ (x, make_fixnum (1)))
     return x;
-  if (EQ (x, make_fixnum (0)))
-    return EQ (x, y) ? make_fixnum (1) : x;
-  if (EQ (x, make_fixnum (-1)))
+  if (BASE_EQ (x, make_fixnum (0)))
+    return BASE_EQ (x, y) ? make_fixnum (1) : x;
+  if (BASE_EQ (x, make_fixnum (-1)))
     return ((FIXNUMP (y) ? XFIXNUM (y) & 1 : mpz_odd_p (*xbignum_val (y)))
 	    ? x : make_fixnum (1));
 

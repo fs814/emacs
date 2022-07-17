@@ -557,7 +557,8 @@ changes in daylight saving time are not taken into account."
   (list second minute hour day month year nil dst zone))
 
 (defun decoded-time-set-defaults (time &optional default-zone)
-  "Set any nil values in `decoded-time' TIME to default values.
+  "Set most nil values in `decoded-time' TIME to default values.
+This can set TIME's year, month, day, hour, minute and second.
 The default value is based on January 1st, 1970 at midnight.
 This year is used to guarantee portability; see Info
 node `(elisp) Time of Day'.
@@ -589,7 +590,7 @@ TIME is modified and returned."
   time)
 
 (defun decoded-time-period (time)
-  "Interpret DECODED as a period and return its length in seconds.
+  "Interpret TIME as a period and return its length in seconds.
 For computational purposes, years are 365 days long and months
 are 30 days long."
   (+ (if (consp (decoded-time-second time))

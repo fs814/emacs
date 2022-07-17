@@ -24,6 +24,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "haikuselect.h"
 #include "haikuterm.h"
 #include "haiku_support.h"
+#include "keyboard.h"
 
 #include <stdlib.h>
 
@@ -51,6 +52,23 @@ haiku_get_clipboard_name (Lisp_Object clipboard)
     return CLIPBOARD_CLIPBOARD;
 
   signal_error ("Invalid clipboard", clipboard);
+}
+
+DEFUN ("haiku-selection-timestamp", Fhaiku_selection_timestamp,
+       Shaiku_selection_timestamp, 1, 1, 0,
+       doc: /* Retrieve the "timestamp" of the clipboard CLIPBOARD.
+CLIPBOARD can either be the symbol `PRIMARY', `SECONDARY' or
+`CLIPBOARD'.  The timestamp is returned as a number describing the
+number of times programs have put data into CLIPBOARD.  */)
+  (Lisp_Object clipboard)
+{
+  enum haiku_clipboard clipboard_name;
+  int64 timestamp;
+
+  clipboard_name = haiku_get_clipboard_name (clipboard);
+  timestamp = be_get_clipboard_count (clipboard_name);
+
+  return INT_TO_INTEGER (timestamp);
 }
 
 DEFUN ("haiku-selection-data", Fhaiku_selection_data, Shaiku_selection_data,
@@ -441,10 +459,10 @@ haiku_lisp_to_message (Lisp_Object obj, void *message)
   int rc;
   specpdl_ref ref;
 
-  CHECK_LIST (obj);
-  for (tem = obj; CONSP (tem); tem = XCDR (tem))
+  tem = obj;
+
+  FOR_EACH_TAIL (tem)
     {
-      maybe_quit ();
       t1 = XCAR (tem);
       CHECK_CONS (t1);
 
@@ -490,9 +508,9 @@ haiku_lisp_to_message (Lisp_Object obj, void *message)
 	signal_error ("Unknown data type", type_sym);
 
       CHECK_LIST (t1);
-      for (t2 = XCDR (t1); CONSP (t2); t2 = XCDR (t2))
+      t2 = XCDR (t1);
+      FOR_EACH_TAIL (t2)
 	{
-	  maybe_quit ();
 	  data = XCAR (t2);
 
 	  if (FIXNUMP (type_sym) || BIGNUMP (type_sym))
@@ -515,7 +533,7 @@ haiku_lisp_to_message (Lisp_Object obj, void *message)
 	      unblock_input ();
 
 	      if (rc)
-		signal_error ("Invalid message", msg_data);
+		signal_error ("Invalid message", data);
 	      unbind_to (ref, Qnil);
 	      break;
 
@@ -755,9 +773,6 @@ haiku_unwind_drag_message (void *message)
 {
   haiku_dnd_frame = NULL;
   BMessage_delete (message);
-
-  if (haiku_dnd_follow_tooltip)
-    Fx_hide_tip ();
 }
 
 DEFUN ("haiku-drag-message", Fhaiku_drag_message, Shaiku_drag_message,
@@ -826,10 +841,16 @@ currently being displayed to move along with the mouse pointer.  */)
 			process_pending_signals,
 			haiku_should_quit_drag);
 
-  FRAME_DISPLAY_INFO (f)->grabbed = 0;
-
+  /* Don't clear the mouse grab if the user decided to quit instead
+     of the drop finishing.  */
   if (rc)
     quit ();
+
+  /* Now dismiss the tooltip, since the drop presumably succeeded.  */
+  if (!NILP (follow_tooltip))
+    Fx_hide_tip ();
+
+  FRAME_DISPLAY_INFO (f)->grabbed = 0;
 
   return unbind_to (idx, Qnil);
 }
@@ -995,7 +1016,7 @@ haiku_note_drag_motion (void)
     {
       tip_f = XFRAME (tip_frame);
 
-      if (FRAME_LIVE_P (tip_f))
+      if (FRAME_LIVE_P (tip_f) && FRAME_VISIBLE_P (tip_f))
 	{
 	  BView_get_mouse (FRAME_HAIKU_VIEW (haiku_dnd_frame),
 			   &x, &y);
@@ -1009,6 +1030,65 @@ haiku_note_drag_motion (void)
 
   internal_catch_all (haiku_note_drag_motion_1, NULL,
 		      haiku_note_drag_motion_2);
+}
+
+void
+init_haiku_select (void)
+{
+  be_clipboard_init ();
+}
+
+void
+haiku_handle_selection_clear (struct input_event *ie)
+{
+  enum haiku_clipboard id;
+
+  id = haiku_get_clipboard_name (ie->arg);
+
+  if (be_selection_outdated_p (id, ie->timestamp))
+    return;
+
+  CALLN (Frun_hook_with_args,
+	 Qhaiku_lost_selection_functions, ie->arg);
+
+  /* This is required for redisplay to happen if something changed the
+     display inside the selection loss functions.  */
+  redisplay_preserve_echo_area (20);
+}
+
+void
+haiku_selection_disowned (enum haiku_clipboard id, int64 count)
+{
+  struct input_event ie;
+
+  EVENT_INIT (ie);
+  ie.kind = SELECTION_CLEAR_EVENT;
+
+  switch (id)
+    {
+    case CLIPBOARD_CLIPBOARD:
+      ie.arg = QCLIPBOARD;
+      break;
+
+    case CLIPBOARD_PRIMARY:
+      ie.arg = QPRIMARY;
+      break;
+
+    case CLIPBOARD_SECONDARY:
+      ie.arg = QSECONDARY;
+      break;
+    }
+
+  ie.timestamp = count;
+  kbd_buffer_store_event (&ie);
+}
+
+void
+haiku_start_watching_selections (void)
+{
+  be_start_watching_selection (CLIPBOARD_CLIPBOARD);
+  be_start_watching_selection (CLIPBOARD_PRIMARY);
+  be_start_watching_selection (CLIPBOARD_SECONDARY);
 }
 
 void
@@ -1026,12 +1106,21 @@ The function is called without any arguments.  `mouse-position' can be
 used to retrieve the current position of the mouse.  */);
   Vhaiku_drag_track_function = Qnil;
 
+  DEFVAR_LISP ("haiku-lost-selection-functions", Vhaiku_lost_selection_functions,
+    doc: /* A list of functions to be called when Emacs loses an X selection.
+These are only called if a connection to the Haiku display was opened.  */);
+  Vhaiku_lost_selection_functions = Qnil;
+
   DEFSYM (QSECONDARY, "SECONDARY");
   DEFSYM (QCLIPBOARD, "CLIPBOARD");
   DEFSYM (QSTRING, "STRING");
   DEFSYM (QUTF8_STRING, "UTF8_STRING");
   DEFSYM (Qforeign_selection, "foreign-selection");
   DEFSYM (QTARGETS, "TARGETS");
+
+  DEFSYM (Qhaiku_lost_selection_functions,
+	  "haiku-lost-selection-functions");
+
   DEFSYM (Qmessage, "message");
   DEFSYM (Qstring, "string");
   DEFSYM (Qref, "ref");
@@ -1050,6 +1139,7 @@ used to retrieve the current position of the mouse.  */);
   DEFSYM (Qalready_running, "already-running");
 
   defsubr (&Shaiku_selection_data);
+  defsubr (&Shaiku_selection_timestamp);
   defsubr (&Shaiku_selection_put);
   defsubr (&Shaiku_selection_owner_p);
   defsubr (&Shaiku_drag_message);

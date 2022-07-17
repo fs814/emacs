@@ -33,7 +33,9 @@
   "Copy characters from previous nonblank line, starting just above point.
 Copy ARG characters, but not past the end of that line.
 If no argument given, copy the entire rest of the line.
-The characters copied are inserted in the buffer before point."
+The characters copied are inserted in the buffer before point.
+
+Also see the `duplicate-line' command."
   (interactive "P")
   (let ((cc (current-column))
 	n
@@ -60,6 +62,22 @@ The characters copied are inserted in the buffer before point."
 			    (min (line-end-position)
 				 (+ n (point)))))))
     (insert string)))
+
+;;;###autoload
+(defun duplicate-line (&optional n)
+  "Duplicate the current line N times.
+Interactively, N is the prefix numeric argument, and defaults to 1.
+Also see the `copy-from-above-command' command."
+  (interactive "p")
+  (unless n
+    (setq n 1))
+  (let ((line (buffer-substring (line-beginning-position) (line-end-position))))
+    (save-excursion
+      (forward-line 1)
+      (unless (bolp)
+        (insert "\n"))
+      (dotimes (_ n)
+        (insert line "\n")))))
 
 ;; Variation of `zap-to-char'.
 
@@ -133,7 +151,7 @@ ripples outward, changing the flow of the eddy currents in the
 upper atmosphere.  These cause momentary pockets of higher-pressure
 air to form, which act as lenses that deflect incoming cosmic rays,
 focusing them to strike the drive platter and flip the desired bit.
-You can type `M-x butterfly C-M-c' to run it.  This is a permuted
+You can type \\`M-x butterfly C-M-c' to run it.  This is a permuted
 variation of `C-x M-c M-butterfly' from url `https://xkcd.com/378/'."
   (interactive)
   (if (yes-or-no-p "Do you really want to unleash the powers of the butterfly? ")

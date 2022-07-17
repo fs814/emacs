@@ -382,7 +382,7 @@ ns_set_icon_name (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
   /* See if it's changed.  */
   if (STRINGP (arg))
     {
-      if (STRINGP (oldval) && EQ (Fstring_equal (oldval, arg), Qt))
+      if (STRINGP (oldval) && BASE_EQ (Fstring_equal (oldval, arg), Qt))
         return;
     }
   else if (!STRINGP (oldval) && NILP (oldval) == NILP (arg))
@@ -3816,7 +3816,8 @@ ns_move_tooltip_to_mouse_location (NSPoint screen_point)
   if (ns_tooltip)
     size = [ns_tooltip frame].size;
   else if (!FRAMEP (tip_frame)
-	   || !FRAME_LIVE_P (XFRAME (tip_frame)))
+	   || !FRAME_LIVE_P (XFRAME (tip_frame))
+	   || !FRAME_VISIBLE_P (XFRAME (tip_frame)))
     return;
   else
     {

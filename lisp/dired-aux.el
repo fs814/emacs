@@ -1056,18 +1056,19 @@ Return the result of `process-file' - zero for success."
         (dir default-directory))
     (with-current-buffer (get-buffer-create out-buffer)
       (erase-buffer)
-      (let* ((default-directory dir)
-             (res (process-file
-                   shell-file-name
-                   nil
-                   t
-                   nil
-                   shell-command-switch
-                   cmd)))
-        (dired-uncache dir)
-        (unless (zerop res)
-          (pop-to-buffer out-buffer))
-        res))))
+      (let ((default-directory dir) res)
+        (with-connection-local-variables
+         (setq res (process-file
+                    shell-file-name
+                    nil
+                    t
+                    nil
+                    shell-command-switch
+                    cmd))
+         (dired-uncache dir)
+         (unless (zerop res)
+           (pop-to-buffer out-buffer))
+         res)))))
 
 
 ;;; Commands that delete or redisplay part of the dired buffer
@@ -1095,45 +1096,46 @@ With a prefix argument, kill that many lines starting with the current line.
     (dired-move-to-filename)))
 
 ;;;###autoload
-(defun dired-do-kill-lines (&optional arg fmt)
-  "Kill all marked lines (not the files).
-With a prefix argument, kill that many lines starting with the current line.
-\(A negative argument kills backward.)
+(defun dired-do-kill-lines (&optional arg fmt init-count)
+  "Remove all marked lines, or the next ARG lines.
+The files or directories on those lines are _not_ deleted.  Only the
+Dired listing is affected.  To restore the removals, use `\\[revert-buffer]'.
 
-If you use this command with a prefix argument to kill the line
-for a file that is a directory, which you have inserted in the
-Dired buffer as a subdirectory, then it deletes that subdirectory
-from the buffer as well.
+With a numeric prefix arg, remove that many lines going forward,
+starting with the current line.  (A negative prefix arg removes lines
+going backward.)
 
-To kill an entire subdirectory \(without killing its line in the
-parent directory), go to its directory header line and use this
-command with a prefix argument (the value does not matter).
+If you use a prefix arg to remove the line for a subdir whose listing
+you have inserted into the Dired buffer, then that subdir listing is
+also removed.
 
-To undo the killing, the undo command can be used as normally.
+To remove a subdir listing _without_ removing the subdir's line in its
+parent listing, go to the header line of the subdir listing and use
+this command with any prefix arg.
 
-This function returns the number of killed lines.
+When called from Lisp, non-nil INIT-COUNT is added to the number of
+lines removed by this invocation, for the reporting message.
 
-FMT is a format string used for messaging the user about the
-killed lines, and defaults to \"Killed %d line%s.\" if not
-present.  A FMT of \"\" will suppress the messaging."
+A FMT of \"\" will suppress the messaging."
+  ;; Returns count of killed lines.
   (interactive "P")
   (if arg
       (if (dired-get-subdir)
-	  (dired-kill-subdir)
-	(dired-kill-line arg))
+          (dired-kill-subdir)
+        (dired-kill-line arg))
     (save-excursion
       (goto-char (point-min))
-      (let (buffer-read-only
-	    (count 0)
-	    (regexp (dired-marker-regexp)))
-	(while (and (not (eobp))
-		    (re-search-forward regexp nil t))
-	  (setq count (1+ count))
-	  (delete-region (line-beginning-position)
-			 (progn (forward-line 1) (point))))
-	(or (equal "" fmt)
-	    (message (or fmt "Killed %d line%s.") count (dired-plural-s count)))
-	count))))
+      (let ((count (or init-count  0))
+            (regexp (dired-marker-regexp))
+            (inhibit-read-only t))
+        (while (and (not (eobp))
+                    (re-search-forward regexp nil t))
+          (setq count (1+ count))
+          (delete-region (line-beginning-position)
+                         (progn (forward-line 1) (point))))
+        (unless (equal "" fmt)
+          (message (or fmt "Killed %d line%s.") count (dired-plural-s count)))
+        count))))
 
 
 ;;; Compression
@@ -1935,7 +1937,7 @@ unless OK-IF-ALREADY-EXISTS is non-nil."
     (while blist
       (with-current-buffer (car blist)
 	(if (and buffer-file-name
-                 (dired-in-this-tree-p buffer-file-name expanded-from-dir))
+		 (dired-in-this-tree-p buffer-file-name expanded-from-dir))
 	    (let ((modflag (buffer-modified-p))
 		  (to-file (replace-regexp-in-string
 			    (concat "^" (regexp-quote from-dir))
@@ -2520,6 +2522,73 @@ Also see `dired-do-revert-buffer'."
                          "Symlink" arg dired-keep-marker-symlink))
 
 ;;;###autoload
+(defun dired-do-relsymlink (&optional arg)
+  "Relative symlink all marked (or next ARG) files into a directory.
+Otherwise make a relative symbolic link to the current file.
+This creates relative symbolic links like
+
+    foo -> ../bar/foo
+
+not absolute ones like
+
+    foo -> /ugly/file/name/that/may/change/any/day/bar/foo
+
+For absolute symlinks, use \\[dired-do-symlink]."
+  (interactive "P")
+  (dired-do-create-files 'relsymlink #'dired-make-relative-symlink
+                         "RelSymLink" arg dired-keep-marker-relsymlink))
+
+(defun dired-make-relative-symlink (file1 file2 &optional ok-if-already-exists)
+  "Make a symbolic link (pointing to FILE1) in FILE2.
+The link is relative (if possible), for example
+
+    \"/vol/tex/bin/foo\" \"/vol/local/bin/foo\"
+
+results in
+
+    \"../../tex/bin/foo\" \"/vol/local/bin/foo\""
+  (interactive "FRelSymLink: \nFRelSymLink %s: \np")
+  (let (name1 name2 len1 len2 (index 0) sub)
+    (setq file1 (expand-file-name file1)
+          file2 (expand-file-name file2)
+          len1 (length file1)
+          len2 (length file2))
+    ;; Find common initial file name components:
+    (let (next)
+      (while (and (setq next (string-search "/" file1 index))
+                  (< (setq next (1+ next)) (min len1 len2))
+                  ;; For the comparison, both substrings must end in
+                  ;; `/', so NEXT is *one plus* the result of the
+                  ;; string-search.
+                  ;; E.g., consider the case of linking "/tmp/a/abc"
+                  ;; to "/tmp/abc" erroneously giving "/tmp/a" instead
+                  ;; of "/tmp/" as common initial component
+                  (string-equal (substring file1 0 next)
+                                (substring file2 0 next)))
+        (setq index next))
+      (setq name2 file2
+            sub (substring file1 0 index)
+            name1 (substring file1 index)))
+    (if (string-equal sub "/")
+        ;; No common initial file name found
+        (setq name1 file1)
+      ;; Else they have a common parent directory
+      (let ((tem (substring file2 index))
+            (start 0)
+            (count 0))
+        ;; Count number of slashes we must compensate for ...
+        (while (setq start (string-search "/" tem start))
+          (setq count (1+ count)
+                start (1+ start)))
+        ;; ... and prepend a "../" for each slash found:
+        (dotimes (_ count)
+          (setq name1 (concat "../" name1)))))
+    (make-symbolic-link
+     (directory-file-name name1)        ; must not link to foo/
+                                        ; (trailing slash!)
+     name2 ok-if-already-exists)))
+
+;;;###autoload
 (defun dired-do-hardlink (&optional arg)
   "Add names (hard links) current file or all marked (or next ARG) files.
 When operating on just the current file, you specify the new name.
@@ -2679,6 +2748,16 @@ See function `dired-do-rename-regexp' for more info."
    #'make-symbolic-link
    "SymLink" arg regexp newname whole-name dired-keep-marker-symlink))
 
+;;;###autoload
+(defun dired-do-relsymlink-regexp (regexp newname &optional arg whole-name)
+  "RelSymlink all marked files containing REGEXP to NEWNAME.
+See functions `dired-do-rename-regexp' and `dired-do-relsymlink'
+for more info."
+  (interactive (dired-mark-read-regexp "RelSymLink"))
+  (dired-do-create-files-regexp
+   #'dired-make-relative-symlink
+   "RelSymLink" arg regexp newname whole-name dired-keep-marker-relsymlink))
+
 
 ;;; Change case of file names
 
@@ -2816,7 +2895,7 @@ This function takes some pains to conform to `ls -lR' output."
       (setq switches (string-replace "R" "" switches))
       (dolist (cur-ass dired-subdir-alist)
 	(let ((cur-dir (car cur-ass)))
-	  (and (file-in-directory-p cur-dir dirname)
+	  (and (dired-in-this-tree-p cur-dir dirname)
 	       (let ((cur-cons (assoc-string cur-dir dired-switches-alist)))
 		 (if cur-cons
 		     (setcdr cur-cons switches)
@@ -2828,7 +2907,7 @@ This function takes some pains to conform to `ls -lR' output."
 (defun dired-insert-subdir-validate (dirname &optional switches)
   ;; Check that it is valid to insert DIRNAME with SWITCHES.
   ;; Signal an error if invalid (e.g. user typed `i' on `..').
-  (or (file-in-directory-p dirname (expand-file-name default-directory))
+  (or (dired-in-this-tree-p dirname (expand-file-name default-directory))
       (error  "%s: Not in this directory tree" dirname))
   (let ((real-switches (or switches dired-subdir-switches)))
     (when real-switches
@@ -3021,18 +3100,20 @@ When called interactively and not on a subdir line, go to this subdir's line."
 
 ;;;###autoload
 (defun dired-goto-subdir (dir)
-  "Go to end of header line of DIR in this dired buffer.
+  "Go to end of header line of inserted directory DIR in this Dired buffer.
+When called interactively, prompt for the inserted subdirectory
+to go to.
+
 Return value of point on success, otherwise return nil.
 The next char is \\n."
   (interactive
    (prog1				; let push-mark display its message
        (list (expand-file-name
-	      (completing-read "Goto in situ directory: " ; prompt
-			       dired-subdir-alist ; table
-			       nil	; predicate
-			       t	; require-match
-			       (dired-current-directory))))
-     (push-mark)))
+              (completing-read "Goto inserted directory: "
+                               dired-subdir-alist nil t
+                               (dired-current-directory))))
+     (push-mark))
+   dired-mode)
   (setq dir (file-name-as-directory dir))
   (let ((elt (assoc dir dired-subdir-alist)))
     (and elt
@@ -3208,41 +3289,7 @@ Intended to be added to `isearch-mode-hook'."
 The returned function narrows the search to match the search string
 only as part of a file name enclosed by the text property `dired-filename'.
 It's intended to override the default search function."
-  (let ((search-fun (funcall orig-fun))
-        (property 'dired-filename))
-    (lambda (string &optional bound noerror count)
-      (let* ((old (point))
-             ;; Check if point is already on the property.
-             (beg (when (get-text-property
-                         (if isearch-forward old (max (1- old) (point-min)))
-                         property)
-                    old))
-             end found)
-        ;; Otherwise, try to search for the next property.
-        (unless beg
-          (setq beg (if isearch-forward
-                        (next-single-property-change old property)
-                      (previous-single-property-change old property)))
-          (when beg (goto-char beg)))
-        ;; Non-nil `beg' means there are more properties.
-        (while (and beg (not found))
-          ;; Search for the end of the current property.
-          (setq end (if isearch-forward
-                        (next-single-property-change beg property)
-                      (previous-single-property-change beg property)))
-          (setq found (funcall
-                       search-fun string (if bound (if isearch-forward
-                                                       (min bound end)
-                                                     (max bound end))
-                                           end)
-                       noerror count))
-          (unless found
-            (setq beg (if isearch-forward
-                          (next-single-property-change end property)
-                        (previous-single-property-change end property)))
-            (when beg (goto-char beg))))
-        (unless found (goto-char old))
-        found))))
+  (isearch-search-fun-in-text-property (funcall orig-fun) 'dired-filename))
 
 ;;;###autoload
 (defun dired-isearch-filenames ()

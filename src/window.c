@@ -1018,9 +1018,11 @@ static enum window_body_unit
 window_body_unit_from_symbol (Lisp_Object unit)
 {
   return
-    (unit == Qremap ? WINDOW_BODY_IN_REMAPPED_CHARS
-     : NILP (unit) ? WINDOW_BODY_IN_CANONICAL_CHARS
-     : WINDOW_BODY_IN_PIXELS);
+    EQ (unit, Qremap)
+    ? WINDOW_BODY_IN_REMAPPED_CHARS
+    : (NILP (unit)
+       ? WINDOW_BODY_IN_CANONICAL_CHARS
+       : WINDOW_BODY_IN_PIXELS);
 }
 
 /* Return the number of lines/pixels of W's body.  Don't count any mode
@@ -1287,7 +1289,7 @@ WINDOW must be a live window and defaults to the selected one.
 Clip the number to a reasonable value if out of range.
 Return the new number.  NCOL should be zero or positive.
 
-Note that if `automatic-hscrolling' is non-nil, you cannot scroll the
+Note that if `auto-hscroll-mode' is non-nil, you cannot scroll the
 window so that the location of point moves off-window.  */)
   (Lisp_Object window, Lisp_Object ncol)
 {
@@ -2784,7 +2786,7 @@ decode_next_window_args (Lisp_Object *window, Lisp_Object *minibuf, Lisp_Object 
 	 ? miniwin : Qnil);
   else if (EQ (*all_frames, Qvisible))
     ;
-  else if (EQ (*all_frames, make_fixnum (0)))
+  else if (BASE_EQ (*all_frames, make_fixnum (0)))
     ;
   else if (FRAMEP (*all_frames))
     ;
@@ -3081,7 +3083,7 @@ window_loop (enum window_loop type, Lisp_Object obj, bool mini,
 
   if (f)
     frame_arg = Qlambda;
-  else if (EQ (frames, make_fixnum (0)))
+  else if (BASE_EQ (frames, make_fixnum (0)))
     frame_arg = frames;
   else if (EQ (frames, Qvisible))
     frame_arg = frames;
@@ -5566,7 +5568,11 @@ window_scroll (Lisp_Object window, EMACS_INT n, bool whole, bool noerror)
   /* On GUI frames, use the pixel-based version which is much slower
      than the line-based one but can handle varying line heights.  */
   if (FRAME_WINDOW_P (XFRAME (XWINDOW (window)->frame)))
-    window_scroll_pixel_based (window, n, whole, noerror);
+    {
+      record_unwind_protect_void (unwind_display_working_on_window);
+      display_working_on_window_p = true;
+      window_scroll_pixel_based (window, n, whole, noerror);
+    }
   else
     window_scroll_line_based (window, n, whole, noerror);
 
@@ -6494,9 +6500,14 @@ displayed_window_lines (struct window *w)
   CLIP_TEXT_POS_FROM_MARKER (start, w->start);
 
   itdata = bidi_shelve_cache ();
+
+  specpdl_ref count = SPECPDL_INDEX ();
+  record_unwind_protect_void (unwind_display_working_on_window);
+  display_working_on_window_p = true;
   start_display (&it, w, start);
   move_it_vertically (&it, height);
   bottom_y = line_bottom_y (&it);
+  unbind_to (count, Qnil);
   bidi_unshelve_cache (itdata, false);
 
   /* Add in empty lines at the bottom of the window.  */
@@ -6590,6 +6601,10 @@ and redisplay normally--don't erase and redraw the frame.  */)
      data structures might not be set up yet then.  */
   if (!FRAME_INITIAL_P (XFRAME (w->frame)))
     {
+      specpdl_ref count = SPECPDL_INDEX ();
+
+      record_unwind_protect_void (unwind_display_working_on_window);
+      display_working_on_window_p = true;
       if (center_p)
 	{
 	  struct it it;
@@ -6652,6 +6667,7 @@ and redisplay normally--don't erase and redraw the frame.  */)
 	  if (h <= 0)
 	    {
 	      bidi_unshelve_cache (itdata, false);
+	      unbind_to (count, Qnil);
 	      return Qnil;
 	    }
 
@@ -6706,6 +6722,7 @@ and redisplay normally--don't erase and redraw the frame.  */)
 
 	  bidi_unshelve_cache (itdata, false);
 	}
+      unbind_to (count, Qnil);
     }
   else
     {
@@ -6899,6 +6916,7 @@ struct saved_window
   Lisp_Object left_col, top_line, total_cols, total_lines;
   Lisp_Object normal_cols, normal_lines;
   Lisp_Object hscroll, min_hscroll, hscroll_whole, suspend_auto_hscroll;
+  Lisp_Object vscroll;
   Lisp_Object parent, prev;
   Lisp_Object start_at_line_beg;
   Lisp_Object display_table;
@@ -7126,6 +7144,7 @@ the return value is nil.  Otherwise the value is t.  */)
 	  w->suspend_auto_hscroll = !NILP (p->suspend_auto_hscroll);
 	  w->min_hscroll = XFIXNAT (p->min_hscroll);
 	  w->hscroll_whole = XFIXNAT (p->hscroll_whole);
+	  w->vscroll = -XFIXNAT (p->vscroll);
 	  wset_display_table (w, p->display_table);
 	  w->left_margin_cols = XFIXNUM (p->left_margin_cols);
 	  w->right_margin_cols = XFIXNUM (p->right_margin_cols);
@@ -7280,7 +7299,7 @@ the return value is nil.  Otherwise the value is t.  */)
 	do_switch_frame (NILP (dont_set_frame)
                          ? data->selected_frame
                          : old_frame
-                         , 0, 0, Qnil);
+                         , 0, Qnil);
     }
 
   FRAME_WINDOW_CHANGE (f) = true;
@@ -7460,6 +7479,7 @@ save_window_save (Lisp_Object window, struct Lisp_Vector *vector, ptrdiff_t i)
       p->suspend_auto_hscroll = w->suspend_auto_hscroll ? Qt : Qnil;
       XSETFASTINT (p->min_hscroll, w->min_hscroll);
       XSETFASTINT (p->hscroll_whole, w->hscroll_whole);
+      XSETFASTINT (p->vscroll, -w->vscroll);
       p->display_table = w->display_table;
       p->left_margin_cols = make_fixnum (w->left_margin_cols);
       p->right_margin_cols = make_fixnum (w->right_margin_cols);
@@ -7491,7 +7511,7 @@ save_window_save (Lisp_Object window, struct Lisp_Vector *vector, ptrdiff_t i)
 	      hare = XCDR (hare);
 	      tortoise = XCDR (tortoise);
 
-	      if (EQ (hare, tortoise))
+	      if (BASE_EQ (hare, tortoise))
 		/* Reset Vwindow_persistent_parameters to Qnil.  */
 		{
 		  Vwindow_persistent_parameters = Qnil;

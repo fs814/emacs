@@ -467,8 +467,7 @@ print_string (Lisp_Object string, Lisp_Object printcharfun)
 	  if (chars < bytes)
 	    {
 	      newstr = make_uninit_multibyte_string (chars, bytes);
-	      memcpy (SDATA (newstr), SDATA (string), chars);
-	      str_to_multibyte (SDATA (newstr), bytes, chars);
+	      str_to_multibyte (SDATA (newstr), SDATA (string), chars);
 	      string = newstr;
 	    }
 	}
@@ -727,7 +726,7 @@ Optional argument OVERRIDES should be a list of settings for print-related
 variables.  An element in this list can be the symbol t, which means "reset
 all the values to their defaults".  Otherwise, an element should be a pair,
 where the `car' or the pair is the setting symbol, and the `cdr' is the
-value of of the setting to use for this `prin1' call.
+value of the setting to use for this `prin1' call.
 
 For instance:
 
@@ -1266,7 +1265,7 @@ print (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	  for (i = 0; i < HASH_TABLE_SIZE (h); ++i)
             {
               Lisp_Object key =  HASH_KEY (h, i);
-	      if (!EQ (key, Qunbound)
+	      if (!BASE_EQ (key, Qunbound)
 		  && EQ (HASH_VALUE (h, i), Qt))
 	        Fremhash (key, Vprint_number_table);
             }
@@ -1727,10 +1726,10 @@ print_vectorlike (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag,
 
     case PVEC_USER_PTR:
       {
-	void *finalizer = XUSER_PTR (obj)->finalizer;
 	print_c_string ("#<user-ptr ", printcharfun);
 	int i = sprintf (buf, "ptr=%p finalizer=%p",
-			 XUSER_PTR (obj)->p, finalizer);
+			 XUSER_PTR (obj)->p,
+			 (void *) XUSER_PTR (obj)->finalizer);
 	strout (buf, i, i, printcharfun);
 	printchar ('>', printcharfun);
       }

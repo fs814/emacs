@@ -128,6 +128,12 @@ In addition, the text in the region becomes the primary selection
 non-@code{nil} value, dragging the mouse over a stretch of text also
 adds the text to the kill ring.  The default is @code{nil}.
 
+  If this variable is @code{non-empty}, only copy to the kill ring if
+the region is non-empty.  For instance, if you mouse drag an area that
+is less than a half a character, you'd normally get the empty string
+in your kill ring, but with @code{non-empty}, this short mouse drag
+won't affect the kill ring.
+
 @vindex mouse-scroll-min-lines
   If you move the mouse off the top or bottom of the window while
 dragging, the window scrolls at a steady rate until you move the mouse
@@ -217,8 +223,8 @@ mouse-wheel-mode}.  The variables @code{mouse-wheel-follow-mouse} and
 buffers are scrolled.  The variable
 @code{mouse-wheel-progressive-speed} determines whether the scroll
 speed is linked to how fast you move the wheel.  This mode also
-supports increasing or decreasing the height of the default face, by
-default bound to scrolling with the @key{Ctrl} modifier.
+supports increasing or decreasing the font size, by default bound to
+scrolling with the @key{Ctrl} modifier.
 
 @vindex mouse-wheel-scroll-amount-horizontal
 Emacs also supports horizontal scrolling with the @key{Shift}
@@ -1242,6 +1248,13 @@ cursor during dragging.  To suppress such behavior, set the options
 To drag text from Emacs to other programs, set the option
 @code{mouse-drag-and-drop-region-cross-program} to a non-@code{nil}
 value.
+
+  On the X window system, some programs can drop files on Emacs,
+expecting Emacs to save them.  Normally, Emacs will prompt for a file
+name under which the file will be saved, and then open the file, but
+that behavior can be changed by changing the variable
+@code{x-dnd-direct-save-function}.  @xref{Drag and Drop,,, elisp, The
+Emacs Lisp Reference Manual}.
 
 @node Menu Bars
 @section Menu Bars

@@ -1411,6 +1411,7 @@ This function is called with no argument.")
 Each element has the form:
    (INPUT-METHOD LANGUAGE-ENV ACTIVATE-FUNC TITLE DESCRIPTION ARGS...)
 See the function `register-input-method' for the meanings of the elements.")
+;; Autoload if this file no longer dumped.
 ;;;###autoload
 (put 'input-method-alist 'risky-local-variable t)
 
@@ -3257,7 +3258,9 @@ as names, not numbers."
               "s" #'emoji-search
               "d" #'emoji-describe
               "r" #'emoji-recent
-              "l" #'emoji-list))
+              "l" #'emoji-list
+              "+" #'emoji-zoom-increase
+              "-" #'emoji-zoom-decrease))
 
 (defface confusingly-reordered
   '((((supports :underline (:style wave)))

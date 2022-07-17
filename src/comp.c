@@ -4262,7 +4262,7 @@ compile_function (Lisp_Object func)
     {
       Lisp_Object block_name = HASH_KEY (ht, i);
       if (!EQ (block_name, Qentry)
-	  && !EQ (block_name, Qunbound))
+	  && !BASE_EQ (block_name, Qunbound))
 	declare_block (block_name);
     }
 
@@ -4275,7 +4275,7 @@ compile_function (Lisp_Object func)
   for (ptrdiff_t i = 0; i < HASH_TABLE_SIZE (ht); i++)
     {
       Lisp_Object block_name = HASH_KEY (ht, i);
-      if (!EQ (block_name, Qunbound))
+      if (!BASE_EQ (block_name, Qunbound))
 	{
 	  Lisp_Object block = HASH_VALUE (ht, i);
 	  Lisp_Object insns = CALL1I (comp-block-insns, block);
@@ -4397,7 +4397,7 @@ one for the file name and another for its contents, followed by .eln.  */)
     {
       Lisp_Object match_idx =
 	Fstring_match (XCAR (lds_re_tail), filename, Qnil, Qnil);
-      if (EQ (match_idx, make_fixnum (0)))
+      if (BASE_EQ (match_idx, make_fixnum (0)))
 	{
 	  filename =
 	    Freplace_match (build_string ("//"), Qt, Qt, filename, Qnil);
@@ -4890,12 +4890,12 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
   struct Lisp_Hash_Table *func_h =
     XHASH_TABLE (CALL1I (comp-ctxt-funcs-h, Vcomp_ctxt));
   for (ptrdiff_t i = 0; i < HASH_TABLE_SIZE (func_h); i++)
-    if (!EQ (HASH_VALUE (func_h, i), Qunbound))
+    if (!BASE_EQ (HASH_VALUE (func_h, i), Qunbound))
       declare_function (HASH_VALUE (func_h, i));
   /* Compile all functions. Can't be done before because the
      relocation structs has to be already defined.  */
   for (ptrdiff_t i = 0; i < HASH_TABLE_SIZE (func_h); i++)
-    if (!EQ (HASH_VALUE (func_h, i), Qunbound))
+    if (!BASE_EQ (HASH_VALUE (func_h, i), Qunbound))
       compile_function (HASH_VALUE (func_h, i));
 
   /* Work around bug#46495 (GCC PR99126). */
@@ -5781,7 +5781,7 @@ For internal use.  */);
   DEFVAR_LISP ("native-comp-eln-load-path", Vnative_comp_eln_load_path,
 	       doc: /* List of eln cache directories.
 
-If a directory is non absolute is assumed to be relative to
+If a directory is non absolute it is assumed to be relative to
 `invocation-directory'.
 `comp-native-version-dir' value is used as a sub-folder name inside
 each eln cache directory.

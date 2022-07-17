@@ -106,8 +106,8 @@ Any level x includes messages for all levels 1 .. x-1.  The levels are
  4  activities
  5  internal
  6  sent and received strings
- 7  file caching
- 8  connection properties
+ 7  connection properties
+ 8  file caching
  9  test commands
 10  traces (huge)
 11  call traces (maintainer only)."
@@ -522,11 +522,12 @@ host runs a restricted shell, it shall be added to this list, too."
   (concat
    "\\`"
    (regexp-opt
-    (list "localhost" "localhost6" tramp-system-name "127.0.0.1" "::1") t)
+    `("localhost" "localhost4" "localhost6" ,tramp-system-name "127.0.0.1" "::1")
+    t)
    "\\'")
   "Host names which are regarded as local host.
 If the local host runs a chrooted environment, set this to nil."
-  :version "27.1"
+  :version "29.1"
   :type '(choice (const :tag "Chrooted environment" nil)
 		 (regexp :tag "Host regexp")))
 
@@ -620,7 +621,7 @@ This regexp must match both `tramp-initial-end-of-output' and
   "Regexp matching password-like prompts.
 The regexp should match at end of buffer.
 
-This variable is, by default, initialised from
+This variable is, by default, initialized from
 `password-word-equivalents' when Tramp is loaded, and it is
 usually more convenient to add new passphrases to that variable
 instead of altering this variable.
@@ -1383,7 +1384,8 @@ would require an immediate reread during filename completion, nil
 means to use always cached values for the directory contents."
   :type '(choice (const nil) (const t) integer))
 (make-obsolete-variable
- 'tramp-completion-reread-directory-timeout 'remote-file-name-inhibit-cache "27.2")
+ 'tramp-completion-reread-directory-timeout
+ 'remote-file-name-inhibit-cache "27.2")
 
 ;;; Internal Variables:
 
@@ -1500,7 +1502,7 @@ entry does not exist, return nil."
 	 (replace-regexp-in-string "^tramp-" "" (symbol-name param))))
     (if (tramp-connection-property-p vec hash-entry)
 	;; We use the cached property.
-	(tramp-get-connection-property vec hash-entry nil)
+	(tramp-get-connection-property vec hash-entry)
       ;; Use the static value from `tramp-methods'.
       (when-let ((methods-entry
 		  (assoc
@@ -1836,7 +1838,7 @@ Unless DONT-CREATE, the buffer is created when it doesn't exist yet."
 	  ;; as indication, whether a connection is active.
 	  (tramp-set-connection-property
 	   vec "process-buffer"
-	   (tramp-get-connection-property vec "process-buffer" nil))
+	   (tramp-get-connection-property vec "process-buffer"))
 	  (setq buffer-undo-list t
 		default-directory
 		(tramp-make-tramp-file-name vec 'noloc))
@@ -1847,14 +1849,14 @@ Unless DONT-CREATE, the buffer is created when it doesn't exist yet."
 Unless DONT-CREATE, the buffer is created when it doesn't exist yet.
 In case a second asynchronous communication has been started, it is different
 from `tramp-get-buffer'."
-  (or (tramp-get-connection-property vec "process-buffer" nil)
+  (or (tramp-get-connection-property vec "process-buffer")
       (tramp-get-buffer vec dont-create)))
 
 (defun tramp-get-connection-name (vec)
   "Get the connection name to be used for VEC.
 In case a second asynchronous communication has been started, it is different
 from the default one."
-  (or (tramp-get-connection-property vec "process-name" nil)
+  (or (tramp-get-connection-property vec "process-name")
       (tramp-buffer-name vec)))
 
 (defun tramp-get-process (vec-or-proc)
@@ -1954,7 +1956,8 @@ The outline level is equal to the verbosity of the Tramp message."
   "A predicate for Tramp interactive commands.
 They are completed by \"M-x TAB\" only in Tramp debug buffers."
   (with-current-buffer buffer
-    (string-equal (buffer-substring 1 (min 10 (point-max))) ";; Emacs:")))
+    (string-equal
+     (buffer-substring (point-min) (min (+ (point-min) 10) (point-max))) ";; Emacs:")))
 
 (put #'tramp-debug-buffer-command-completion-p 'tramp-suppress-trace t)
 
@@ -2148,15 +2151,17 @@ applicable)."
 
 (put #'tramp-message 'tramp-suppress-trace t)
 
-(defsubst tramp-backtrace (&optional vec-or-proc)
+(defsubst tramp-backtrace (&optional vec-or-proc force)
   "Dump a backtrace into the debug buffer.
-If VEC-OR-PROC is nil, the buffer *debug tramp* is used.  This
-function is meant for debugging purposes."
-  (when (>= tramp-verbose 10)
-    (if vec-or-proc
-	(tramp-message
-	 vec-or-proc 10 "\n%s" (with-output-to-string (backtrace)))
-      (with-output-to-temp-buffer "*debug tramp*" (backtrace)))))
+If VEC-OR-PROC is nil, the buffer *debug tramp* is used.  FORCE
+forces the backtrace even if `tramp-verbose' is less than 10.
+This function is meant for debugging purposes."
+  (let ((tramp-verbose (if force 10 tramp-verbose)))
+    (when (>= tramp-verbose 10)
+      (if vec-or-proc
+	  (tramp-message
+	   vec-or-proc 10 "\n%s" (with-output-to-string (backtrace)))
+	(with-output-to-temp-buffer "*debug tramp*" (backtrace))))))
 
 (put #'tramp-backtrace 'tramp-suppress-trace t)
 
@@ -2348,7 +2353,7 @@ without a visible progress reporter."
             ;; running, and when there is a minimum level.
 	    (when-let ((pr (and (null tramp-inhibit-progress-reporter)
 				(<= ,level (min tramp-verbose 3))
-				(make-progress-reporter ,message nil nil))))
+				(make-progress-reporter ,message))))
 	      (run-at-time 3 0.1 #'tramp-progress-reporter-update pr))))
        (unwind-protect
            ;; Execute the body.
@@ -2390,6 +2395,16 @@ FILE must be a local file name on a connection identified via VEC."
        (setq value (progn ,@body))
        (tramp-set-connection-property ,key ,property value))
      value))
+
+(defmacro with-tramp-saved-connection-property (key property &rest body)
+  "Save PROPERTY, run BODY, reset PROPERTY."
+  (declare (indent 2) (debug t))
+  `(let ((value (tramp-get-connection-property
+		 ,key ,property tramp-cache-undefined)))
+     (unwind-protect (progn ,@body)
+       (if (eq value tramp-cache-undefined)
+	   (tramp-flush-connection-property ,key ,property)
+	 (tramp-set-connection-property ,key ,property value)))))
 
 (defun tramp-drop-volume-letter (name)
   "Cut off unnecessary drive letter from file NAME.
@@ -2526,6 +2541,7 @@ arguments to pass to the OPERATION."
 	    ,(and (eq inhibit-file-name-operation operation)
 		  inhibit-file-name-handlers)))
 	 (inhibit-file-name-operation operation)
+	 (args (if (tramp-file-name-p (car args)) (cons nil (cdr args)) args))
 	 signal-hook-function)
     (apply operation args)))
 
@@ -2708,6 +2724,7 @@ Fall back to normal file name handler if no Tramp file name handler exists."
 			  (tramp-message
 			   v 5 "Non-essential received in operation %s"
 			   (cons operation args))
+			  (let ((tramp-verbose 10)) (tramp-backtrace v))
 			  (tramp-run-real-handler operation args))
 		         ((eq result 'suppress)
 			  (let ((inhibit-message t))
@@ -2952,7 +2969,7 @@ not in completion mode."
 	     (m (tramp-find-method method user host))
 	     all-user-hosts)
 
-	(unless localname        ;; Nothing to complete.
+	(unless localname ;; Nothing to complete.
 
 	  (if (or user host)
 
@@ -3447,8 +3464,8 @@ BODY is the backend specific code."
 		  ;; `file-precious-flag' is set.
 		  (or (file-attribute-modification-time file-attr)
 		      (current-time)))
-		 (unless (and (= (file-attribute-user-id file-attr) uid)
-			      (= (file-attribute-group-id file-attr) gid))
+		 (when (and (= (file-attribute-user-id file-attr) uid)
+			    (= (file-attribute-group-id file-attr) gid))
 		   (setq need-chown nil))))
 
 	     ;; Set the ownership.
@@ -3505,7 +3522,7 @@ Let-bind it when necessary.")
               ;; home directory.
 	      (tramp-get-home-directory vec)
             ;; Otherwise, just use the cached value.
-            (tramp-get-connection-property vec "~" nil))))
+            (tramp-get-connection-property vec "~"))))
     (when home-dir
       (setq home-dir
 	    (tramp-compat-funcall
@@ -3635,7 +3652,7 @@ Let-bind it when necessary.")
     (setq name (tramp-compat-file-name-concat dir name)))
   ;; If NAME is not a Tramp file, run the real handler.
   (if (not (tramp-tramp-file-p name))
-      (tramp-run-real-handler #'expand-file-name (list name nil))
+      (tramp-run-real-handler #'expand-file-name (list name))
     ;; Dissect NAME.
     (with-parsed-tramp-file-name name nil
       (unless (tramp-run-real-handler #'file-name-absolute-p (list localname))
@@ -3865,7 +3882,7 @@ Let-bind it when necessary.")
       (let* ((o (tramp-dissect-file-name filename))
 	     (p (tramp-get-connection-process o))
 	     (c (and (process-live-p p)
-		     (tramp-get-connection-property p "connected" nil))))
+		     (tramp-get-connection-property p "connected"))))
 	;; We expand the file name only, if there is already a connection.
 	(with-parsed-tramp-file-name
 	    (if c (expand-file-name filename) filename) nil
@@ -4551,7 +4568,7 @@ substitution.  SPEC-LIST is a list of char/value pairs used for
     (and ;; The method supports it.
          (tramp-get-method-parameter v 'tramp-direct-async)
 	 ;; It has been indicated.
-         (tramp-get-connection-property v "direct-async-process" nil)
+         (tramp-get-connection-property v "direct-async-process")
 	 ;; There's no multi-hop.
 	 (or (not (tramp-multi-hop-p v))
 	     (= (length (tramp-compute-multi-hops v)) 1))
@@ -4832,7 +4849,7 @@ support symbolic links."
 
       (prog1
 	  ;; Run the process.
-	  (process-file-shell-command command nil buffer nil)
+	  (process-file-shell-command command nil buffer)
 	;; Insert error messages if they were separated.
 	(when error-file
 	  (with-current-buffer error-buffer
@@ -5057,8 +5074,7 @@ of."
       ;; Sometimes, the process returns a new password request
       ;; immediately after rejecting the previous (wrong) one.
       (unless (or tramp-password-prompt-not-unique
-		  (tramp-get-connection-property
-		   vec "first-password-request" nil))
+		  (tramp-get-connection-property vec "first-password-request"))
 	(tramp-clear-passwd vec))
       (goto-char (point-min))
       (tramp-check-for-regexp proc tramp-process-action-regexp)
@@ -5302,7 +5318,7 @@ performed successfully.  Any other value means an error."
   "Lock PROC for other communication, and run BODY.
 Mostly useful to protect BODY from being interrupted by timers."
   (declare (indent 1) (debug t))
-  `(if (tramp-get-connection-property ,proc "locked" nil)
+  `(if (tramp-get-connection-property ,proc "locked")
        ;; Be kind for older Emacsen.
        (if (member 'remote-file-error debug-ignored-errors)
 	   (throw 'non-essential 'non-essential)
@@ -5355,7 +5371,7 @@ Erase echoed commands if exists."
     ;; Check whether we need to remove echo output.  The max length of
     ;; the echo mark regexp is taken for search.  We restrict the
     ;; search for the second echo mark to PIPE_BUF characters.
-    (when (and (tramp-get-connection-property proc "check-remote-echo" nil)
+    (when (and (tramp-get-connection-property proc "check-remote-echo")
 	       (re-search-forward
 		tramp-echoed-echo-mark-regexp
 		(+ (point) (* 5 tramp-echo-mark-marker-length)) t))
@@ -5371,7 +5387,7 @@ Erase echoed commands if exists."
 	  (delete-region begin (point))
 	  (goto-char (point-min)))))
 
-    (when (or (not (tramp-get-connection-property proc "check-remote-echo" nil))
+    (when (or (not (tramp-get-connection-property proc "check-remote-echo"))
 	      ;; Sometimes, the echo string is suppressed on the remote side.
 	      (not (string-equal
 		    (substring-no-properties
@@ -5433,7 +5449,7 @@ The STRING is expected to use Unix line-endings, but the lines sent to
 the remote host use line-endings as defined in the variable
 `tramp-rsh-end-of-line'.  The communication buffer is erased before sending."
   (let* ((p (tramp-get-connection-process vec))
-	 (chunksize (tramp-get-connection-property p "chunksize" nil)))
+	 (chunksize (tramp-get-connection-property p "chunksize")))
     (unless p
       (tramp-error
        vec 'file-error "Can't send string to remote host -- not logged in"))
@@ -5471,7 +5487,7 @@ the remote host use line-endings as defined in the variable
   (unless (process-live-p proc)
     (let ((vec (process-get proc 'vector))
 	  (buf (process-buffer proc))
-	  (prompt (tramp-get-connection-property proc "prompt" nil)))
+	  (prompt (tramp-get-connection-property proc "prompt")))
       (when vec
 	(tramp-message vec 5 "Sentinel called: `%S' `%s'" proc event)
         (tramp-flush-connection-properties proc)
@@ -5695,7 +5711,7 @@ VEC is used for tracing."
   "Check `file-attributes' caches for VEC.
 Return t if according to the cache access type ACCESS is known to
 be granted."
-  (let ((result nil)
+  (let (result
         (offset (cond
                  ((eq ?r access) 1)
                  ((eq ?w access) 2)
@@ -5746,26 +5762,29 @@ be granted."
 If USER is a string, return its home directory instead of the
 user identified by VEC.  If there is no user specified in either
 VEC or USER, or if there is no home directory, return nil."
-  (with-tramp-connection-property vec (concat "~" user)
-    (tramp-file-name-handler #'tramp-get-home-directory vec user)))
+  (and (tramp-file-name-p vec)
+       (with-tramp-connection-property vec (concat "~" user)
+	 (tramp-file-name-handler #'tramp-get-home-directory vec user))))
 
 (defun tramp-get-remote-uid (vec id-format)
   "The uid of the remote connection VEC, in ID-FORMAT.
 ID-FORMAT valid values are `string' and `integer'."
-  (with-tramp-connection-property vec (format "uid-%s" id-format)
-    (or (tramp-file-name-handler #'tramp-get-remote-uid vec id-format)
-	;; Ensure there is a valid result.
-	(and (equal id-format 'integer) tramp-unknown-id-integer)
-	(and (equal id-format 'string) tramp-unknown-id-string))))
+  (or (and (tramp-file-name-p vec)
+	   (with-tramp-connection-property vec (format "uid-%s" id-format)
+	     (tramp-file-name-handler #'tramp-get-remote-uid vec id-format)))
+      ;; Ensure there is a valid result.
+      (and (equal id-format 'integer) tramp-unknown-id-integer)
+      (and (equal id-format 'string) tramp-unknown-id-string)))
 
 (defun tramp-get-remote-gid (vec id-format)
   "The gid of the remote connection VEC, in ID-FORMAT.
 ID-FORMAT valid values are `string' and `integer'."
-  (with-tramp-connection-property vec (format "gid-%s" id-format)
-    (or (tramp-file-name-handler #'tramp-get-remote-gid vec id-format)
-	;; Ensure there is a valid result.
-	(and (equal id-format 'integer) tramp-unknown-id-integer)
-	(and (equal id-format 'string) tramp-unknown-id-string))))
+  (or (and (tramp-file-name-p vec)
+	   (with-tramp-connection-property vec (format "gid-%s" id-format)
+	     (tramp-file-name-handler #'tramp-get-remote-gid vec id-format)))
+      ;; Ensure there is a valid result.
+      (and (equal id-format 'integer) tramp-unknown-id-integer)
+      (and (equal id-format 'string) tramp-unknown-id-string)))
 
 (defun tramp-local-host-p (vec)
   "Return t if this points to the local host, nil otherwise.
@@ -6036,7 +6055,7 @@ Consults the auth-source package."
 	 (key (tramp-make-tramp-file-name vec 'noloc))
 	 (method (tramp-file-name-method vec))
 	 (user (or (tramp-file-name-user-domain vec)
-		   (tramp-get-connection-property key "login-as" nil)))
+		   (tramp-get-connection-property key "login-as")))
 	 (host (tramp-file-name-host-port vec))
 	 (pw-prompt
 	  (or prompt
@@ -6059,8 +6078,7 @@ Consults the auth-source package."
 	 (setq tramp-password-save-function nil)
 	 ;; See if auth-sources contains something useful.
 	 (ignore-errors
-	   (and (tramp-get-connection-property
-		 vec "first-password-request" nil)
+	   (and (tramp-get-connection-property vec "first-password-request")
 		;; Try with Tramp's current method.  If there is no
 		;; user name, `:create' triggers to ask for.  We
 		;; suppress it.
