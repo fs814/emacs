@@ -169,7 +169,7 @@ This information is useful, but it takes screen space away from file names."
 
 (defun tar-swap-data ()
   "Swap buffer contents between current buffer and `tar-data-buffer'.
-Preserve the modified states of the buffers and set `buffer-swapped-with'."
+Preserve the modified states of the buffers and set `tar-data-swapped'."
   (let ((data-buffer-modified-p (buffer-modified-p tar-data-buffer))
 	(current-buffer-modified-p (buffer-modified-p)))
     (buffer-swap-text tar-data-buffer)
@@ -1329,6 +1329,8 @@ to make your changes permanent."
       (error "This buffer has no superior tar file buffer"))
   (if (not (and (boundp 'tar-superior-descriptor) tar-superior-descriptor))
       (error "This buffer doesn't have an index into its superior tar file!"))
+  (unless (buffer-live-p tar-superior-buffer)
+    (error "The tar buffer no longer exists; can't save"))
   (let ((subfile (current-buffer))
         (coding buffer-file-coding-system)
         (descriptor tar-superior-descriptor)
@@ -1375,7 +1377,7 @@ to make your changes permanent."
 	  ;; Maybe update the datestamp.
 	  (when tar-update-datestamp
 	    (tar-alter-one-field tar-time-offset
-				 (concat (tar-octal-time (current-time)) " "))))
+				 (concat (tar-octal-time nil) " "))))
         ;; After doing the insertion, add any necessary final padding.
         (tar-pad-to-blocksize))
       (set-buffer-modified-p t)         ; mark the tar file as modified

@@ -1,6 +1,6 @@
 ;;; checkdoc.el --- check documentation strings for style requirements  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-1998, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Old-Version: 0.6.2
@@ -248,9 +248,9 @@ with these words enabled."
 ;;;###autoload(put 'checkdoc-spellcheck-documentation-flag 'safe-local-variable #'booleanp)
 
 (defvar checkdoc-ispell-lisp-words
-  '("alist" "emacs" "etags" "keymap" "paren" "regexp" "sexp" "xemacs")
+  '("alist" "emacs" "etags" "keymap" "paren" "regexp" "sexp")
   "List of words that are correct when spell-checking Lisp documentation.")
-;;;###autoload(put 'checkdoc-ispell-list-words 'safe-local-variable #'checkdoc-list-of-strings-p)
+;;;###autoload(put 'checkdoc-ispell-list-words 'safe-local-variable #'list-of-strings-p)
 
 (defcustom checkdoc-max-keyref-before-warn nil
   "If non-nil, number of \\\\=[command-to-keystroke] tokens allowed in a doc string.
@@ -281,8 +281,6 @@ Currently, all recognized keywords must be on `finder-known-keywords'."
   :version "25.1"
   :type 'boolean)
 
-(define-obsolete-variable-alias 'checkdoc-style-hooks
-  'checkdoc-style-functions "24.3")
 (defvar checkdoc-style-functions nil
   "Hook run after the standard style check is completed.
 All functions must return nil or a string representing the error found.
@@ -292,8 +290,6 @@ Each hook is called with two parameters, (DEFUNINFO ENDPOINT).
 DEFUNINFO is the return value of `checkdoc-defun-info'.  ENDPOINT is the
 location of end of the documentation string.")
 
-(define-obsolete-variable-alias 'checkdoc-comment-style-hooks
-  'checkdoc-comment-style-functions "24.3")
 (defvar checkdoc-comment-style-functions nil
   "Hook run after the standard comment style check is completed.
 Must return nil if no errors are found, or a string describing the
@@ -324,7 +320,7 @@ These words are ignored when unquoted symbols are searched for.
 This should be set in an Emacs Lisp file's local variables."
   :type '(repeat (string :tag "Word"))
   :version "28.1")
-;;;###autoload(put 'checkdoc-symbol-words 'safe-local-variable #'checkdoc-list-of-strings-p)
+;;;###autoload(put 'checkdoc-symbol-words 'safe-local-variable #'list-of-strings-p)
 
 (defcustom checkdoc-column-zero-backslash-before-paren t
   "Non-nil means to warn if there is no \"\\\" before \"(\" in column zero.
@@ -364,9 +360,9 @@ large number of libraries means it is impractical to fix all
 of these warnings masse.  In almost any other case, setting
 this to anything but t is likely to be counter-productive.")
 
-;;;###autoload
 (defun checkdoc-list-of-strings-p (obj)
   "Return t when OBJ is a list of strings."
+  (declare (obsolete list-of-strings-p "29.1"))
   ;; this is a function so it might be shared by checkdoc-proper-noun-list
   ;; and/or checkdoc-ispell-lisp-words in the future
   (and (listp obj)
@@ -1357,23 +1353,6 @@ checking of documentation strings.
 			       checkdoc-common-verbs-wrong-voice "\\|")
 		    "\\)\\>"))))
 
-;; Profiler says this is not yet faster than just calling assoc
-;;(defun checkdoc-word-in-alist-vector (word vector)
-;;  "Check to see if WORD is in the car of an element of VECTOR.
-;;VECTOR must be sorted.  The CDR should be a replacement.  Since the
-;;word list is getting bigger, it is time for a quick bisecting search."
-;;  (let ((max (length vector)) (min 0) i
-;;	(found nil) (fw nil))
-;;    (setq i (/ max 2))
-;;    (while (and (not found) (/= min max))
-;;      (setq fw (car (aref vector i)))
-;;      (cond ((string= word fw) (setq found (cdr (aref vector i))))
-;;	    ((string< word fw) (setq max i))
-;;	    (t (setq min i)))
-;;      (setq i (/ (+ max min) 2))
-;;      )
-;;    found))
-
 ;;; Checking engines
 ;;
 (defun checkdoc-this-string-valid (&optional take-notes)
@@ -2249,7 +2228,6 @@ nil."
 	(progn
           (ispell-set-spellchecker-params)    ; Initialize variables and dict alists.
           (ispell-accept-buffer-local-defs)   ; Use the correct dictionary.
-	  ;; This code copied in part from ispell.el Emacs 19.34
 	  (dolist (w checkdoc-ispell-lisp-words)
 	    (process-send-string ispell-process (concat "@" w "\n"))))
       (error (setq checkdoc-spellcheck-documentation-flag nil)))))
@@ -2360,8 +2338,6 @@ News agents may remove it"
 
 ;;; Comment checking engine
 ;;
-(defvar generate-autoload-cookie)
-
 (defun checkdoc-file-comments-engine ()
   "Return a message list if this file does not match the Emacs standard.
 This checks for style only, such as the first line, Commentary:,
@@ -2861,8 +2837,6 @@ function called to create the messages."
         (message "No Package Keyword Errors.")))))
 
 (custom-add-option 'emacs-lisp-mode-hook 'checkdoc-minor-mode)
-
-;; Obsolete
 
 (define-obsolete-function-alias 'checkdoc-run-hooks
   #'run-hook-with-args-until-success "28.1")

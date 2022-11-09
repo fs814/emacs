@@ -368,6 +368,17 @@
              2)))
 
 (ert-deftest string-comparison-test ()
+  (should (string-equal-ignore-case "abc" "abc"))
+  (should (string-equal-ignore-case "abc" "ABC"))
+  (should (string-equal-ignore-case "abc" "abC"))
+  (should-not (string-equal-ignore-case "abc" "abCD"))
+  (should (string-equal-ignore-case "S" "s"))
+  (should (string-equal-ignore-case "ẞ" "ß"))
+  (should (string-equal-ignore-case "ǲ" "Ǳ"))
+  (should (string-equal-ignore-case "Όσος" "ΌΣΟΣ"))
+  ;; not yet: (should (string-equal-ignore-case "SS" "ß"))
+  ;; not yet: (should (string-equal-ignore-case "SS" "ẞ"))
+
   (should (string-lessp "abc" "acb"))
   (should (string-lessp "aBc" "abc"))
   (should (string-lessp "abc" "abcd"))
@@ -624,7 +635,7 @@ cf. Bug#25477."
   (let ((default "foo") res)
     (cl-letf (((symbol-function 'read-string)
                (lambda (_prompt &optional _init _hist def _inher-input) def)))
-      (setq res (read-passwd "pass: " 'confirm (mapconcat #'string default "")))
+      (setq res (read-passwd "pass: " 'confirm (mapconcat #'string default)))
       (should (string= default res)))))
 
 (ert-deftest subr-tests--gensym ()
@@ -957,7 +968,21 @@ See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=19350."
     (insert "Foo bar zot foobar")
     (should (= (replace-string-in-region "Foo" "new" (point-min))
                1))
-    (should (equal (buffer-string) "new bar zot foobar"))))
+    (should (equal (buffer-string) "new bar zot foobar")))
+
+  (with-temp-buffer
+    (insert "foo bar baz")
+    (should (= (replace-string-in-region "ba" "quux corge grault" (point-min))
+               2))
+    (should (equal (buffer-string)
+                    "foo quux corge graultr quux corge graultz")))
+
+  (with-temp-buffer
+    (insert "foo bar bar")
+    (should (= (replace-string-in-region " bar" "" (point-min) 8)
+               1))
+    (should (equal (buffer-string)
+                    "foo bar"))))
 
 (ert-deftest test-replace-regexp-in-region ()
   (with-temp-buffer
@@ -980,7 +1005,21 @@ See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=19350."
     (insert "Foo bar zot foobar")
     (should (= (replace-regexp-in-region "Fo+" "new" (point-min))
                1))
-    (should (equal (buffer-string) "new bar zot foobar"))))
+    (should (equal (buffer-string) "new bar zot foobar")))
+
+  (with-temp-buffer
+    (insert "foo bar baz")
+    (should (= (replace-regexp-in-region "ba." "quux corge grault" (point-min))
+               2))
+    (should (equal (buffer-string)
+                    "foo quux corge grault quux corge grault")))
+
+  (with-temp-buffer
+    (insert "foo bar bar")
+    (should (= (replace-regexp-in-region " bar" "" (point-min) 8)
+               1))
+    (should (equal (buffer-string)
+                    "foo bar"))))
 
 (ert-deftest test-with-existing-directory ()
   (let ((dir (make-temp-name "/tmp/not-exist-")))
@@ -1026,7 +1065,19 @@ final or penultimate step during initialization."))
 
 (ert-deftest test-readablep ()
   (should (readablep "foo"))
-  (should-not (readablep (list (make-marker)))))
+  (should-not (readablep (list (make-marker))))
+  (should-not (readablep (make-marker))))
+
+(ert-deftest test-print-unreadable-function ()
+  ;; Check that problem with unwinding properly is fixed (bug#56773).
+  (let* ((before nil)
+         (after nil)
+         (r (with-temp-buffer
+              (setq before (current-buffer))
+              (prog1 (readablep (make-marker))
+                (setq after (current-buffer))))))
+    (should (equal after before))
+    (should (equal r nil))))
 
 (ert-deftest test-string-lines ()
   (should (equal (string-lines "") '("")))
@@ -1088,7 +1139,35 @@ final or penultimate step during initialization."))
   (should-not (plistp '(1 . 2)))
   (should (plistp '(1 2 3 4)))
   (should-not (plistp '(1 2 3)))
-  (should-not (plistp '(1 2 3 . 4))))
+  (should-not (plistp '(1 2 3 . 4)))
+  (let ((cycle (list 1 2 3)))
+    (nconc cycle cycle)
+    (should-not (plistp cycle))))
+
+(defun subr-tests--butlast-ref (list &optional n)
+  "Reference implementation of `butlast'."
+  (let ((m (or n 1))
+        (len (length list)))
+    (let ((r nil))
+      (while (and list (> len m))
+        (push (car list) r)
+        (setq list (cdr list))
+        (setq len (1- len)))
+      (nreverse r))))
+
+(ert-deftest subr-butlast ()
+  (dolist (l '(nil '(a) '(a b) '(a b c) '(a b c d)))
+    (dolist (n (cons nil (number-sequence -2 6)))
+      (should (equal (butlast l n)
+                     (subr-tests--butlast-ref l n))))))
+
+(ert-deftest test-list-of-strings-p ()
+  (should-not (list-of-strings-p 1))
+  (should (list-of-strings-p nil))
+  (should (list-of-strings-p '("a" "b")))
+  (should-not (list-of-strings-p ["a" "b"]))
+  (should-not (list-of-strings-p '("a" nil "b")))
+  (should-not (list-of-strings-p '("a" "b" . "c"))))
 
 (provide 'subr-tests)
 ;;; subr-tests.el ends here

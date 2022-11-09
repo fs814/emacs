@@ -1304,7 +1304,10 @@ init_sys_modes (struct tty_display_info *tty_out)
     }
 #endif /* F_GETOWN */
 
-  setvbuf (tty_out->output, NULL, _IOFBF, BUFSIZ);
+  const size_t buffer_size = (tty_out->output_buffer_size
+			      ? tty_out->output_buffer_size
+			      : BUFSIZ);
+  setvbuf (tty_out->output, NULL, _IOFBF, buffer_size);
 
   if (tty_out->terminal->set_terminal_modes_hook)
     tty_out->terminal->set_terminal_modes_hook (tty_out->terminal);
@@ -2429,7 +2432,7 @@ emacs_pipe (int fd[2])
 
 /* Approximate posix_close and POSIX_CLOSE_RESTART well enough for Emacs.
    For the background behind this mess, please see Austin Group defect 529
-   <http://austingroupbugs.net/view.php?id=529>.  */
+   <https://austingroupbugs.net/view.php?id=529>.  */
 
 #ifndef POSIX_CLOSE_RESTART
 # define POSIX_CLOSE_RESTART 1
@@ -3169,7 +3172,8 @@ list_system_processes (void)
 
 #endif /* !defined (WINDOWSNT) */
 
-#if defined __FreeBSD__ || defined DARWIN_OS || defined __OpenBSD__
+#if (HAVE_GETRUSAGE \
+     || defined __FreeBSD__ || defined DARWIN_OS || defined __OpenBSD__)
 
 static Lisp_Object
 make_lisp_s_us (time_t s, long us)
@@ -4276,7 +4280,7 @@ does the same thing as `current-time'.  */)
       usecs -= 1000000;
       secs++;
     }
-  return make_lisp_time (make_timespec (secs, usecs * 1000));
+  return make_lisp_s_us (secs, usecs);
 #else /* ! HAVE_GETRUSAGE  */
 #ifdef WINDOWSNT
   return w32_get_internal_run_time ();

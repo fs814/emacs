@@ -949,6 +949,10 @@ haiku_create_frame (Lisp_Object parms)
 	  || !FRAME_LIVE_P (XFRAME (KVAR (kb, Vdefault_minibuffer_frame)))))
     kset_default_minibuffer_frame (kb, frame);
 
+  /* Set whether or not frame synchronization is enabled.  */
+  gui_default_parameter (f, parms, Quse_frame_synchronization, Qt,
+			 NULL, NULL, RES_TYPE_BOOLEAN);
+
   gui_default_parameter (f, parms, Qz_group, Qnil,
 			 NULL, NULL, RES_TYPE_SYMBOL);
 
@@ -1501,9 +1505,9 @@ haiku_set_background_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval
 
   if (FRAME_HAIKU_VIEW (f))
     {
-      BView_draw_lock (FRAME_HAIKU_VIEW (f), false, 0, 0, 0, 0);
-      BView_SetViewColor (FRAME_HAIKU_VIEW (f), background);
-      BView_draw_unlock (FRAME_HAIKU_VIEW (f));
+     BView_draw_lock (FRAME_HAIKU_DRAWABLE (f), false, 0, 0, 0, 0);
+      BView_SetViewColor (FRAME_HAIKU_DRAWABLE (f), background);
+      BView_draw_unlock (FRAME_HAIKU_DRAWABLE (f));
 
       FRAME_OUTPUT_DATA (f)->cursor_fg = background;
       update_face_from_frame_parameter (f, Qbackground_color, arg);
@@ -2115,6 +2119,13 @@ haiku_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
   update_face_from_frame_parameter (f, Qmouse_color, arg);
 }
 
+static void
+haiku_set_use_frame_synchronization (struct frame *f, Lisp_Object arg,
+				     Lisp_Object oldval)
+{
+  be_set_use_frame_synchronization (FRAME_HAIKU_VIEW (f), !NILP (arg));
+}
+
 
 
 DEFUN ("haiku-set-mouse-absolute-pixel-position",
@@ -2330,6 +2341,10 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   int old_windows_or_buffers_changed = windows_or_buffers_changed;
   specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object window, size, tip_buf;
+  bool displayed;
+#ifdef ENABLE_CHECKING
+  struct glyph_row *row, *end;
+#endif
   AUTO_STRING (tip, " *tip*");
 
   specbind (Qinhibit_redisplay, Qt);
@@ -2401,7 +2416,6 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   if (!NILP (tip_frame) && FRAME_LIVE_P (XFRAME (tip_frame)))
     {
       if (FRAME_VISIBLE_P (XFRAME (tip_frame))
-	  && EQ (frame, tip_last_frame)
 	  && !NILP (Fequal_including_properties (tip_last_string, string))
 	  && !NILP (Fequal (tip_last_parms, parms)))
 	{
@@ -2558,7 +2572,26 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   clear_glyph_matrix (w->desired_matrix);
   clear_glyph_matrix (w->current_matrix);
   SET_TEXT_POS (pos, BEGV, BEGV_BYTE);
-  try_window (window, pos, TRY_WINDOW_IGNORE_FONTS_CHANGE);
+  displayed = try_window (window, pos, TRY_WINDOW_IGNORE_FONTS_CHANGE);
+
+  if (!displayed && NILP (Vx_max_tooltip_size))
+    {
+#ifdef ENABLE_CHECKING
+      row = w->desired_matrix->rows;
+      end = w->desired_matrix->rows + w->desired_matrix->nrows;
+
+      while (row < end)
+	{
+	  if (!row->displays_text_p
+	      || row->ends_at_zv_p)
+	    break;
+	  ++row;
+	}
+
+      eassert (row < end && row->ends_at_zv_p);
+#endif
+    }
+
   /* Calculate size of tooltip window.  */
   size = Fwindow_text_pixel_size (window, Qnil, Qnil, Qnil,
 				  make_fixnum (w->pixel_height), Qnil,
@@ -2603,8 +2636,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
  start_timer:
   /* Let the tip disappear after timeout seconds.  */
-  tip_timer = call3 (intern ("run-at-time"), timeout, Qnil,
-		     intern ("x-hide-tip"));
+  tip_timer = call3 (Qrun_at_time, timeout, Qnil, Qx_hide_tip);
 
   return unbind_to (count, Qnil);
 }
@@ -3106,6 +3138,7 @@ frame_parm_handler haiku_frame_parm_handlers[] =
     haiku_set_override_redirect,
     gui_set_no_special_glyphs,
     gui_set_alpha_background,
+    haiku_set_use_frame_synchronization,
   };
 
 void
@@ -3114,6 +3147,9 @@ syms_of_haikufns (void)
   DEFSYM (Qfont_parameter, "font-parameter");
   DEFSYM (Qcancel_timer, "cancel-timer");
   DEFSYM (Qassq_delete_all, "assq-delete-all");
+
+  DEFSYM (Qrun_at_time, "run-at-time");
+  DEFSYM (Qx_hide_tip, "x-hide-tip");
 
   DEFSYM (Qalways, "always");
   DEFSYM (Qnot_useful, "not-useful");
@@ -3179,7 +3215,7 @@ syms_of_haikufns (void)
 
   DEFVAR_LISP ("x-max-tooltip-size", Vx_max_tooltip_size,
 	       doc: /* SKIP: real doc in xfns.c.  */);
-  Vx_max_tooltip_size = Fcons (make_fixnum (80), make_fixnum (40));
+  Vx_max_tooltip_size = Qnil;
 
   DEFVAR_LISP ("x-cursor-fore-pixel", Vx_cursor_fore_pixel,
 	       doc: /* SKIP: real doc in xfns.c.  */);

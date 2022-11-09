@@ -1541,20 +1541,20 @@ Year numbers count since the year 1 BCE, and do not skip zero
 as traditional Gregorian years do; for example, the year number
 @minus{}37 represents the Gregorian year 38 BCE@.
 
-@defun time-convert time &optional form
+@defun time-convert time form
 This function converts a time value into a Lisp timestamp.
 
-The optional @var{form} argument specifies the timestamp form to be
-returned.  If @var{form} is the symbol @code{integer}, this function
-returns an integer count of seconds.  If @var{form} is a positive
-integer, it specifies a clock frequency and this function returns an
-integer-pair timestamp @code{(@var{ticks} . @var{form})}.  If @var{form} is
+The @var{form} argument specifies the timestamp form to be returned.
+If @var{form} is the symbol @code{integer}, this function returns an
+integer count of seconds.  If @var{form} is a positive integer, it
+specifies a clock frequency and this function returns an integer-pair
+timestamp @code{(@var{ticks} . @var{form})}.  If @var{form} is
 @code{t}, this function treats it as a positive integer suitable for
 representing the timestamp; for example, it is treated as 1000000000
 if @var{time} is @code{nil} and the platform timestamp has nanosecond
 resolution.  If @var{form} is @code{list}, this function returns an
 integer list @code{(@var{high} @var{low} @var{micro} @var{pico})}.
-Although an omitted or @code{nil} @var{form} currently acts like
+Although a @code{nil} @var{form} currently acts like
 @code{list}, this is planned to change in a future Emacs version, so
 callers requiring list timestamps should pass @code{list} explicitly.
 
@@ -2067,7 +2067,12 @@ This returns @code{t} if the time value @var{t1} is less than the time value
 
 @defun time-equal-p t1 t2
 This returns @code{t} if the two time values @var{t1} and @var{t2} are
-equal.
+equal.  The result is @code{nil} if either argument is a NaN.
+For the purpose of comparison, a @code{nil} argument represents the
+current time with infinite resolution, so this function returns
+@code{nil} if one argument is @code{nil} and the other is not, and
+callers can therefore use @code{nil} to represent an unknown time
+value that does not equal any timestamp.
 @end defun
 
 @defun time-subtract t1 t2
@@ -3169,6 +3174,9 @@ Sometimes, mounted filesystems cannot be watched for file changes.
 This is not detected by this function, and so a non-@code{nil} return
 value does not guarantee that changes on @var{file} will be actually
 notified.
+
+If @var{file} is a symlink, it doesn't follow that link.  Just
+@var{file} itself will be watched.
 
 @var{flags} is a list of conditions to set what will be watched for.
 It can include the following symbols:

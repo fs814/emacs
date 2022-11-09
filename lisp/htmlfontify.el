@@ -81,11 +81,9 @@
 (eval-when-compile (require 'cl-lib))
 (require 'cus-edit)
 
-(defconst htmlfontify-version 0.21)
-
 (defconst hfy-meta-tags
-  (format "<meta name=\"generator\" content=\"emacs %s; htmlfontify %0.2f\" />"
-          emacs-version htmlfontify-version)
+  (format "<meta name=\"generator\" content=\"emacs %s; htmlfontify\" />"
+          emacs-version)
   "The generator meta tag for this version of htmlfontify.")
 
 (defconst htmlfontify-manual "Htmlfontify Manual"
@@ -228,7 +226,6 @@ to make them safe."
   :tag   "html-quote-regex"
   :type  '(regexp))
 
-(define-obsolete-variable-alias 'hfy-post-html-hooks 'hfy-post-html-hook "24.3")
 (defcustom hfy-post-html-hook nil
   "List of functions to call after creating and filling the HTML buffer.
 These functions will be called with the HTML buffer as the current buffer."
@@ -1542,33 +1539,13 @@ See also `hfy-html-enkludge-buffer'."
       (if (get-text-property (match-beginning 0) 'hfy-quoteme)
           (replace-match (hfy-html-quote (match-string 1))) )) ))
 
-;; Borrowed from font-lock.el
-(defmacro hfy-save-buffer-state (varlist &rest body)
-  "Bind variables according to VARLIST and eval BODY restoring buffer state.
-Do not record undo information during evaluation of BODY."
-  (declare (indent 1) (debug let))
-  (let ((modified (make-symbol "modified")))
-    `(let* ,(append varlist
-                    `((,modified (buffer-modified-p))
-                      (buffer-undo-list t)
-                      (inhibit-read-only t)
-                      (inhibit-point-motion-hooks t)
-                      (inhibit-modification-hooks t)
-                      deactivate-mark
-                      buffer-file-name
-                      buffer-file-truename))
-       (progn
-         ,@body)
-       (unless ,modified
-         (restore-buffer-modified-p nil)))))
-
 (defun hfy-mark-trailing-whitespace ()
   "Tag trailing whitespace with a hfy property if it is currently highlighted."
   (when show-trailing-whitespace
     (let ((inhibit-read-only t))
       (save-excursion
         (goto-char (point-min))
-        (hfy-save-buffer-state nil
+        (with-silent-modifications
           (while (re-search-forward "[ \t]+$" nil t)
             (put-text-property (match-beginning 0) (match-end 0)
                                    'hfy-show-trailing-whitespace t)))))))
@@ -1576,7 +1553,7 @@ Do not record undo information during evaluation of BODY."
 (defun hfy-unmark-trailing-whitespace ()
   "Undo the effect of `hfy-mark-trailing-whitespace'."
   (when show-trailing-whitespace
-    (hfy-save-buffer-state nil
+    (with-silent-modifications
       (remove-text-properties (point-min) (point-max)
                               '(hfy-show-trailing-whitespace nil)))))
 
@@ -2392,12 +2369,13 @@ You may also want to set `hfy-page-header' and `hfy-page-footer'."
   (let ((file (hfy-initfile)))
     (load file 'NOERROR nil nil) ))
 
-;; Obsolete.
-
 (defun hfy-interq (set-a set-b)
   "Return the intersection (using `eq') of two lists SET-A and SET-B."
   (declare (obsolete seq-intersection "28.1"))
   (nreverse (seq-intersection set-a set-b #'eq)))
+
+(defconst htmlfontify-version 0.21)
+(make-obsolete-variable 'htmlfontify-version 'emacs-version "29.1")
 
 (define-obsolete-function-alias 'hfy-prop-invisible-p #'invisible-p "29.1")
 

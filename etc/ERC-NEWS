@@ -59,9 +59,17 @@ which, when present, becomes the first argument passed to the "USER"
 IRC command.  The traditional way of setting this globally, via
 'erc-email-userid', is still honored.
 
-** Additional display options for updated buffers.
-Additional flexibility is now available for controlling the behavior
-of newly created target buffers, especially during reconnection.
+** Changes to display options for new ERC buffers.
+The default value for the option 'erc-join-buffer', which determines
+how new buffers are displayed, has been changed to 'bury' for security
+reasons.  Although the old value of 'buffer' is still accessible,
+along with its original behavior, users wanting a safer alternative
+can now opt for an improved 'window-noselect' instead.  It still
+offers the same pronounced visual cue when connecting and joining but
+now avoids any hijacking of the active window as well.
+
+Beyond this, additional flexibility is now available for controlling
+the behavior of newly created target buffers during reconnection.
 
 ** Improved handling of multiline prompt input.
 This means better detection and handling of intervening and trailing
@@ -77,6 +85,12 @@ now collapse into an alternate form designated by the option
 but can be fine-tuned via the repurposed, formerly abandoned option
 'erc-hide-prompt'.
 
+Certain commands provided by the 'erc-match' module, such as
+'erc-add-keyword', 'erc-add-pal', and others, now optionally ask
+whether to 'regexp-quote' the current input.  A new option,
+'erc-match-quote-when-adding', has been added to allow for retaining
+the old behavior, if desired.
+
 A bug has been fixed affecting users of the Soju bouncer: outgoing
 messages during periods of heavy traffic no longer disappear.
 
@@ -84,6 +98,11 @@ Although rare, server passwords containing white space are now handled
 correctly.
 
 ** Miscellaneous behavioral changes in the library API.
+A number of core macros and other definitions have been moved to a new
+file called erc-common.el.  This was done to further lessen the
+various complications arising from the mutual dependency between 'erc'
+and 'erc-backend'.
+
 The function 'erc-network' always returns non-nil in server and target
 buffers belonging to a successfully established IRC connection, even
 after that connection has been closed.
@@ -95,11 +114,14 @@ network-context identifiers via a new ':id' keyword.  The latter
 carries wider significance beyond autojoin and can be used for
 unequivocally identifying a connection in a human-readable way.
 
-The function 'erc-auto-query', unused internally, and basically
-inscrutable when read, has been deprecated with no public replacement.
-This raises a related issue: if you use ERC as a library and need
-something only offered internally, please lobby to have it exported by
-writing to emacs-erc@gnu.org.
+The function 'erc-auto-query' was deemed too difficult to reason
+through and has thus been deprecated with no public replacement; it
+has also been removed from the client code path.
+
+A few internal variables have been introduced that could just as well
+have been made public, possibly as user options.  Likewise for some
+internal functions.  As always, users needing such functionality
+officially exposed are encouraged to write to emacs-erc@gnu.org.
 
 
 * Changes in ERC 5.4.1

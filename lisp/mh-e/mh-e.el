@@ -86,7 +86,6 @@
 (require 'cl-lib)
 
 (require 'mh-buffers)
-(require 'mh-compat)
 
 
 
@@ -163,8 +162,9 @@ User's mail folder directory.")
 
 ;; Maps declared here so that they can be used in docstrings.
 
-(defvar mh-folder-mode-map (make-keymap)
-  "Keymap for MH-Folder mode.")
+(defvar-keymap mh-folder-mode-map
+  :doc "Keymap for MH-Folder mode."
+  :full t)
 
 (defvar mh-folder-seq-tool-bar-map nil
   "Keymap for MH-Folder tool bar.")
@@ -172,8 +172,8 @@ User's mail folder directory.")
 (defvar mh-folder-tool-bar-map nil
   "Keymap for MH-Folder tool bar.")
 
-(defvar mh-inc-spool-map (make-sparse-keymap)
-  "Keymap for MH-E's mh-inc-spool commands.")
+(defvar-keymap mh-inc-spool-map
+  :doc "Keymap for MH-E's mh-inc-spool commands.")
 
 (defvar mh-letter-mode-map (copy-keymap text-mode-map)
   "Keymap for MH-Letter mode.")
@@ -181,11 +181,11 @@ User's mail folder directory.")
 (defvar mh-letter-tool-bar-map nil
   "Keymap for MH-Letter tool bar.")
 
-(defvar mh-search-mode-map (make-sparse-keymap)
-  "Keymap for MH-Search mode.")
+(defvar-keymap mh-search-mode-map
+  :doc "Keymap for MH-Search mode.")
 
-(defvar mh-show-mode-map (make-sparse-keymap)
-  "Keymap MH-Show mode.")
+(defvar-keymap mh-show-mode-map
+  :doc "Keymap for MH-Show mode.")
 
 (defvar mh-show-seq-tool-bar-map nil
   "Keymap for MH-Show tool bar.")
@@ -388,11 +388,11 @@ gnus-version)
   (insert "MH-E " mh-version "\n\n")
   ;; MH-E compilation details.
   (insert "MH-E compilation details:\n")
-  (let* ((compiled-mhe (byte-code-function-p (symbol-function 'mh-version)))
+  (let* ((compiled-mhe (compiled-function-p (symbol-function 'mh-version)))
          (gnus-compiled-version (if compiled-mhe
                                     (mh-macro-expansion-time-gnus-version)
                                   "N/A")))
-    (insert " Byte compiled:\t\t" (if compiled-mhe "yes" "no") "\n"
+    (insert " Compiled:\t\t" (if compiled-mhe "yes" "no") "\n"
             " Gnus (compile-time):\t" gnus-compiled-version "\n"
             " Gnus (run-time):\t" (mh-run-time-gnus-version) "\n\n"))
   ;; Emacs version.
@@ -1790,16 +1790,7 @@ message without line wrapping."
 This option is used to select between a variety of mail security
 mechanisms. The default is \"PGP (MIME)\" if it is supported;
 otherwise, the default is \"None\". Other mechanisms include
-vanilla \"PGP\" and \"S/MIME\".
-
-The `pgg' customization group may have some settings which may
-interest you (see Info node `(pgg)').
-
-In particular, I turn on the option `pgg-encrypt-for-me' so that
-all messages I encrypt are encrypted with my public key as well.
-If you keep a copy of all of your outgoing mail with a \"Fcc:\"
-header field, this setting is vital so that you can read the mail
-you write!"
+vanilla \"PGP\" and \"S/MIME\"."
   :type '(choice (const :tag "PGP (MIME)" "pgpmime")
                  (const :tag "PGP" "pgp")
                  (const :tag "S/MIME" "smime")
@@ -2840,9 +2831,7 @@ removed and entries from `mh-invisible-header-fields' are added."
         (setq mh-invisible-header-fields-compiled
               (concat
                "^"
-               ;; workaround for insufficient default
-               (let ((max-specpdl-size 1000))
-                 (regexp-opt fields t))))
+               (regexp-opt fields t)))
       (setq mh-invisible-header-fields-compiled nil))))
 
 ;; Compile invisible header fields.
@@ -3192,8 +3181,6 @@ function used to insert the signature with
   :group 'mh-letter
   :package-version '(MH-E . "8.0"))
 
-(define-obsolete-variable-alias 'mh-kill-folder-suppress-prompt-hooks
-  'mh-kill-folder-suppress-prompt-functions "24.3")
 (defcustom mh-kill-folder-suppress-prompt-functions '(mh-search-p)
   "Abnormal hook run at the beginning of \\<mh-folder-mode-map>\\[mh-kill-folder].
 
@@ -3715,7 +3702,6 @@ The background and foreground are used in the image."
 (provide 'mh-e)
 
 ;; Local Variables:
-;; indent-tabs-mode: nil
 ;; sentence-end-double-space: nil
 ;; End:
 

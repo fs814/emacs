@@ -135,45 +135,35 @@ function `tab-line-tab-face-group'."
   :group 'tab-line-faces)
 
 
-(defvar tab-line-tab-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-select-tab)
-    (define-key map [tab-line mouse-2] 'tab-line-close-tab)
-    (define-key map [tab-line down-mouse-3] 'tab-line-tab-context-menu)
-    (define-key map "\C-m" 'tab-line-select-tab)
-    map)
-  "Local keymap for `tab-line-mode' window tabs.")
+(defvar-keymap tab-line-tab-map
+  :doc "Local keymap for `tab-line-mode' window tabs."
+  "<tab-line> <down-mouse-1>" #'tab-line-select-tab
+  "<tab-line> <mouse-2>"      #'tab-line-close-tab
+  "<tab-line> <down-mouse-3>" #'tab-line-tab-context-menu
+  "RET" #'tab-line-select-tab)
 
-(defvar tab-line-add-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-new-tab)
-    (define-key map [tab-line down-mouse-2] 'tab-line-new-tab)
-    (define-key map "\C-m" 'tab-line-new-tab)
-    map)
-  "Local keymap to add `tab-line-mode' window tabs.")
+(defvar-keymap tab-line-add-map
+  :doc "Local keymap to add `tab-line-mode' window tabs."
+  "<tab-line> <down-mouse-1>" #'tab-line-new-tab
+  "<tab-line> <down-mouse-2>" #'tab-line-new-tab
+  "RET" #'tab-line-new-tab)
 
-(defvar tab-line-tab-close-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line mouse-1] 'tab-line-close-tab)
-    (define-key map [tab-line mouse-2] 'tab-line-close-tab)
-    map)
-  "Local keymap to close `tab-line-mode' window tabs.")
+(defvar-keymap tab-line-tab-close-map
+  :doc "Local keymap to close `tab-line-mode' window tabs."
+  "<tab-line> <mouse-1>" #'tab-line-close-tab
+  "<tab-line> <mouse-2>" #'tab-line-close-tab)
 
-(defvar tab-line-left-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-hscroll-left)
-    (define-key map [tab-line down-mouse-2] 'tab-line-hscroll-left)
-    (define-key map "\C-m" 'tab-line-new-tab)
-    map)
-  "Local keymap to scroll `tab-line-mode' window tabs to the left.")
+(defvar-keymap tab-line-left-map
+  :doc "Local keymap to scroll `tab-line-mode' window tabs to the left."
+  "<tab-line> <down-mouse-1>" #'tab-line-hscroll-left
+  "<tab-line> <down-mouse-2>" #'tab-line-hscroll-left
+  "RET" #'tab-line-new-tab)
 
-(defvar tab-line-right-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-hscroll-right)
-    (define-key map [tab-line down-mouse-2] 'tab-line-hscroll-right)
-    (define-key map "\C-m" 'tab-line-new-tab)
-    map)
-  "Local keymap to scroll `tab-line-mode' window tabs to the right.")
+(defvar-keymap tab-line-right-map
+  :doc "Local keymap to scroll `tab-line-mode' window tabs to the right."
+  "<tab-line> <down-mouse-1>" #'tab-line-hscroll-right
+  "<tab-line> <down-mouse-2>" #'tab-line-hscroll-right
+  "RET" #'tab-line-new-tab)
 
 
 (defcustom tab-line-new-tab-choice t
@@ -493,7 +483,7 @@ which the tab will represent."
     (dolist (fn tab-line-tab-face-functions)
       (setf face (funcall fn tab tabs face buffer-p selected-p)))
     (apply 'propertize
-           (concat (propertize name
+           (concat (propertize (string-replace "%" "%%" name) ;; (bug#57848)
                                'keymap tab-line-tab-map
                                'help-echo (if selected-p "Current tab"
                                             "Click to select tab")
@@ -582,19 +572,31 @@ For use in `tab-line-tab-face-functions'."
 
 (defvar tab-line-auto-hscroll)
 
+(defun tab-line-cache-key-default (_tabs)
+  "Return default list of cache keys."
+  (list
+   ;; for setting face 'tab-line-tab-current'
+   (mode-line-window-selected-p)
+   ;; for `tab-line-tab-face-modified'
+   (and (memq 'tab-line-tab-face-modified
+              tab-line-tab-face-functions)
+        (buffer-file-name)
+        (buffer-modified-p))))
+
+(defvar tab-line-cache-key-function #'tab-line-cache-key-default
+  "Function that adds more cache keys.
+It has one argument with a list of tabs, and returns a list of cache keys.
+You can use `add-function' to add more cache keys.")
+
 (defun tab-line-format ()
   "Format for displaying the tab line of the selected window."
   (let* ((tabs (funcall tab-line-tabs-function))
-         (cache-key (list tabs
-                          ;; handle buffer renames
-                          (buffer-name (window-buffer))
-                          ;; handle tab-line scrolling
-                          (window-parameter nil 'tab-line-hscroll)
-                          ;; for setting face 'tab-line-tab-current'
-                          (mode-line-window-selected-p)
-                          (and (memq 'tab-line-tab-face-modified
-                                     tab-line-tab-face-functions)
-                               (buffer-file-name) (buffer-modified-p))))
+         (cache-key (append (list tabs
+                                  ;; handle buffer renames
+                                  (buffer-name (window-buffer))
+                                  ;; handle tab-line scrolling
+                                  (window-parameter nil 'tab-line-hscroll))
+                            (funcall tab-line-cache-key-function tabs)))
          (cache (window-parameter nil 'tab-line-cache)))
     ;; Enable auto-hscroll again after it was disabled on manual scrolling.
     ;; The moment to enable it is when the window-buffer was updated.
@@ -630,7 +632,8 @@ the selected tab visible."
     (let ((truncate-partial-width-windows nil)
           (inhibit-modification-hooks t)
           show-arrows)
-      (setq truncate-lines nil)
+      (setq truncate-lines nil
+            word-wrap nil)
       (erase-buffer)
       (apply 'insert strings)
       (goto-char (point-min))

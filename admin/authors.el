@@ -163,6 +163,7 @@ files.")
     ("Michael R. Cook" "Michael Cook")
     ("Michael Sperber" "Mike Sperber" "Michael Sperber \\[Mr. Preprocessor\\]")
     ("Michalis V" "^mvar")
+    ("Miha Rihtaršič" "Miha Rihtarsic")
     ("Mikio Nakajima" "Nakajima Mikio")
     ("Nelson Jose dos Santos Ferreira" "Nelson Ferreira")
     ("Noorul Islam" "Noorul Islam K M")
@@ -989,7 +990,7 @@ in the repository.")
 ;; to how a file was mentioned in the respective ChangeLog.  It is
 ;; advisable to run a Grep command such as
 ;;
-;;   fgrep -R BASENAME . --include='ChangeLog*'
+;;   grep -F -R BASENAME . --include='ChangeLog*'
 ;;
 ;; where BASENAME is the old basename of the renamed file.  This will
 ;; show all the different reference forms of the file in the various
@@ -1882,7 +1883,7 @@ list of their contributions.\n")
 		(insert "\n "))
 	    (insert " " file))
 	  (insert "\n")))))
-    (insert "\nLocal" " Variables:\nmode: etc-authors\ncoding: "
+    (insert "\nLocal" " Variables:\nmode: emacs-authors\ncoding: "
 	    (symbol-name authors-coding-system) "\nEnd:\n")
     (message "Generating buffer %s... done" buffer-name)
     (unless noninteractive

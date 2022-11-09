@@ -137,6 +137,14 @@ Evaluate BODY for each created sequence.
   (with-test-sequences (seq '())
     (should (equal (seq-remove #'test-sequences-evenp seq) '()))))
 
+(ert-deftest test-seq-remove-at-position ()
+  (with-test-sequences (seq '(1 2 3 4))
+    (should (same-contents-p (seq-remove-at-position seq 2) '(1 2 4)))
+    (should (same-contents-p (seq-remove-at-position seq 0) '(2 3 4)))
+    (should (same-contents-p (seq-remove-at-position seq 3) '(1 2 3)))
+    (should (eq (type-of (seq-remove-at-position seq 2))
+                (type-of seq)))))
+
 (ert-deftest test-seq-count ()
   (with-test-sequences (seq '(6 7 8 9 10))
     (should (equal (seq-count #'test-sequences-evenp seq) 3))
@@ -257,6 +265,19 @@ Evaluate BODY for each created sequence.
   (with-test-sequences (seq '())
     (should (equal (seq-uniq seq) '()))))
 
+(defun seq-tests--list-subseq-ref (list start &optional end)
+  "Reference implementation of `seq-subseq' for lists."
+  (let ((len (length list)))
+    (when (< start 0)
+      (setq start (+ start len)))
+    (unless end
+      (setq end len))
+    (when (< end 0)
+      (setq end (+ end len)))
+    (if (<= 0 start end len)
+        (take (- end start) (nthcdr start list))
+      (error "bad args"))))
+
 (ert-deftest test-seq-subseq ()
   (with-test-sequences (seq '(2 3 4 5))
     (should (equal (seq-subseq seq 0 4) seq))
@@ -275,7 +296,21 @@ Evaluate BODY for each created sequence.
   (should-error (seq-subseq [] -1))
   (should-error (seq-subseq "" -1))
   (should-not (seq-subseq '() 0))
-  (should-error (seq-subseq '() 0 -1)))
+  (should-error (seq-subseq '() 0 -1))
+
+  (dolist (list '(() (a b c d)))
+    (ert-info ((prin1-to-string list) :prefix "list: ")
+      (let ((len (length list)))
+        (dolist (start (number-sequence (- -2 len) (+ 2 len)))
+          (ert-info ((prin1-to-string start) :prefix "start: ")
+            (dolist (end (cons nil (number-sequence (- -2 len) (+ 2 len))))
+              (ert-info ((prin1-to-string end) :prefix "end: ")
+                (condition-case res
+                    (seq-tests--list-subseq-ref list start end)
+                  (error
+                   (should-error (seq-subseq list start end)))
+                  (:success
+                   (should (equal (seq-subseq list start end) res))))))))))))
 
 (ert-deftest test-seq-concatenate ()
   (with-test-sequences (seq '(2 4 6))
@@ -455,6 +490,13 @@ Evaluate BODY for each created sequence.
     (should (= (seq-position seq 'a #'eq) 0))
     (should (null (seq-position seq (make-symbol "a") #'eq)))))
 
+(ert-deftest test-seq-positions ()
+  (with-test-sequences (seq '(1 2 3 1 4))
+    (should (equal '(0 3) (seq-positions seq 1)))
+    (should (seq-empty-p (seq-positions seq 9))))
+  (with-test-sequences (seq '(11 5 7 12 9 15))
+    (should (equal '(0 3 5) (seq-positions seq 10 #'>=)))))
+
 (ert-deftest test-seq-sort-by ()
   (let ((seq ["x" "xx" "xxx"]))
     (should (equal (seq-sort-by #'seq-length #'> seq)
@@ -531,6 +573,30 @@ Evaluate BODY for each created sequence.
                    '("01" "23" "45" "67" "89")))
     (should (equal (seq-split seq 3)
                    '("012" "345" "678" "9")))))
+
+(ert-deftest test-seq-uniq-list ()
+  (let ((list '(1 2 3)))
+    (should (equal (seq-uniq (append list list)) '(1 2 3))))
+  (let ((list '(1 2 3 2 1)))
+    (should (equal (seq-uniq list) '(1 2 3))))
+  (let ((list (list (substring "1")
+                    (substring "2")
+                    (substring "3")
+                    (substring "2")
+                    (substring "1"))))
+    (should (equal (seq-uniq list) '("1" "2" "3")))
+    (should (equal (seq-uniq list #'eq) '("1" "2" "3" "2" "1"))))
+  ;; Long lists have a different code path.
+  (let ((list (seq-map-indexed (lambda (_ i) i)
+			       (make-list 10000 nil))))
+    (should (= (length list) 10000))
+    (should (= (length (seq-uniq (append list list))) 10000))))
+
+(ert-deftest test-seq-keep ()
+  (should (equal (seq-keep #'cl-digit-char-p '(?6 ?a ?7))
+                 '(6 7)))
+  (should (equal (seq-keep #'cl-digit-char-p [?6 ?a ?7])
+                 '(6 7))))
 
 (provide 'seq-tests)
 ;;; seq-tests.el ends here

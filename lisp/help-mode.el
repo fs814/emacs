@@ -384,8 +384,8 @@ The format is (FUNCTION ARGS...).")
   'help-function
   (lambda (file pos)
     (if help-window-keep-selected
-        (view-buffer (find-file-noselect file))
-      (view-buffer-other-window (find-file-noselect file)))
+        (view-file file)
+      (view-file-other-window file))
     (goto-char pos))
   'help-echo (purecopy "mouse-2, RET: show corresponding NEWS announcement"))
 
@@ -408,7 +408,7 @@ Commands:
 \\{help-mode-map}"
   (setq-local revert-buffer-function
               #'help-mode-revert-buffer)
-  (add-hook 'context-menu-functions 'help-mode-context-menu 5 t)
+  (add-hook 'context-menu-functions #'help-mode-context-menu 5 t)
   (setq-local tool-bar-map
               help-mode-tool-bar-map)
   (setq-local help-mode--current-data nil)
@@ -673,21 +673,25 @@ that."
           (while (and (not (bobp)) (bolp))
             (delete-char -1))
           (insert "\n")
-          (when (or help-xref-stack help-xref-forward-stack)
-            (insert "\n"))
-          ;; Make a back-reference in this buffer if appropriate.
-          (when help-xref-stack
-            (help-insert-xref-button help-back-label 'help-back
-                                     (current-buffer)))
-          ;; Make a forward-reference in this buffer if appropriate.
-          (when help-xref-forward-stack
-            (when help-xref-stack
-              (insert "\t"))
-            (help-insert-xref-button help-forward-label 'help-forward
-                                     (current-buffer)))
-          (when (or help-xref-stack help-xref-forward-stack)
-            (insert "\n")))
+          (help-xref--navigation-buttons))
         (set-buffer-modified-p old-modified)))))
+
+(defun help-xref--navigation-buttons ()
+  (let ((inhibit-read-only t))
+    (when (or help-xref-stack help-xref-forward-stack)
+      (ensure-empty-lines 1))
+    ;; Make a back-reference in this buffer if appropriate.
+    (when help-xref-stack
+      (help-insert-xref-button help-back-label 'help-back
+                               (current-buffer)))
+    ;; Make a forward-reference in this buffer if appropriate.
+    (when help-xref-forward-stack
+      (when help-xref-stack
+        (insert "\t"))
+      (help-insert-xref-button help-forward-label 'help-forward
+                               (current-buffer)))
+    (unless (bolp)
+      (insert "\n"))))
 
 ;;;###autoload
 (defun help-xref-button (match-number type &rest args)
@@ -758,7 +762,7 @@ See `help-make-xrefs'."
 ;; Additional functions for (re-)creating types of help buffers.
 
 ;;;###autoload
-(define-obsolete-function-alias 'help-xref-interned 'describe-symbol "25.1")
+(define-obsolete-function-alias 'help-xref-interned #'describe-symbol "25.1")
 
 
 ;; Navigation/hyperlinking with xrefs
@@ -828,7 +832,7 @@ The help buffers are divided into \"pages\" by the ^L character."
 
 (defun help-goto-previous-page ()
   "Go to the previous page (if any) in the current buffer.
-(If not at the start of a page, go to the start of the current page.)
+\(If not at the start of a page, go to the start of the current page.)
 
 The help buffers are divided into \"pages\" by the ^L character."
   (interactive nil help-mode)

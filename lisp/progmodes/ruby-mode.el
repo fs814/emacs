@@ -849,7 +849,7 @@ The style of the comment is controlled by `ruby-encoding-magic-comment-style'."
     (back-to-indentation)
     (current-column)))
 
-(defun ruby-indent-line (&optional ignored)
+(defun ruby-indent-line (&optional _ignored)
   "Correct the indentation of the current Ruby line."
   (interactive)
   (ruby-indent-to (ruby-calculate-indent)))
@@ -1147,7 +1147,7 @@ delimiter."
           (setq re (regexp-quote (or (match-string 4) (match-string 2))))
           (if (match-beginning 1) (setq re (concat "\\s *" re)))
           (let* ((id-end (goto-char (match-end 0)))
-                 (line-end-position (point-at-eol))
+                 (line-end-position (line-end-position))
                  (state (list in-string nest depth pcol indent)))
             ;; parse the rest of the line
             (while (and (> line-end-position (point))
@@ -1576,7 +1576,7 @@ With ARG, do it many times.  Negative ARG means move forward."
         ((error)))
       i))))
 
-(defun ruby-indent-exp (&optional ignored)
+(defun ruby-indent-exp (&optional _ignored)
   "Indent each line in the balanced expression following the point."
   (interactive "*P")
   (let ((here (point-marker)) start top column (nest t))
@@ -1924,7 +1924,7 @@ It will be properly highlighted even when the call omits parens.")
                         (save-excursion
                           (forward-char -1)
                           (looking-back ruby-syntax-before-regexp-re
-                                        (point-at-bol))))
+                                        (line-beginning-position))))
                    ;; End of regexp.  We don't match the whole
                    ;; regexp at once because it can have
                    ;; string interpolation inside, or span

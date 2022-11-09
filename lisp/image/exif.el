@@ -261,9 +261,9 @@ VALUE is an integer representing BYTES characters."
     (set-buffer-multibyte nil)
     (if le
         (dotimes (i bytes)
-          (insert (logand (lsh value (* i -8)) 255)))
+          (insert (logand (ash value (* i -8)) 255)))
       (dotimes (i bytes)
-        (insert (logand (lsh value (* (- (1- bytes) i) -8)) 255))))
+        (insert (logand (ash value (* (- (1- bytes) i) -8)) 255))))
     (insert 0)
     (buffer-string)))
 
@@ -271,13 +271,13 @@ VALUE is an integer representing BYTES characters."
   "Do type-based post-processing of the value."
   (cl-case type
     ;; Chop off trailing zero byte.
-    ('ascii (substring value 0 (1- (length value))))
-    ('rational (with-temp-buffer
-                 (set-buffer-multibyte nil)
-                 (insert value)
-                 (goto-char (point-min))
-                 (cons (exif--read-number 4 le)
-                       (exif--read-number 4 le))))
+    (ascii (substring value 0 (1- (length value))))
+    (rational (with-temp-buffer
+                (set-buffer-multibyte nil)
+                (insert value)
+                (goto-char (point-min))
+                (cons (exif--read-number 4 le)
+                      (exif--read-number 4 le))))
     (otherwise value)))
 
 (defun exif--read-chunk (bytes)

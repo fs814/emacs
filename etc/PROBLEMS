@@ -568,12 +568,6 @@ This can happen with CVS versions 1.12.8 and 1.12.9.  Upgrade to CVS
 
 ** Miscellaneous problems
 
-*** Editing files with very long lines is slow.
-
-For example, simply moving through a file that contains hundreds of
-thousands of characters per line is slow, and consumes a lot of CPU.
-This is a known limitation of Emacs with no solution at this time.
-
 *** Display artifacts on GUI frames on X-based systems.
 
 This is known to be caused by using double-buffering (which is enabled
@@ -775,14 +769,6 @@ WiFi properties (reachable from the Windows Settings menu).  This will
 cause files to be downloaded to the local computer when they are
 accessed (which could take some time, and Emacs functions accessing
 the file will wait for that), avoiding the errors.
-
-*** ps-print commands fail to find prologue files ps-prin*.ps.
-
-This can happen if you use an old version of X-Symbol package: it
-defines compatibility functions which trick ps-print into thinking it
-runs in XEmacs, and look for the prologue files in a wrong directory.
-
-The solution is to upgrade X-Symbol to a later version.
 
 *** On systems with shared libraries you might encounter run-time errors
 from the dynamic linker telling you that it is unable to find some
@@ -1243,6 +1229,17 @@ you should use an Emacs input method instead.
 
 ** X keyboard problems
 
+*** `x-focus-frame' fails to activate the frame.
+
+Some window managers prevent `x-focus-frame' from activating the given
+frame when Emacs is in the background.
+
+Emacs tries to work around this problem by default, but the workaround
+does not work on all window managers.  You can try different
+workarounds by changing the value of `x-allow-focus-stealing' (see its
+doc string for more details).  The value `imitate-pager' may be
+required on some versions of KWin.
+
 *** You "lose characters" after typing Compose Character key.
 
 This is because the Compose Character key is defined as the keysym
@@ -1364,6 +1361,17 @@ command:
 
 
 ** Window-manager and toolkit-related problems
+
+*** Emacs built with GTK+ displays giant tool bar icons in some cases
+
+This is because some icon themes (such as the KDE Breeze icon theme)
+have several incorrectly sized icons, which also causes the toolbar to
+expand uncontrollably.  The fix is to switch to a different icon
+theme, or to use Emacs's own toolbar icons by placing:
+
+  (setq x-gtk-stock-map nil)
+
+in your early-init.el.
 
 *** Emacs built with GTK+ toolkit produces corrupted display on HiDPI screen
 
@@ -2270,6 +2278,13 @@ term/xterm.el) for more details.
 
 *** Linux console problems with double-width characters
 
+If possible, we recommend running Emacs inside fbterm, when in a Linux
+console (see the node "Emacs in a Linux console" in the Emacs FAQ).
+Most Unicode characters should then be displayed correctly.
+
+If that is not possible, the following may be useful to alleviate the
+problem of displaying Unicode characters in a raw console.
+
 The Linux console declares UTF-8 encoding, but supports only a limited
 number of Unicode characters, and can cause Emacs produce corrupted or
 garbled display with some unusual characters and sequences.  Emacs 28
@@ -2332,8 +2347,23 @@ terminals display them as 1-column glyphs.  Again, this causes cursor
 addressing to get out of sync and eventually messes up the display.
 
 One possible workaround for problems caused by character composition
-is to turn off 'auto-composition-mode' on Kitty terminals.
+is to turn off 'auto-composition-mode' on Kitty terminals, e.g. by
+customizing the 'auto-composition-mode' variable to have as value a
+string that the 'tty-type' function returns on those terminals.
 
+*** Display artifacts on the Alacritty text terminal
+
+This terminal is known to cause problems with Emoji sequences: when
+displaying them, the Emacs text-mode frame could show gaps and other
+visual artifacts.
+
+The solution is to disable 'auto-composition-mode' on these
+terminals, for example, like this:
+
+  (setq auto-composition-mode "alacritty")
+
+This disables 'auto-composition-mode' on frames that display on
+terminals of this type.
 
 * Runtime problems specific to individual Unix variants
 
@@ -3137,6 +3167,17 @@ file; for example:
 
 * Runtime problems specific to PGTK
 
+** Giant tool bar icons are displayed in some cases
+
+This is because some icon themes (such as the KDE Breeze icon theme)
+have several incorrectly sized icons, which also causes the toolbar to
+expand uncontrollably.  The fix is to switch to a different icon
+theme, or to use Emacs's own toolbar icons by placing:
+
+  (setq x-gtk-stock-map nil)
+
+in your early-init.el.
+
 ** Some modifier keys doesn't work if Emacs is started in a systemd unit file.
 
 Environment variables may be different if there is a difference in the
@@ -3412,14 +3453,6 @@ The fix is to install a newer version of ncurses, such as version 4.2.
 Bootstrapping (compiling the .el files) is normally only necessary
 with development builds, since the .elc files are pre-compiled in releases.
 
-*** "No rule to make target" with Ubuntu 8.04 make 3.81-3build1
-
-Compiling the lisp files fails at random places, complaining:
-"No rule to make target '/path/to/some/lisp.elc'".
-The causes of this problem are not understood.  Using GNU make 3.81 compiled
-from source, rather than the Ubuntu version, worked.
-See <URL:https://debbugs.gnu.org/327>, <URL:https://debbugs.gnu.org/821>.
-
 ** Dumping
 
 *** Segfault during 'make'
@@ -3538,20 +3571,20 @@ as a macro.  If the definition (in both unex*.c and malloc.c) is wrong,
 it can cause problems like this.  You might be able to find the correct
 value in the man page for a.out(5).
 
-* 'make check' failures
-
-** emacs-module-tests fail on Ubuntu 16.04
-
-This is due to a bug in GCC that was fixed in 2015; see
-<https://lists.gnu.org/r/emacs-devel/2018-09/msg00548.html>.
-You can work around the problem by using a later version of GCC or of
-Ubuntu, or by configuring without modules.
-
 * Problems on legacy systems
 
 This section covers bugs reported on very old hardware or software.
 If you are using hardware and an operating system shipped after 2000,
 it is unlikely you will see any of these.
+
+** GNU/Linux
+
+*** Ubuntu 8.04 make 3.81-3build1: "No rule to make target"
+Compiling the lisp files fails at random places, complaining:
+"No rule to make target '/path/to/some/lisp.elc'".
+The causes of this problem are not understood.  Using GNU make 3.81 compiled
+from source, rather than the Ubuntu version, worked.
+See <URL:https://debbugs.gnu.org/327>, <URL:https://debbugs.gnu.org/821>.
 
 ** Solaris
 

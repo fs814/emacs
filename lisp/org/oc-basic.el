@@ -73,6 +73,7 @@
 (require 'seq)
 
 (declare-function org-open-at-point "org" (&optional arg))
+(declare-function org-open-file "org" (path &optional in-emacs line search))
 
 (declare-function org-element-interpret-data "org-element" (data))
 (declare-function org-element-property "org-element" (property element))
@@ -459,12 +460,13 @@ substitutes for the unknown key.  Finally, it may be the symbol
         (_
          (lambda ()
            (interactive)
-           (setf (buffer-substring beg end)
-                 (concat "@"
-                         (if (= 1 (length suggestions))
-                             (car suggestions)
-                           (completing-read "Did you mean: "
-                                            suggestions nil t))))))))
+           (goto-char beg)
+           (delete-region beg end)
+           (insert "@"
+                   (if (= 1 (length suggestions))
+                       (car suggestions)
+                     (completing-read "Did you mean: "
+                                      suggestions nil t)))))))
     (put-text-property beg end 'keymap km)))
 
 (defun org-cite-basic-activate (citation)

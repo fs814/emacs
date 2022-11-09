@@ -646,7 +646,7 @@ followed by another \"%[A-F0-9]{2}\" group."
 		  (cons 6 128))))
 	  (when (>= val 192) (setq eat (car shift-xor)))
 	  (setq val (logxor val (cdr shift-xor)))
-	  (setq sum (+ (lsh sum (car shift-xor)) val))
+	  (setq sum (+ (ash sum (car shift-xor)) val))
 	  (when (> eat 0) (setq eat (- eat 1)))
 	  (cond
 	   ((= 0 eat)			;multi byte
@@ -937,7 +937,7 @@ characters that should be escaped."
 
 (defun org-link-decode (s)
   "Decode percent-encoded parts in string S.
-E.g. \"%C3%B6\" becomes the german o-Umlaut."
+E.g. \"%C3%B6\" becomes the German o-Umlaut."
   (replace-regexp-in-string "\\(%[0-9A-Za-z]\\{2\\}\\)+"
 			    #'org-link--decode-compound s t t))
 
@@ -1481,7 +1481,7 @@ non-nil."
 	(let ((end (region-end)))
 	  (goto-char (region-beginning))
 	  (set-mark (point))
-	  (while (< (point-at-eol) end)
+          (while (< (line-end-position) end)
 	    (move-end-of-line 1) (activate-mark)
 	    (let (current-prefix-arg)
 	      (call-interactively 'org-store-link))

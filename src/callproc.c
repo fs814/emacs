@@ -39,7 +39,10 @@ extern char **environ;
   && (defined HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR        \
       || defined HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP) \
   && defined HAVE_DECL_POSIX_SPAWN_SETSID                   \
-  && HAVE_DECL_POSIX_SPAWN_SETSID == 1
+  && HAVE_DECL_POSIX_SPAWN_SETSID == 1			    \
+  /* posix_spawnattr_setflags rejects POSIX_SPAWN_SETSID on \
+     Haiku */						    \
+  && !defined HAIKU
 # include <spawn.h>
 # define USABLE_POSIX_SPAWN 1
 #else
@@ -645,12 +648,13 @@ call_process (ptrdiff_t nargs, Lisp_Object *args, int filefd,
 
 #ifndef MSDOS
 
+  child_signal_init ();
   block_input ();
   block_child_signal (&oldset);
 
   child_errno
     = emacs_spawn (&pid, filefd, fd_output, fd_error, new_argv, env,
-                   SSDATA (current_dir), NULL, &oldset);
+                   SSDATA (current_dir), NULL, false, false, &oldset);
   eassert ((child_errno == 0) == (0 < pid));
 
   if (pid > 0)
@@ -1306,29 +1310,29 @@ emacs_posix_spawn_init_actions (posix_spawn_file_actions_t *actions,
     return error;
 
   error = posix_spawn_file_actions_adddup2 (actions, std_in,
-                                            STDIN_FILENO);
+					    STDIN_FILENO);
   if (error != 0)
     goto out;
 
   error = posix_spawn_file_actions_adddup2 (actions, std_out,
-                                            STDOUT_FILENO);
+					    STDOUT_FILENO);
   if (error != 0)
     goto out;
 
   error = posix_spawn_file_actions_adddup2 (actions,
-                                            std_err < 0 ? std_out
-                                                        : std_err,
-                                            STDERR_FILENO);
+					    std_err < 0 ? std_out
+							: std_err,
+					    STDERR_FILENO);
   if (error != 0)
     goto out;
 
-  error =
-#ifdef HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR
-    posix_spawn_file_actions_addchdir
+  /* Haiku appears to have linkable posix_spawn_file_actions_chdir,
+     but it always fails.  So use the _np function instead.  */
+#if defined HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR && !defined HAIKU
+  error = posix_spawn_file_actions_addchdir (actions, cwd);
 #else
-    posix_spawn_file_actions_addchdir_np
+  error = posix_spawn_file_actions_addchdir_np (actions, cwd);
 #endif
-    (actions, cwd);
   if (error != 0)
     goto out;
 
@@ -1347,9 +1351,9 @@ emacs_posix_spawn_init_attributes (posix_spawnattr_t *attributes,
     return error;
 
   error = posix_spawnattr_setflags (attributes,
-                                    POSIX_SPAWN_SETSID
-                                      | POSIX_SPAWN_SETSIGDEF
-                                      | POSIX_SPAWN_SETSIGMASK);
+				    POSIX_SPAWN_SETSID
+				    | POSIX_SPAWN_SETSIGDEF
+				    | POSIX_SPAWN_SETSIGMASK);
   if (error != 0)
     goto out;
 
@@ -1412,14 +1416,15 @@ emacs_posix_spawn_init_attributes (posix_spawnattr_t *attributes,
 int
 emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
              char **argv, char **envp, const char *cwd,
-             const char *pty, const sigset_t *oldset)
+             const char *pty_name, bool pty_in, bool pty_out,
+             const sigset_t *oldset)
 {
 #if USABLE_POSIX_SPAWN
   /* Prefer the simpler `posix_spawn' if available.  `posix_spawn'
      doesn't yet support setting up pseudoterminals, so we fall back
      to `vfork' if we're supposed to use a pseudoterminal.  */
 
-  bool use_posix_spawn = pty == NULL;
+  bool use_posix_spawn = pty_name == NULL;
 
   posix_spawn_file_actions_t actions;
   posix_spawnattr_t attributes;
@@ -1473,7 +1478,9 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
   /* vfork, and prevent local vars from being clobbered by the vfork.  */
   pid_t *volatile newpid_volatile = newpid;
   const char *volatile cwd_volatile = cwd;
-  const char *volatile pty_volatile = pty;
+  const char *volatile ptyname_volatile = pty_name;
+  bool volatile ptyin_volatile = pty_in;
+  bool volatile ptyout_volatile = pty_out;
   char **volatile argv_volatile = argv;
   int volatile stdin_volatile = std_in;
   int volatile stdout_volatile = std_out;
@@ -1485,7 +1492,7 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
   /* Darwin doesn't let us run setsid after a vfork, so use fork when
      necessary.  Below, we reset SIGCHLD handling after a vfork, as
      apparently macOS can mistakenly deliver SIGCHLD to the child.  */
-  if (pty != NULL)
+  if (pty_in || pty_out)
     pid = fork ();
   else
     pid = VFORK ();
@@ -1495,7 +1502,9 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
 
   newpid = newpid_volatile;
   cwd = cwd_volatile;
-  pty = pty_volatile;
+  pty_name = ptyname_volatile;
+  pty_in = ptyin_volatile;
+  pty_out = ptyout_volatile;
   argv = argv_volatile;
   std_in = stdin_volatile;
   std_out = stdout_volatile;
@@ -1506,13 +1515,12 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
   if (pid == 0)
 #endif /* not WINDOWSNT */
     {
-      bool pty_flag = pty != NULL;
       /* Make the pty be the controlling terminal of the process.  */
 #ifdef HAVE_PTYS
       dissociate_controlling_tty ();
 
       /* Make the pty's terminal the controlling terminal.  */
-      if (pty_flag && std_in >= 0)
+      if (pty_in && std_in >= 0)
 	{
 #ifdef TIOCSCTTY
 	  /* We ignore the return value
@@ -1521,7 +1529,7 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
 #endif
 	}
 #if defined (LDISC1)
-      if (pty_flag && std_in >= 0)
+      if (pty_in && std_in >= 0)
 	{
 	  struct termios t;
 	  tcgetattr (std_in, &t);
@@ -1531,7 +1539,7 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
 	}
 #else
 #if defined (NTTYDISC) && defined (TIOCSETD)
-      if (pty_flag && std_in >= 0)
+      if (pty_in && std_in >= 0)
 	{
 	  /* Use new line discipline.  */
 	  int ldisc = NTTYDISC;
@@ -1548,18 +1556,21 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
      both TIOCSCTTY is defined.  */
 	/* Now close the pty (if we had it open) and reopen it.
 	   This makes the pty the controlling terminal of the subprocess.  */
-      if (pty_flag)
+      if (pty_name)
 	{
 
 	  /* I wonder if emacs_close (emacs_open (pty, ...))
 	     would work?  */
-	  if (std_in >= 0)
+	  if (pty_in && std_in >= 0)
 	    emacs_close (std_in);
-          std_out = std_in = emacs_open_noquit (pty, O_RDWR, 0);
-
+	  int ptyfd = emacs_open_noquit (pty_name, O_RDWR, 0);
+	  if (pty_in)
+	    std_in = ptyfd;
+	  if (pty_out)
+	    std_out = ptyfd;
 	  if (std_in < 0)
 	    {
-	      emacs_perror (pty);
+	      emacs_perror (pty_name);
 	      _exit (EXIT_CANCELED);
 	    }
 
@@ -1567,7 +1578,7 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
 #endif /* not DONT_REOPEN_PTY */
 
 #ifdef SETUP_SLAVE_PTY
-      if (pty_flag)
+      if (pty_in && std_in >= 0)
 	{
 	  SETUP_SLAVE_PTY;
 	}
@@ -1599,7 +1610,7 @@ emacs_spawn (pid_t *newpid, int std_in, int std_out, int std_err,
       /* Stop blocking SIGCHLD in the child.  */
       unblock_child_signal (oldset);
 
-      if (pty_flag)
+      if (pty_out)
 	child_setup_tty (std_out);
 #endif
 

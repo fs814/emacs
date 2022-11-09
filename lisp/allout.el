@@ -394,9 +394,8 @@ else allout's special hanging-indent maintaining auto-fill function,
 ;;;_  = allout-use-hanging-indents
 (defcustom allout-use-hanging-indents t
   "If non-nil, topic body text auto-indent defaults to indent of the header.
-Ie, it is indented to be just past the header prefix.  This is
-relevant mostly for use with `indented-text-mode', or other situations
-where auto-fill occurs."
+I.e., it is indented to be just past the header prefix.  This is
+relevant mostly for situations where auto-fill occurs."
   :type 'boolean
   :group 'allout)
 (make-variable-buffer-local 'allout-use-hanging-indents)
@@ -1353,8 +1352,6 @@ their settings before `allout-mode' was started."
   "Symbol for use as allout invisible-text overlay category.")
 
 ;;;_   = allout-exposure-change-functions
-(define-obsolete-variable-alias 'allout-exposure-change-hook
-  'allout-exposure-change-functions "24.3")
 (defcustom allout-exposure-change-functions nil
   "Abnormal hook run after allout outline subtree exposure changes.
 It is run at the conclusion of `allout-flag-region'.
@@ -1371,8 +1368,6 @@ This hook might be invoked multiple times by a single command."
   :version "24.3")
 
 ;;;_   = allout-structure-added-functions
-(define-obsolete-variable-alias 'allout-structure-added-hook
-  'allout-structure-added-functions "24.3")
 (defcustom allout-structure-added-functions nil
   "Abnormal hook run after adding items to an Allout outline.
 Functions on the hook should take two arguments:
@@ -1386,8 +1381,6 @@ This hook might be invoked multiple times by a single command."
   :version "24.3")
 
 ;;;_   = allout-structure-deleted-functions
-(define-obsolete-variable-alias 'allout-structure-deleted-hook
-  'allout-structure-deleted-functions "24.3")
 (defcustom allout-structure-deleted-functions nil
   "Abnormal hook run after deleting subtrees from an Allout outline.
 Functions on the hook must take two arguments:
@@ -1404,8 +1397,6 @@ This hook might be invoked multiple times by a single command."
   :version "24.3")
 
 ;;;_   = allout-structure-shifted-functions
-(define-obsolete-variable-alias 'allout-structure-shifted-hook
-  'allout-structure-shifted-functions "24.3")
 (defcustom allout-structure-shifted-functions nil
   "Abnormal hook run after shifting items in an Allout outline.
 Functions on the hook should take two arguments:
@@ -1700,7 +1691,7 @@ the HOT-SPOT Operation section.
 
         Misc commands:
         -------------
-M-x outlineify-sticky       Activate outline mode for current buffer,
+\\[allout-outlinify-sticky] Activate outline mode for current buffer,
                             and establish a default file-var setting
                             for `allout-layout'.
 \\[allout-mark-topic]       `allout-mark-topic'
@@ -4599,7 +4590,7 @@ by pops to non-distinctive yanks.  Bug..."
         (save-match-data
           (save-excursion
             (let* ((text-start allout-recent-prefix-end)
-                   (heading-end (point-at-eol)))
+                   (heading-end (line-end-position)))
               (goto-char text-start)
               (setq file-name
                     (if (re-search-forward "\\s-\\(\\S-*\\)" heading-end t)
@@ -4875,7 +4866,7 @@ siblings, even if the target topic is already closed."
   (interactive)
   (save-excursion
     (allout-back-to-heading)
-    (if (allout-hidden-p (point-at-eol))
+    (if (allout-hidden-p (line-end-position))
         (allout-show-current-subtree)
       (allout-hide-current-subtree))))
 ;;;_   > allout-show-current-branches ()
@@ -5538,7 +5529,7 @@ environment.  Leaves point at the end of the line."
   (let ((inhibit-field-text-motion t))
     (beginning-of-line)
     (let (;(beg (point))
-          (end (point-at-eol)))
+          (end (line-end-position)))
       (save-match-data
         (while (re-search-forward "\\\\"
   ;;"\\\\\\|\\{\\|\\}\\|\\_\\|\\$\\|\\\"\\|\\&\\|\\^\\|\\-\\|\\*\\|#"
@@ -6185,19 +6176,18 @@ save.  See `allout-encrypt-unencrypted-on-saves' for more info."
 
 ;;;_ #9 miscellaneous
 ;;;_  : Mode:
-;;;_   > outlineify-sticky ()
-;; outlinify-sticky is correct spelling; provide this alias for sticklers:
+;;;_   > allout-outlinify-sticky ()
 ;;;###autoload
-(defalias 'outlinify-sticky #'outlineify-sticky)
+(define-obsolete-function-alias 'outlinify-sticky #'allout-outlinify-sticky "29.1")
 ;;;###autoload
-(defun outlineify-sticky (&optional _arg)
+(define-obsolete-function-alias 'outlineify-sticky #'allout-outlinify-sticky "29.1")
+;;;###autoload
+(defun allout-outlinify-sticky (&optional _arg)
   "Activate outline mode and establish file var so it is started subsequently.
 
 See `allout-layout' and customization of `allout-auto-activation'
 for details on preparing Emacs for automatic allout activation."
-
   (interactive "P")
-
   (if (allout-mode-p) (allout-mode))    ; deactivate so we can re-activate...
   (allout-mode)
 

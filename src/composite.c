@@ -24,6 +24,8 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
 
+#include <stdlib.h>		/* for qsort */
+
 #include "lisp.h"
 #include "character.h"
 #include "composite.h"
@@ -798,6 +800,53 @@ composition_gstring_width (Lisp_Object gstring, ptrdiff_t from, ptrdiff_t to,
   return width;
 }
 
+/* Adjust the width of each grapheme cluster of GSTRING because
+   zero-width grapheme clusters are not displayed.  If the width is
+   zero, then the width of the last glyph in the cluster is
+   incremented.  */
+
+void
+composition_gstring_adjust_zero_width (Lisp_Object gstring)
+{
+  ptrdiff_t from = 0;
+  int width = 0;
+
+  for (ptrdiff_t i = 0; ; i++)
+    {
+      Lisp_Object glyph;
+
+      if (i < LGSTRING_GLYPH_LEN (gstring))
+	glyph = LGSTRING_GLYPH (gstring, i);
+      else
+	glyph = Qnil;
+
+      if (NILP (glyph) || from != LGLYPH_FROM (glyph))
+	{
+	  eassert (i > 0);
+	  Lisp_Object last = LGSTRING_GLYPH (gstring, i - 1);
+
+	  if (width == 0)
+	    {
+	      if (NILP (LGLYPH_ADJUSTMENT (last)))
+		LGLYPH_SET_ADJUSTMENT (last,
+				       CALLN (Fvector,
+					      make_fixnum (0), make_fixnum (0),
+					      make_fixnum (LGLYPH_WIDTH (last)
+							   + 1)));
+	      else
+		ASET (LGLYPH_ADJUSTMENT (last), 2,
+		      make_fixnum (LGLYPH_WADJUST (last) + 1));
+	    }
+	  if (NILP (glyph))
+	    break;
+	  from = LGLYPH_FROM (glyph);
+	  width = 0;
+	}
+      width += (NILP (LGLYPH_ADJUSTMENT (glyph))
+		? LGLYPH_WIDTH (glyph) : LGLYPH_WADJUST (glyph));
+    }
+}
+
 
 static Lisp_Object gstring_work;
 static Lisp_Object gstring_work_headers;
@@ -874,7 +923,8 @@ fill_gstring_body (Lisp_Object gstring)
 	}
       LGLYPH_SET_ADJUSTMENT (g, Qnil);
     }
-  if (i < LGSTRING_GLYPH_LEN (gstring))
+  len = LGSTRING_GLYPH_LEN (gstring);
+  for (; i < len; i++)
     LGSTRING_SET_GLYPH (gstring, i, Qnil);
 }
 
@@ -1021,7 +1071,11 @@ composition_compute_stop_pos (struct composition_it *cmp_it, ptrdiff_t charpos,
 	  /* But we don't know where to stop the searching.  */
 	  endpos = NILP (string) ? BEGV - 1 : -1;
 	  /* Usually we don't reach ENDPOS because we stop searching
-	     at an uncomposable character (NL, LRE, etc).  */
+	     at an uncomposable character (NL, LRE, etc).  In buffers
+	     with long lines, however, NL might be far away, so
+	     pretend that the buffer is smaller.  */
+	  if (current_buffer->long_line_optimizations_p)
+	    endpos = get_closer_narrowed_begv (cmp_it->parent_it->w, charpos);
 	}
     }
   cmp_it->id = -1;
@@ -1592,10 +1646,18 @@ find_automatic_composition (ptrdiff_t pos, ptrdiff_t limit, ptrdiff_t backlim,
       if (backlim < 0)
 	{
 	  /* This assumes a newline can never be composed.  */
-	  head = find_newline (pos, -1, 0, -1, -1, NULL, NULL, false) + 1;
+	  head = find_newline (pos, -1, 0, -1, -1, NULL, NULL, false);
 	}
       else
 	head = backlim;
+      if (current_buffer->long_line_optimizations_p)
+	{
+	  /* In buffers with very long lines, this function becomes very
+	     slow.  Pretend that the buffer is narrowed to make it fast.  */
+	  ptrdiff_t begv = get_closer_narrowed_begv (w, window_point (w));
+	  if (pos > begv)
+	    head = begv;
+	}
       tail = ZV;
       stop = GPT;
       cur.pos_byte = CHAR_TO_BYTE (cur.pos);
@@ -2042,6 +2104,54 @@ See `find-composition' for more details.  */)
   return Fcons (make_fixnum (start), Fcons (make_fixnum (end), tail));
 }
 
+static int
+compare_composition_rules (const void *r1, const void *r2)
+{
+  Lisp_Object vec1 = *(Lisp_Object *)r1, vec2 = *(Lisp_Object *)r2;
+
+  return XFIXNAT (AREF (vec2, 1)) - XFIXNAT (AREF (vec1, 1));
+}
+
+DEFUN ("composition-sort-rules", Fcomposition_sort_rules,
+       Scomposition_sort_rules, 1, 1, 0,
+       doc: /* Sort composition RULES by their LOOKBACK parameter.
+
+If RULES include just one rule, return RULES.
+Otherwise, return a new list of rules where all the rules are
+arranged in decreasing order of the LOOKBACK parameter of the
+rules (the second element of the rule's vector).  This is required
+when combining composition rules from different sources, because
+of the way buffer text is examined for matching one of the rules.  */)
+  (Lisp_Object rules)
+{
+  ptrdiff_t nrules;
+  USE_SAFE_ALLOCA;
+
+  CHECK_LIST (rules);
+  nrules = list_length (rules);
+  if (nrules > 1)
+    {
+      ptrdiff_t i;
+      Lisp_Object *sortvec;
+
+      SAFE_NALLOCA (sortvec, 1, nrules);
+      for (i = 0; i < nrules; i++)
+	{
+	  Lisp_Object elt = XCAR (rules);
+	  if (VECTORP (elt) && ASIZE (elt) == 3 && FIXNATP (AREF (elt, 1)))
+	    sortvec[i] = elt;
+	  else
+	    error ("Invalid composition rule in RULES argument");
+	  rules = XCDR (rules);
+	}
+      qsort (sortvec, nrules, sizeof (Lisp_Object), compare_composition_rules);
+      rules = Flist (nrules, sortvec);
+      SAFE_FREE ();
+    }
+
+  return rules;
+}
+
 
 void
 syms_of_composite (void)
@@ -2173,4 +2283,5 @@ This list is auto-generated, you should not need to modify it.  */);
   defsubr (&Sfind_composition_internal);
   defsubr (&Scomposition_get_gstring);
   defsubr (&Sclear_composition_cache);
+  defsubr (&Scomposition_sort_rules);
 }

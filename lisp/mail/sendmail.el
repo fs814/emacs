@@ -49,7 +49,9 @@
        ((file-exists-p "/usr/lib/sendmail") "/usr/lib/sendmail")
        ((file-exists-p "/usr/ucblib/sendmail") "/usr/ucblib/sendmail")
        (t "sendmail")))
-  "Program used to send messages."
+  "Program used to send messages.
+If the program returns a non-zero error code, or outputs any
+text, sending is considered \"failed\" by Emacs."
   :version "24.1"		; add executable-find, remove fakemail
   :type 'file)
 
@@ -537,7 +539,7 @@ This also saves the value of `send-mail-function' via Customize."
   (when mail-personal-alias-file
     (let ((modtime (file-attribute-modification-time
 		    (file-attributes mail-personal-alias-file))))
-      (or (equal mail-alias-modtime modtime)
+      (or (time-equal-p mail-alias-modtime modtime)
 	  (setq mail-alias-modtime modtime
 		mail-aliases t)))))
 
@@ -548,10 +550,10 @@ This also saves the value of `send-mail-function' via Customize."
   #'mail-send-and-exit)
 
 ;;;###autoload
-(defun sendmail-user-agent-compose (&optional to subject other-headers
-				    continue switch-function yank-action
-				    send-actions return-action
-				    &rest ignored)
+(defun sendmail-user-agent-compose ( &optional to subject other-headers
+                                     continue switch-function yank-action
+                                     send-actions return-action
+                                     &rest _ignored )
   (if switch-function
       (funcall switch-function "*mail*"))
   (let ((cc (cdr (assoc-string "cc" other-headers t)))
@@ -820,6 +822,7 @@ If within the headers, this makes the new lines into continuation lines."
 
 ;; User-level commands for sending.
 
+;;;###autoload
 (defun mail-send-and-exit (&optional arg)
   "Send message like `mail-send', then, if no errors, exit from mail buffer.
 Prefix arg means don't delete this window."
@@ -1290,7 +1293,7 @@ external program defined by `sendmail-program'."
 		   ;; should override any specified in the message itself.
 		     (when where-content-type
 		       (goto-char where-content-type)
-		       (delete-region (point-at-bol)
+                       (delete-region (line-beginning-position)
 				      (progn (forward-line 1) (point)))))))
 	    ;; Insert an extra newline if we need it to work around
 	    ;; Sun's bug that swallows newlines.

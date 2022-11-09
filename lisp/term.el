@@ -78,7 +78,7 @@
 ;; directory/username/host tracking: the only drawback is that you will
 ;; have to modify your shell start-up script.  It's worth it, believe me :).
 ;;
-;; When you rlogin/su/telnet and the account you access has a modified
+;; When you ssh/sudo/su and the account you access has a modified
 ;; startup script, you will be able to access the remote files as usual
 ;; with C-x C-f, if it's needed you will have to enter a password,
 ;; otherwise the file should get loaded straight away.
@@ -755,25 +755,8 @@ Buffer local variable.")
    term-color-bright-cyan
    term-color-bright-white])
 
-(defcustom term-default-fg-color nil
-  "If non-nil, default color for foreground in Term mode."
-  :group 'term
-  :type '(choice (const nil) (string :tag "color")))
-(make-obsolete-variable 'term-default-fg-color "use the face `term' instead."
-                        "24.3")
-
-(defcustom term-default-bg-color nil
-  "If non-nil, default color for foreground in Term mode."
-  :group 'term
-  :type '(choice (const nil) (string :tag "color")))
-(make-obsolete-variable 'term-default-bg-color "use the face `term' instead."
-                        "24.3")
-
 (defface term
-  `((t
-     :foreground ,term-default-fg-color
-     :background ,term-default-bg-color
-     :inherit default))
+  `((t :inherit default))
   "Default face to use in Term mode."
   :group 'term)
 
@@ -2862,13 +2845,13 @@ See `term-prompt-regexp'."
 
 (defun term-move-to-column (column)
   (setq term-current-column column)
-  (let ((point-at-eol (line-end-position)))
+  (let ((line-end-position (line-end-position)))
     (move-to-column term-current-column t)
     ;; If move-to-column extends the current line it will use the face
     ;; from the last character on the line, set the face for the chars
     ;; to default.
-    (when (> (point) point-at-eol)
-      (put-text-property point-at-eol (point) 'font-lock-face 'default))))
+    (when (> (point) line-end-position)
+      (put-text-property line-end-position (point) 'font-lock-face 'default))))
 
 ;; Move DELTA column right (or left if delta < 0 limiting at column 0).
 (defun term-move-columns (delta)

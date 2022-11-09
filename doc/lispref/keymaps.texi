@@ -374,7 +374,8 @@ number of keys.  Here's a very basic example:
 @end lisp
 
 This function creates a new sparse keymap, defines the keystrokes in
-@var{pairs}, and returns the new keymap.
+@var{pairs}, and returns the new keymap.  It signals an error if there
+are duplicate key bindings in @var{pairs}.
 
 @var{pairs} is a list of alternating key bindings and key definitions,
 as accepted by @code{keymap-set}.  In addition, the key can be the
@@ -438,7 +439,8 @@ variable.  This is what virtually all modes do---a mode called
 
 This macro defines @var{name} as a variable, passes @var{options}
 and @var{pairs} to @code{define-keymap}, and uses the result as the
-default value for the variable.
+default value for the variable.  It signals an error if there are
+duplicate key bindings in @var{pairs}.
 
 @var{options} is like the keywords in @code{define-keymap}, but
 there's an additional @code{:doc} keyword that provides the doc
@@ -1882,6 +1884,7 @@ to make entries in @code{input-decode-map} beyond those that can be
 deduced from Termcap and Terminfo.  @xref{Terminal-Specific}.
 @end defvar
 
+@cindex function-key-map
 @defvar local-function-key-map
 This variable holds a keymap similar to @code{input-decode-map} except
 that it describes key sequences which should be translated to
@@ -2907,6 +2910,10 @@ image.
 The @code{:rtl} property specifies an alternative image to use for
 right-to-left languages.  Only the GTK+ version of Emacs supports this
 at present.
+
+Some toolkits display both an image and a text in the toolbar.  If you
+want to force using only the image, use a @code{:vert-only}
+non-@code{nil} property.
 
 Like the menu bar, the tool bar can display separators (@pxref{Menu
 Separators}).  Tool bar separators are vertical rather than

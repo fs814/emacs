@@ -4,6 +4,7 @@
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: extensions, lisp, tools
+;; Version: 1.0
 
 ;; This file is part of GNU Emacs.
 
@@ -36,11 +37,6 @@
 ;;   where the place that we want to modify is a `symbol-function'.
 
 ;;; Code:
-
-;; The autoloads.el mechanism which adds package--builtin-versions
-;; maintenance to loaddefs.el doesn't work for preloaded packages (such
-;; as this one), so we have to do it by hand!
-(push (purecopy '(nadvice 1 0)) package--builtin-versions)
 
 (oclosure-define (advice
                   (:predicate advice--p)
@@ -108,19 +104,26 @@ DOC is a string where \"FUNCTION\" and \"OLDFUN\" are expected.")
                    (format "%s\n%s" name doc)
                  (format "%s" name))
              (or doc "No documentation")))))
-     "\n")))
+     "\n"
+     (and
+      (eq how :override)
+      (concat
+       (format-message
+        "\nThis is an :override advice, which means that `%s' isn't\n" function)
+       "run at all, and the documentation below may be irrelevant.\n")))))
 
 (defun advice--make-docstring (function)
   "Build the raw docstring for FUNCTION, presumably advised."
   (let* ((flist (indirect-function function))
          (docfun nil)
          (macrop (eq 'macro (car-safe flist)))
-         (docstring nil))
+         (before nil)
+         (after nil))
     (when macrop
       (setq flist (cdr flist)))
     (if (and (autoloadp flist)
              (get function 'advice--pending))
-        (setq docstring
+        (setq after
               (advice--make-single-doc (get function 'advice--pending)
                                        function macrop))
       (while (advice--p flist)
@@ -130,9 +133,13 @@ DOC is a string where \"FUNCTION\" and \"OLDFUN\" are expected.")
         ;; object instead!  So here we try to undo the damage.
         (when (integerp (aref flist 4))
           (setq docfun flist))
-        (setq docstring (concat docstring (advice--make-single-doc
-                                           flist function macrop))
-              flist (advice--cdr flist))))
+        (let ((doc-bit (advice--make-single-doc flist function macrop)))
+          ;; We want :overrides to go to the front, because they mean
+          ;; that the doc string may be irrelevant.
+          (if (eq (advice--how flist) :override)
+              (setq before (concat before doc-bit))
+            (setq after (concat after doc-bit))))
+        (setq flist (advice--cdr flist))))
     (unless docfun
       (setq docfun flist))
     (let* ((origdoc (unless (eq function docfun) ;Avoid inf-loops.
@@ -145,12 +152,18 @@ DOC is a string where \"FUNCTION\" and \"OLDFUN\" are expected.")
                         (if (stringp arglist) t
                           (help--make-usage-docstring function arglist)))
                     (setq origdoc (cdr usage)) (car usage)))
-      (help-add-fundoc-usage (concat origdoc
-                                     (if (string-suffix-p "\n" origdoc)
-                                         "\n"
-                                       "\n\n")
-                                     docstring)
-                             usage))))
+      (help-add-fundoc-usage
+       (with-temp-buffer
+         (when before
+           (insert before)
+           (ensure-empty-lines 1))
+         (when origdoc
+           (insert origdoc))
+         (when after
+           (ensure-empty-lines 1)
+           (insert after))
+         (buffer-string))
+       usage))))
 
 (defun advice-eval-interactive-spec (spec)
   "Evaluate the interactive spec SPEC."
@@ -167,31 +180,31 @@ DOC is a string where \"FUNCTION\" and \"OLDFUN\" are expected.")
 
 (defun advice--interactive-form (function)
   "Like `interactive-form' but tries to avoid autoloading functions."
-  (when (commandp function)
-    (if (not (and (symbolp function) (autoloadp (indirect-function function))))
-        (interactive-form function)
+  (if (not (and (symbolp function) (autoloadp (indirect-function function))))
+      (interactive-form function)
+    (when (commandp function)
       `(interactive (advice-eval-interactive-spec
                      (cadr (interactive-form ',function)))))))
 
-(defun advice--make-interactive-form (function main)
+(defun advice--make-interactive-form (iff ifm)
   ;; TODO: make it so that interactive spec can be a constant which
   ;; dynamically checks the advice--car/cdr to do its job.
   ;; For that, advice-eval-interactive-spec needs to be more faithful.
-  (let* ((iff (advice--interactive-form function))
-         (ifm (advice--interactive-form main))
-         (fspec (cadr iff)))
+  (let* ((fspec (cadr iff)))
     (when (eq 'function (car-safe fspec)) ;; Macroexpanded lambda?
-      (setq fspec (nth 1 fspec)))
+      (setq fspec (eval fspec t)))
     (if (functionp fspec)
         `(funcall ',fspec ',(cadr ifm))
       (cadr (or iff ifm)))))
 
 
 (cl-defmethod oclosure-interactive-form ((ad advice) &optional _)
-  (let ((car (advice--car ad))
-        (cdr (advice--cdr ad)))
-    (when (or (commandp car) (commandp cdr))
-      `(interactive ,(advice--make-interactive-form car cdr)))))
+  (let* ((car (advice--car ad))
+         (cdr (advice--cdr ad))
+         (ifa (advice--interactive-form car))
+         (ifd (advice--interactive-form cdr)))
+    (when (or ifa ifd)
+      `(interactive ,(advice--make-interactive-form ifa ifd)))))
 
 (cl-defmethod cl-print-object ((object advice) stream)
   (cl-assert (advice--p object))

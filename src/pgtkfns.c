@@ -164,8 +164,6 @@ pgtk_display_info_for_name (Lisp_Object name)
   if (dpyinfo == 0)
     error ("Cannot connect to display server %s", SDATA (name));
 
-  XSETFASTINT (Vwindow_system_version, 11);
-
   return dpyinfo;
 }
 
@@ -991,6 +989,7 @@ frame_parm_handler pgtk_frame_parm_handlers[] =
     pgtk_set_override_redirect,
     gui_set_no_special_glyphs,
     pgtk_set_alpha_background,
+    NULL,
   };
 
 
@@ -3130,6 +3129,10 @@ Text larger than the specified size is clipped.  */)
   int old_windows_or_buffers_changed = windows_or_buffers_changed;
   specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object window, size, tip_buf;
+  bool displayed;
+#ifdef ENABLE_CHECKING
+  struct glyph_row *row, *end;
+#endif
   AUTO_STRING (tip, " *tip*");
 
   specbind (Qinhibit_redisplay, Qt);
@@ -3334,7 +3337,26 @@ Text larger than the specified size is clipped.  */)
   clear_glyph_matrix (w->desired_matrix);
   clear_glyph_matrix (w->current_matrix);
   SET_TEXT_POS (pos, BEGV, BEGV_BYTE);
-  try_window (window, pos, TRY_WINDOW_IGNORE_FONTS_CHANGE);
+  displayed = try_window (window, pos, TRY_WINDOW_IGNORE_FONTS_CHANGE);
+
+  if (!displayed && NILP (Vx_max_tooltip_size))
+    {
+#ifdef ENABLE_CHECKING
+      row = w->desired_matrix->rows;
+      end = w->desired_matrix->rows + w->desired_matrix->nrows;
+
+      while (row < end)
+	{
+	  if (!row->displays_text_p
+	      || row->ends_at_zv_p)
+	    break;
+	  ++row;
+	}
+
+      eassert (row < end && row->ends_at_zv_p);
+#endif
+    }
+
   /* Calculate size of tooltip window.  */
   size = Fwindow_text_pixel_size (window, Qnil, Qnil, Qnil,
 				  make_fixnum (w->pixel_height), Qnil,
@@ -3924,7 +3946,7 @@ syms_of_pgtkfns (void)
 
   DEFVAR_LISP ("x-max-tooltip-size", Vx_max_tooltip_size,
 	       doc: /* SKIP: real doc in xfns.c.  */);
-  Vx_max_tooltip_size = Fcons (make_fixnum (80), make_fixnum (40));
+  Vx_max_tooltip_size = Qnil;
 
   DEFSYM (Qmono, "mono");
   DEFSYM (Qassq_delete_all, "assq-delete-all");

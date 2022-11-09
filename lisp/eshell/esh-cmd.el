@@ -133,6 +133,10 @@ There are several different kinds of commands, however."
 Such arguments will be passed to `read', and then evaluated."
   :type 'regexp)
 
+(defcustom eshell-lisp-form-nil-is-failure t
+  "If non-nil, Lisp forms like (COMMAND ARGS) treat a nil result as failure."
+  :type 'boolean)
+
 (defcustom eshell-pre-command-hook nil
   "A hook run before each interactive command is invoked."
   :type 'hook)
@@ -257,9 +261,9 @@ the command."
 (defcustom eshell-subcommand-bindings
   '((eshell-in-subcommand-p t)
     (eshell-in-pipeline-p nil)
-    (default-directory default-directory)
-    (process-environment (eshell-copy-environment)))
+    (default-directory default-directory))
   "A list of `let' bindings for subcommand environments."
+  :version "29.1"		       ; removed `process-environment'
   :type 'sexp
   :risky t)
 
@@ -368,8 +372,7 @@ The value returned is the last form in BODY."
          ;; Since parsing relies partly on buffer-local state
          ;; (e.g. that of `eshell-parse-argument-hook'), we need to
          ;; perform the parsing in the Eshell buffer.
-         (let ((begin (point)) end
-	       (inhibit-point-motion-hooks t))
+         (let ((begin (point)) end)
            (with-silent-modifications
              (insert reg)
              (setq end (point))
@@ -541,9 +544,7 @@ implemented via rewriting, rather than as a function."
 	   	,(eshell-invokify-arg body t)))
 	     (setcar for-items (cadr for-items))
 	     (setcdr for-items (cddr for-items)))
-           (eshell-close-handles
-            eshell-last-command-status
-            (list 'quote eshell-last-command-result))))))
+           (eshell-close-handles)))))
 
 (defun eshell-structure-basic-command (func names keyword test body
 					    &optional else)
@@ -551,10 +552,11 @@ implemented via rewriting, rather than as a function."
 The first of NAMES should be the positive form, and the second the
 negative.  It's not likely that users should ever need to call this
 function."
-  ;; If the test form begins with `eshell-convert', it means
-  ;; something data-wise will be returned, and we should let
-  ;; that determine the truth of the statement.
-  (unless (eq (car test) 'eshell-convert)
+  ;; If the test form begins with `eshell-convert' or
+  ;; `eshell-escape-arg', it means something data-wise will be
+  ;; returned, and we should let that determine the truth of the
+  ;; statement.
+  (unless (memq (car test) '(eshell-convert eshell-escape-arg))
     (setq test
 	  `(progn ,test
                   (eshell-exit-success-p))))
@@ -574,9 +576,7 @@ function."
   `(let ((eshell-command-body '(nil))
          (eshell-test-body '(nil)))
      (,func ,test ,body ,else)
-     (eshell-close-handles
-        eshell-last-command-status
-        (list 'quote eshell-last-command-result))))
+     (eshell-close-handles)))
 
 (defun eshell-rewrite-while-command (terms)
   "Rewrite a `while' command into its equivalent Eshell command form.
@@ -606,7 +606,7 @@ must be implemented via rewriting, rather than as a function."
                                t))
        (if (= (length terms) 4)
 	   `(eshell-protect
-             ,(eshell-invokify-arg (car (last terms)))) t))))
+             ,(eshell-invokify-arg (car (last terms)) t))))))
 
 (defvar eshell-last-command-result)     ;Defined in esh-io.el.
 
@@ -809,8 +809,6 @@ This macro calls itself recursively, with NOTFIRST non-nil."
 	   `(let ((nextproc
 		   (eshell-do-pipelines (quote ,(cdr pipeline)) t)))
               (eshell-set-output-handle ,eshell-output-handle
-                                        'append nextproc)
-              (eshell-set-output-handle ,eshell-error-handle
                                         'append nextproc)))
 	,(let ((head (car pipeline)))
 	   (if (memq (car head) '(let progn))
@@ -841,8 +839,6 @@ This is used on systems where async subprocesses are not supported."
        ,(when (cdr pipeline)
           `(let ((output-marker ,(point-marker)))
              (eshell-set-output-handle ,eshell-output-handle
-                                       'append output-marker)
-             (eshell-set-output-handle ,eshell-error-handle
                                        'append output-marker)))
        ,(let ((head (car pipeline)))
           (if (memq (car head) '(let progn))
@@ -1121,7 +1117,7 @@ be finished later after the completion of an asynchronous subprocess."
 	  (setcar eshell-test-body nil))
 	(unless (car eshell-test-body)
           (setcar eshell-test-body (copy-tree (car args))))
-	(while (cadr (eshell-do-eval (car eshell-test-body)))
+	(while (cadr (eshell-do-eval (car eshell-test-body) synchronous-p))
 	  (setcar eshell-command-body
                   (if (cddr args)
                       `(progn ,@(copy-tree (cdr args)))
@@ -1141,7 +1137,8 @@ be finished later after the completion of an asynchronous subprocess."
             (setcar eshell-test-body (copy-tree (car args))))
 	  (setcar eshell-command-body
                   (copy-tree
-                   (if (cadr (eshell-do-eval (car eshell-test-body)))
+                   (if (cadr (eshell-do-eval (car eshell-test-body)
+                                             synchronous-p))
                        (cadr args)
                      (car (cddr args)))))
 	  (eshell-do-eval (car eshell-command-body) synchronous-p))
@@ -1277,8 +1274,9 @@ be finished later after the completion of an asynchronous subprocess."
                         name)
                   (eshell-search-path name)))))
       (if (not program)
-	  (eshell-error (format "which: no %s in (%s)\n"
-				name (getenv "PATH")))
+          (eshell-error (format "which: no %s in (%s)\n"
+                                name (string-join (eshell-get-path t)
+                                                  (path-separator))))
 	(eshell-printn program)))))
 
 (put 'eshell/which 'eshell-no-numeric-conversions t)
@@ -1345,6 +1343,15 @@ case."
                  (apply func-or-form args)))))
         (and result (funcall printer result))
         result)
+    (eshell-pipe-broken
+     ;; If FUNC-OR-FORM tried and failed to write some output to a
+     ;; process, it will raise an `eshell-pipe-broken' signal (this is
+     ;; analogous to SIGPIPE on POSIX systems).  In this case, set the
+     ;; command status to some non-zero value to indicate an error; to
+     ;; match GNU/Linux, we use 141, which the numeric value of
+     ;; SIGPIPE on GNU/Linux (13) with the high bit (2^7) set.
+     (setq eshell-last-command-status 141)
+     nil)
     (error
      (setq eshell-last-command-status 1)
      (let ((msg (error-message-string err)))
@@ -1415,43 +1422,53 @@ via `eshell-errorn'."
 (defun eshell-lisp-command (object &optional args)
   "Insert Lisp OBJECT, using ARGS if a function."
   (catch 'eshell-external               ; deferred to an external command
+    (setq eshell-last-command-status 0
+          eshell-last-arguments args)
     (let* ((eshell-ensure-newline-p (eshell-interactive-output-p))
+           (command-form-p (functionp object))
            (result
-            (if (functionp object)
-                (progn
-                  (setq eshell-last-arguments args
-                        eshell-last-command-name
+            (if command-form-p
+                (let ((numeric (not (get object
+                                         'eshell-no-numeric-conversions)))
+                      (fname-args (get object 'eshell-filename-arguments)))
+                  (when (or numeric fname-args)
+                    (while args
+                      (let ((arg (car args)))
+                        (cond
+                         ((and numeric (stringp arg) (> (length arg) 0)
+                               (text-property-any 0 (length arg)
+                                                  'number t arg))
+                          ;; If any of the arguments are flagged as
+                          ;; numbers waiting for conversion, convert
+                          ;; them now.
+                          (setcar args (string-to-number arg)))
+                         ((and fname-args (stringp arg)
+                               (string-equal arg "~"))
+                          ;; If any of the arguments match "~",
+                          ;; prepend "./" to treat it as a regular
+                          ;; file name.
+                          (setcar args (concat "./" arg)))))
+                      (setq args (cdr args))))
+                  (setq eshell-last-command-name
                         (concat "#<function " (symbol-name object) ">"))
-                  (let ((numeric (not (get object
-                                           'eshell-no-numeric-conversions)))
-                        (fname-args (get object 'eshell-filename-arguments)))
-                    (when (or numeric fname-args)
-                      (while args
-                        (let ((arg (car args)))
-                          (cond ((and numeric (stringp arg) (> (length arg) 0)
-                                      (text-property-any 0 (length arg)
-                                                         'number t arg))
-                                 ;; If any of the arguments are
-                                 ;; flagged as numbers waiting for
-                                 ;; conversion, convert them now.
-                                 (setcar args (string-to-number arg)))
-                                ((and fname-args (stringp arg)
-                                      (string-equal arg "~"))
-                                 ;; If any of the arguments match "~",
-                                 ;; prepend "./" to treat it as a
-                                 ;; regular file name.
-                                 (setcar args (concat "./" arg)))))
-                        (setq args (cdr args)))))
                   (eshell-apply object eshell-last-arguments))
-              (setq eshell-last-arguments args
-                    eshell-last-command-name "#<Lisp object>")
+              (setq eshell-last-command-name "#<Lisp object>")
               (eshell-eval object))))
       (if (and eshell-ensure-newline-p
 	       (save-excursion
 		 (goto-char eshell-last-output-end)
 		 (not (bolp))))
 	  (eshell-print "\n"))
-      (eshell-close-handles 0 (list 'quote result)))))
+      (eshell-close-handles
+       ;; If `eshell-lisp-form-nil-is-failure' is non-nil, Lisp forms
+       ;; that succeeded but have a nil result should have an exit
+       ;; status of 2.
+       (when (and eshell-lisp-form-nil-is-failure
+                  (not command-form-p)
+                  (= eshell-last-command-status 0)
+                  (not result))
+         2)
+       (list 'quote result)))))
 
 (defalias 'eshell-lisp-command* #'eshell-lisp-command)
 

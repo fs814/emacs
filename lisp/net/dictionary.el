@@ -59,7 +59,7 @@ the existing connection."
 
 (defgroup dictionary nil
   "Client for accessing the dictd server based dictionaries."
-  :group 'hypermedia)
+  :group 'applications)
 
 (defgroup dictionary-proxy nil
   "Proxy configuration options for the dictionary client."
@@ -119,7 +119,7 @@ one dictionary yields matches."
   "exact"
   "The default strategy for listing matching words within a popup window.
 
-The following algorithm (defined by the dictd server) are supported
+The following algorithms (defined by the dictd server) are supported
 by the choice value:
 
 - Exact match
@@ -130,7 +130,7 @@ by the choice value:
 
   The found word sounds similar to the searched word.  For this match type
   the soundex algorithm defined by Donald E. Knuth is used.  It will only
-  works with english words and the algorithm is not very reliable (i.e.,
+  work with English words and the algorithm is not very reliable (i.e.,
   the soundex algorithm is quite simple).
 
 - Levenshtein distance one
@@ -330,7 +330,7 @@ is utf-8"
   :doc "Keymap for the dictionary mode."
   :suppress t :parent button-buffer-map
   "q"     #'dictionary-close
-  "h"     #'dictionary-help
+  "h"     #'describe-mode
   "s"     #'dictionary-search
   "d"     #'dictionary-lookup-definition
   "D"     #'dictionary-select-dictionary
@@ -341,7 +341,8 @@ is utf-8"
   "p"     #'backward-button
   "SPC"   #'scroll-up-command
   "S-SPC" #'scroll-down-command
-  "M-SPC" #'scroll-down-command)
+  "M-SPC" #'scroll-down-command
+  "DEL"   #'scroll-down-command)
 
 (defvar dictionary-connection
   nil
@@ -357,7 +358,7 @@ is utf-8"
 
 (defvar dictionary-color-support
   (condition-case nil
-      (x-display-color-p)
+      (display-color-p)
     (error nil))
   "Determines if the Emacs has support to display color.")
 
@@ -379,7 +380,7 @@ protocol defined in RFC 2229.
 This is a quick reference to this mode describing the default key bindings:
 \\<dictionary-mode-map>
 * \\[dictionary-close] close the dictionary buffer
-* \\[dictionary-help] display this help information
+* \\[describe-mode] display this help information
 * \\[dictionary-search] ask for a new word to search
 * \\[dictionary-lookup-definition] search the word at point
 * \\[forward-button] or TAB place point to the next link
@@ -389,7 +390,7 @@ This is a quick reference to this mode describing the default key bindings:
 * \\[dictionary-select-dictionary] select the default dictionary
 * \\[dictionary-select-strategy] select the default search strategy
 
-* RET or <mouse-2> visit that link"
+* \\`RET' or \\`<mouse-2>' visit that link"
 
   (unless (eq major-mode 'dictionary-mode)
     (cl-incf dictionary-instances))
@@ -1150,9 +1151,7 @@ It presents the selection or word at point as default input and
 allows editing it."
   (interactive
    (list (let ((default (dictionary-search-default)))
-           (read-string (if default
-                            (format "Search word (%s): " default)
-                          "Search word: ")
+           (read-string (format-prompt "Search word" default)
                         nil 'dictionary-word-history default))
 	 (if current-prefix-arg
 	     (read-string (if dictionary-default-dictionary
@@ -1173,7 +1172,10 @@ allows editing it."
 (defun dictionary-lookup-definition ()
   "Unconditionally lookup the word at point."
   (interactive)
-  (dictionary-new-search (cons (current-word) dictionary-default-dictionary)))
+  (let ((word (current-word)))
+    (unless word
+      (error "No word at point"))
+    (dictionary-new-search (cons word dictionary-default-dictionary))))
 
 (defun dictionary-previous ()
   "Go to the previous location in the current buffer."
@@ -1184,7 +1186,8 @@ allows editing it."
 
 (defun dictionary-help ()
   "Display a little help."
-  (interactive)
+  (declare (obsolete describe-mode "29.1"))
+  (interactive nil dictionary-mode)
   (describe-function 'dictionary-mode))
 
 ;;;###autoload

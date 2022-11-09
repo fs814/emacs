@@ -188,7 +188,7 @@ VALUE as a unibyte string, or nil if VALUE was not a string."
                           (error "Out of range octet: %d" octet))
                         (setq value
                               (logior value
-                                      (lsh octet
+                                      (ash octet
                                            (- (* (1- (length string)) 8)
                                               offset))))
                         (setq offset (+ offset 8))))
@@ -409,8 +409,7 @@ take effect on menu items until the menu bar is updated again."
     (when (car mouse-position)
       (dnd-handle-movement (posn-at-x-y (cadr mouse-position)
                                         (cddr mouse-position)
-                                        (car mouse-position)))
-      (redisplay))))
+                                        (car mouse-position))))))
 
 (setq haiku-drag-track-function #'haiku-dnd-drag-handler)
 
@@ -460,7 +459,119 @@ take effect on menu items until the menu bar is updated again."
                           message allow-current-frame
                           follow-tooltip))))
 
-(add-variable-watcher 'use-system-tooltips #'haiku-use-system-tooltips-watcher)
+(add-variable-watcher 'use-system-tooltips
+                      #'haiku-use-system-tooltips-watcher)
+
+(defvar haiku-dnd-wheel-count nil
+  "Cons used to determine how many times the wheel has been turned.
+The car is just that; cdr is the timestamp of the last wheel
+movement.")
+
+(defvar haiku-last-wheel-direction nil
+  "Cons of two elements describing the direction the wheel last turned.
+The car is whether or not the movement was horizontal.
+The cdr is whether or not the movement was upwards or leftwards.")
+
+(defun haiku-note-wheel-click (timestamp)
+  "Note that the mouse wheel was moved at TIMESTAMP during drag-and-drop.
+Return the number of clicks that were made in quick succession."
+  (if (not (integerp double-click-time))
+      1
+    (let ((cell haiku-dnd-wheel-count))
+      (unless cell
+        (setq cell (cons 0 timestamp))
+        (setq haiku-dnd-wheel-count cell))
+      (when (< (cdr cell) (- timestamp double-click-time))
+        (setcar cell 0))
+      (setcar cell (1+ (car cell)))
+      (setcdr cell timestamp)
+      (car cell))))
+
+(defvar haiku-drag-wheel-function)
+
+(defun haiku-dnd-modifier-mask (mods)
+  "Return the internal modifier mask for the Emacs modifier state MODS.
+MODS is a single symbol, or a list of symbols such as `shift' or
+`control'."
+  (let ((mask 0))
+    (unless (consp mods)
+      (setq mods (list mods)))
+    (dolist (modifier mods)
+      (cond ((eq modifier 'shift)
+             (setq mask (logior mask ?\S-\0)))
+            ((eq modifier 'control)
+             (setq mask (logior mask ?\C-\0)))
+            ((eq modifier 'meta)
+             (setq mask (logior mask ?\M-\0)))
+            ((eq modifier 'hyper)
+             (setq mask (logior mask ?\H-\0)))
+            ((eq modifier 'super)
+             (setq mask (logior mask ?\s-\0)))
+            ((eq modifier 'alt)
+             (setq mask (logior mask ?\A-\0)))))
+    mask))
+
+(defun haiku-dnd-wheel-modifier-type (flags)
+  "Return the modifier type of an internal modifier mask.
+FLAGS is the internal modifier mask of a turn of the mouse wheel."
+  (let ((modifiers (logior ?\M-\0 ?\C-\0 ?\S-\0
+			   ?\H-\0 ?\s-\0 ?\A-\0)))
+    (catch 'type
+      (dolist (modifier mouse-wheel-scroll-amount)
+        (when (and (consp modifier)
+                   (eq (haiku-dnd-modifier-mask (car modifier))
+                       (logand flags modifiers)))
+          (throw 'type (cdr modifier))))
+      nil)))
+
+(defun haiku-handle-drag-wheel (frame x y horizontal up modifiers)
+  "Handle wheel movement during drag-and-drop.
+FRAME is the frame on top of which the wheel moved.
+X and Y are the frame-relative coordinates of the wheel movement.
+HORIZONTAL is whether or not the wheel movement was horizontal.
+UP is whether or not the wheel moved up (or left).
+MODIFIERS is the internal modifier mask of the wheel movement."
+  (when (not (equal haiku-last-wheel-direction
+                    (cons horizontal up)))
+    (setq haiku-last-wheel-direction
+          (cons horizontal up))
+    (when (consp haiku-dnd-wheel-count)
+      (setcar haiku-dnd-wheel-count 0)))
+  (let ((type (haiku-dnd-wheel-modifier-type modifiers))
+        (function (cond
+                   ((and (not horizontal) (not up))
+                    mwheel-scroll-up-function)
+                   ((not horizontal)
+                    mwheel-scroll-down-function)
+                   ((not up) (if mouse-wheel-flip-direction
+                                 mwheel-scroll-right-function
+                               mwheel-scroll-left-function))
+                   (t (if mouse-wheel-flip-direction
+                          mwheel-scroll-left-function
+                        mwheel-scroll-right-function))))
+        (timestamp (time-convert nil 1000))
+        (amt 1))
+    (cond ((and (eq type 'hscroll)
+                (not horizontal))
+           (setq function (if (not up)
+                              mwheel-scroll-left-function
+                            mwheel-scroll-right-function)))
+          ((and (eq type 'global-text-scale))
+           (setq function 'global-text-scale-adjust
+                 amt (if up 1 -1)))
+          ((and (eq type 'text-scale))
+           (setq function 'text-scale-adjust
+                 amt (if up 1 -1))))
+    (when function
+      (let ((posn (posn-at-x-y x y frame)))
+        (when (windowp (posn-window posn))
+          (with-selected-window (posn-window posn)
+            (funcall function
+                     (* amt
+                        (or (and (not mouse-wheel-progressive-speed) 1)
+                            (haiku-note-wheel-click (car timestamp)))))))))))
+
+(setq haiku-drag-wheel-function #'haiku-handle-drag-wheel)
 
 
 ;;;; Session management.
@@ -486,6 +597,45 @@ take effect on menu items until the menu bar is updated again."
     ;; The App Server will kill Emacs after receiving the reply, but
     ;; the Deskbar will not, so kill ourself here.
     (unless cancel-shutdown (kill-emacs))))
+
+;;;; Wallpaper support.
+
+
+(declare-function haiku-write-node-attribute "haikuselect.c")
+(declare-function haiku-send-message "haikuselect.c")
+
+(defun haiku-set-wallpaper (file)
+  "Make FILE the wallpaper.
+Set the desktop background to the image FILE, on all workspaces,
+with an offset of 0, 0."
+  (let ((encoded-file (encode-coding-string
+                       (expand-file-name file)
+                       (or file-name-coding-system
+                           default-file-name-coding-system))))
+    ;; Write the necessary information to the desktop directory.
+    (haiku-write-node-attribute "/boot/home/Desktop"
+                                "be:bgndimginfo"
+                                (list '(type . 0)
+                                      '("be:bgndimginfoerasetext" bool t)
+                                      (list "be:bgndimginfopath" 'string
+                                            encoded-file)
+                                      '("be:bgndimginfoworkspaces" long
+                                        ;; This is a mask of all the
+                                        ;; workspaces the background
+                                        ;; image will be applied to.  It
+                                        ;; is treated as an unsigned
+                                        ;; value by the Tracker, despite
+                                        ;; the type being signed.
+                                        -1)
+                                      ;; Don't apply an offset
+                                      '("be:bgndimginfooffset" point (0 . 0))
+                                      ;; Don't stretch or crop or anything
+                                      '("be:bgndimginfomode" long 0)
+                                      ;; Don't apply a set
+                                      '("be:bgndimginfoset" long 0)))
+    ;; Tell the tracker to redisplay the wallpaper.
+    (haiku-send-message "application/x-vnd.Be-TRAK"
+                        (list (cons 'type (haiku-numeric-enum Tbgr))))))
 
 
 ;;;; Cursors.

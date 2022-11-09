@@ -1,7 +1,6 @@
 /* Fundamental definitions for GNU Emacs Lisp interpreter. -*- coding: utf-8 -*-
 
-Copyright (C) 1985-1987, 1993-1995, 1997-2022 Free Software Foundation,
-Inc.
+Copyright (C) 1985-2022  Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -245,7 +244,8 @@ DEFINE_GDB_SYMBOL_BEGIN (EMACS_INT, VALMASK)
 DEFINE_GDB_SYMBOL_END (VALMASK)
 
 /* Ignore 'alignas' on compilers lacking it.  */
-#if !defined alignas && !defined __alignas_is_defined
+#if (!defined alignas && !defined __alignas_is_defined \
+     && __STDC_VERSION__ < 202311 && __cplusplus < 201103)
 # define alignas(a)
 #endif
 
@@ -642,10 +642,8 @@ extern bool initialized;
 extern struct gflags
 {
   /* True means this Emacs instance was born to dump.  */
-#if defined HAVE_PDUMPER || defined HAVE_UNEXEC
   bool will_dump_ : 1;
   bool will_bootstrap_ : 1;
-#endif
 #ifdef HAVE_PDUMPER
   /* Set in an Emacs process that will likely dump with pdumper; all
      Emacs processes may dump with pdumper, however.  */
@@ -1574,10 +1572,15 @@ struct Lisp_String
   {
     struct
     {
-      ptrdiff_t size;           /* MSB is used as the markbit.  */
-      ptrdiff_t size_byte;      /* Set to -1 for unibyte strings,
-				   -2 for data in rodata,
-				   -3 for immovable unibyte strings.  */
+      /* Number of characters in string; MSB is used as the mark bit.  */
+      ptrdiff_t size;
+      /* If nonnegative, number of bytes in the string (which is multibyte).
+	 If negative, the string is unibyte:
+	 -1 for data normally allocated
+	 -2 for data in rodata (C string constants)
+	 -3 for data that must be immovable (used for bytecode)  */
+      ptrdiff_t size_byte;
+
       INTERVAL intervals;	/* Text properties in this string.  */
       unsigned char *data;
     } s;
@@ -2602,10 +2605,9 @@ struct Lisp_Overlay
 */
   {
     union vectorlike_header header;
-    Lisp_Object start;
-    Lisp_Object end;
     Lisp_Object plist;
-    struct Lisp_Overlay *next;
+    struct buffer *buffer;        /* eassert (live buffer || NULL). */
+    struct itree_node *interval;
   } GCALIGNED_STRUCT;
 
 struct Lisp_Misc_Ptr
@@ -3146,7 +3148,7 @@ CHECK_NUMBER (Lisp_Object x)
 INLINE void
 CHECK_INTEGER (Lisp_Object x)
 {
-  CHECK_TYPE (INTEGERP (x), Qnumberp, x);
+  CHECK_TYPE (INTEGERP (x), Qintegerp, x);
 }
 
 INLINE void
@@ -3181,10 +3183,11 @@ CHECK_SUBR (Lisp_Object x)
  `minargs' should be a number, the minimum number of arguments allowed.
  `maxargs' should be a number, the maximum number of arguments allowed,
     or else MANY or UNEVALLED.
-    MANY means pass a vector of evaluated arguments,
-	 in the form of an integer number-of-arguments
-	 followed by the address of a vector of Lisp_Objects
-	 which contains the argument values.
+    MANY means there are &rest arguments.  Here we pass a vector
+        of evaluated arguments in the form of an integer
+        number-of-arguments followed by the address of a vector of
+        Lisp_Objects which contains the argument values.  (We also use
+        this convention when calling a subr with more than 8 parameters.)
     UNEVALLED means pass the list of unevaluated arguments
  `intspec' says how interactive arguments are to be fetched.
     If the string starts with a `(', `intspec' is evaluated and the resulting
@@ -3793,10 +3796,10 @@ make_symbol_constant (Lisp_Object sym)
 
 /* Buffer-local variable access functions.  */
 
-INLINE int
+INLINE bool
 blv_found (struct Lisp_Buffer_Local_Value *blv)
 {
-  eassert (blv->found == !EQ (blv->defcell, blv->valcell));
+  eassert (blv->found == !BASE_EQ (blv->defcell, blv->valcell));
   return blv->found;
 }
 
@@ -3911,10 +3914,14 @@ integer_to_uintmax (Lisp_Object num, uintmax_t *n)
 typedef intmax_t modiff_count;
 
 INLINE modiff_count
-modiff_incr (modiff_count *a)
+modiff_incr (modiff_count *a, ptrdiff_t len)
 {
-  modiff_count a0 = *a;
-  bool modiff_overflow = INT_ADD_WRAPV (a0, 1, a);
+  modiff_count a0 = *a; int incr = len ? 1 : 0;
+  /* Increase the counter more for a large modification and less for a
+     small modification.  Increase it logarithmically to avoid
+     increasing it too much.  */
+  while (len >>= 1) incr++;
+  bool modiff_overflow = INT_ADD_WRAPV (a0, incr, a);
   eassert (!modiff_overflow && *a >> 30 >> 30 == 0);
   return a0;
 }
@@ -4412,7 +4419,6 @@ extern Lisp_Object make_float (double);
 extern void display_malloc_warning (void);
 extern specpdl_ref inhibit_garbage_collection (void);
 extern Lisp_Object build_symbol_with_pos (Lisp_Object, Lisp_Object);
-extern Lisp_Object build_overlay (Lisp_Object, Lisp_Object, Lisp_Object);
 extern void free_cons (struct Lisp_Cons *);
 extern void init_alloc_once (void);
 extern void init_alloc (void);
@@ -4526,6 +4532,7 @@ extern Lisp_Object Vrun_hooks;
 extern Lisp_Object Vsignaling_function;
 extern Lisp_Object inhibit_lisp_code;
 extern bool signal_quit_p (Lisp_Object);
+extern bool backtrace_yet;
 
 /* To run a normal hook, use the appropriate function from the list below.
    The calling convention:
@@ -4675,6 +4682,7 @@ extern void save_restriction_restore (Lisp_Object);
 extern Lisp_Object make_buffer_string (ptrdiff_t, ptrdiff_t, bool);
 extern Lisp_Object make_buffer_string_both (ptrdiff_t, ptrdiff_t, ptrdiff_t,
 					    ptrdiff_t, bool);
+extern Lisp_Object narrow_to_region_internal (Lisp_Object, Lisp_Object, bool);
 extern void init_editfns (void);
 extern void syms_of_editfns (void);
 
@@ -4682,7 +4690,7 @@ extern void syms_of_editfns (void);
 extern bool mouse_face_overlay_overlaps (Lisp_Object);
 extern Lisp_Object disable_line_numbers_overlay_at_eob (void);
 extern AVOID nsberror (Lisp_Object);
-extern void adjust_overlays_for_insert (ptrdiff_t, ptrdiff_t);
+extern void adjust_overlays_for_insert (ptrdiff_t, ptrdiff_t, bool);
 extern void adjust_overlays_for_delete (ptrdiff_t, ptrdiff_t);
 extern void fix_start_end_in_overlays (ptrdiff_t, ptrdiff_t);
 extern void report_overlay_modification (Lisp_Object, Lisp_Object, bool,
@@ -4762,6 +4770,8 @@ extern ptrdiff_t fast_c_string_match_ignore_case (Lisp_Object, const char *,
 						  ptrdiff_t);
 extern ptrdiff_t fast_looking_at (Lisp_Object, ptrdiff_t, ptrdiff_t,
                                   ptrdiff_t, ptrdiff_t, Lisp_Object);
+extern ptrdiff_t find_newline1 (ptrdiff_t, ptrdiff_t, ptrdiff_t, ptrdiff_t,
+                               ptrdiff_t, ptrdiff_t *, ptrdiff_t *, bool);
 extern ptrdiff_t find_newline (ptrdiff_t, ptrdiff_t, ptrdiff_t, ptrdiff_t,
 			       ptrdiff_t, ptrdiff_t *, ptrdiff_t *, bool);
 extern void scan_newline (ptrdiff_t, ptrdiff_t, ptrdiff_t, ptrdiff_t,
@@ -4778,7 +4788,7 @@ extern void clear_regexp_cache (void);
 
 extern Lisp_Object Vminibuffer_list;
 extern Lisp_Object last_minibuf_string;
-extern void move_minibuffers_onto_frame (struct frame *, bool);
+extern void move_minibuffers_onto_frame (struct frame *, Lisp_Object, bool);
 extern bool is_minibuffer (EMACS_INT, Lisp_Object);
 extern EMACS_INT this_minibuffer_depth (Lisp_Object);
 extern EMACS_INT minibuf_level;
@@ -4823,6 +4833,8 @@ extern bool detect_input_pending (void);
 extern bool detect_input_pending_ignore_squeezables (void);
 extern bool detect_input_pending_run_timers (bool);
 extern void safe_run_hooks (Lisp_Object);
+extern void safe_run_hooks_maybe_narrowed (Lisp_Object, struct window *);
+extern void safe_run_hooks_2 (Lisp_Object, Lisp_Object, Lisp_Object);
 extern void cmd_error_internal (Lisp_Object, const char *);
 extern Lisp_Object command_loop_2 (Lisp_Object);
 extern Lisp_Object read_menu_command (void);
@@ -4903,6 +4915,7 @@ extern bool running_asynch_code;
 
 /* Defined in process.c.  */
 struct Lisp_Process;
+extern void child_signal_init (void);
 extern void kill_buffer_processes (Lisp_Object);
 extern int wait_reading_process_output (intmax_t, int, int, bool, Lisp_Object,
 					struct Lisp_Process *, int);
@@ -4935,7 +4948,8 @@ extern void setup_process_coding_systems (Lisp_Object);
 #endif
 
 extern int emacs_spawn (pid_t *, int, int, int, char **, char **,
-                        const char *, const char *, const sigset_t *);
+                        const char *, const char *, bool, bool,
+                        const sigset_t *);
 extern char **make_environment_block (Lisp_Object) ATTRIBUTE_RETURNS_NONNULL;
 extern void init_callproc_1 (void);
 extern void init_callproc (void);

@@ -54,12 +54,14 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <game/WindowScreen.h>
 #include <game/DirectWindow.h>
 
+#include <storage/FindDirectory.h>
 #include <storage/Entry.h>
 #include <storage/Path.h>
 #include <storage/FilePanel.h>
 #include <storage/AppFileInfo.h>
 #include <storage/Path.h>
 #include <storage/PathFinder.h>
+#include <storage/Node.h>
 
 #include <support/Beep.h>
 #include <support/DataIO.h>
@@ -188,10 +190,6 @@ static BMessage volatile *popup_track_message;
 /* Variable in which alert dialog threads return the selected button
    number.  */
 static int32 volatile alert_popup_value;
-
-/* The current window ID.  This is increased every time a frame is
-   created.  */
-static int current_window_id;
 
 /* The view that has the passive grab.  */
 static void *grab_view;
@@ -698,7 +696,6 @@ public:
 		   was_shown_p (false),
 		   menu_bar_active_p (false),
 		   override_redirect_p (false),
-		   window_id (current_window_id),
 		   menus_begun (NULL),
 		   z_group (Z_GROUP_NONE),
 		   tooltip_p (false),
@@ -941,12 +938,11 @@ public:
     if (msg->WasDropped ())
       {
 	BPoint whereto;
-	int32 windowid;
+	int64 threadid;
 	struct haiku_drag_and_drop_event rq;
 
-	if (msg->FindInt32 ("emacs:window_id", &windowid) == B_OK
-	    && !msg->IsSourceRemote ()
-	    && windowid == this->window_id)
+	if (msg->FindInt64 ("emacs:thread_id", &threadid) == B_OK
+	    && threadid == find_thread (NULL))
 	  return;
 
 	whereto = msg->DropPoint ();
@@ -1502,7 +1498,6 @@ public:
 class EmacsView : public BView
 {
 public:
-  uint32_t previous_buttons;
   int looper_locked_count;
   BRegion sb_region;
   BRegion invalid_region;
@@ -1518,10 +1513,12 @@ public:
 #endif
 
   BMessage *wait_for_release_message;
+  int64 grabbed_buttons;
+  BScreen screen;
+  bool use_frame_synchronization;
 
   EmacsView () : BView (BRect (0, 0, 0, 0), "Emacs",
 			B_FOLLOW_NONE, B_WILL_DRAW),
-		 previous_buttons (0),
 		 looper_locked_count (0),
 		 offscreen_draw_view (NULL),
 		 offscreen_draw_bitmap_1 (NULL),
@@ -1530,7 +1527,9 @@ public:
 		 cr_surface (NULL),
 		 cr_context (NULL),
 #endif
-		 wait_for_release_message (NULL)
+		 wait_for_release_message (NULL),
+		 grabbed_buttons (0),
+		 use_frame_synchronization (false)
   {
 
   }
@@ -1550,6 +1549,16 @@ public:
     if (grab_view == this)
       grab_view = NULL;
     grab_view_locker.Unlock ();
+  }
+
+  void
+  SetFrameSynchronization (bool sync)
+  {
+    if (LockLooper ())
+      {
+	use_frame_synchronization = sync;
+	UnlockLooper ();
+      }
   }
 
   void
@@ -1728,14 +1737,14 @@ public:
   void
   FlipBuffers (void)
   {
+    EmacsWindow *w;
     if (!LockLooper ())
       gui_abort ("Failed to lock looper during buffer flip");
     if (!offscreen_draw_view)
       gui_abort ("Failed to lock offscreen view during buffer flip");
 
     offscreen_draw_view->Sync ();
-
-    EmacsWindow *w = (EmacsWindow *) Window ();
+    w = (EmacsWindow *) Window ();
     w->shown_flag = 0;
 
     if (copy_bitmap &&
@@ -1755,6 +1764,11 @@ public:
 
     if (copy_bitmap->InitCheck () != B_OK)
       gui_abort ("Failed to init copy bitmap during buffer flip");
+
+    /* Wait for VBLANK.  If responding to the invalidation or buffer
+       flipping takes longer than the blanking period, we lose.  */
+    if (use_frame_synchronization)
+      screen.WaitForRetrace ();
 
     Invalidate (&invalid_region);
     invalid_region.MakeEmpty ();
@@ -1794,7 +1808,7 @@ public:
   MouseMoved (BPoint point, uint32 transit, const BMessage *drag_msg)
   {
     struct haiku_mouse_motion_event rq;
-    int32 windowid;
+    int64 threadid;
     EmacsWindow *window;
 
     window = (EmacsWindow *) Window ();
@@ -1810,9 +1824,9 @@ public:
     rq.time = system_time ();
 
     if (drag_msg && (drag_msg->IsSourceRemote ()
-		     || drag_msg->FindInt32 ("emacs:window_id",
-					     &windowid) != B_OK
-		     || windowid != window->window_id))
+		     || drag_msg->FindInt64 ("emacs:thread_id",
+					     &threadid) != B_OK
+		     || threadid != find_thread (NULL)))
       rq.dnd_message = true;
     else
       rq.dnd_message = false;
@@ -1832,42 +1846,51 @@ public:
   }
 
   void
-  BasicMouseDown (BPoint point, BView *scroll_bar)
+  BasicMouseDown (BPoint point, BView *scroll_bar, BMessage *message)
   {
     struct haiku_button_event rq;
-    uint32 mods, buttons;
+    int64 when;
+    int32 mods, buttons, button;
 
-    this->GetMouse (&point, &buttons, false);
+    if (message->FindInt64 ("when", &when) != B_OK
+	|| message->FindInt32 ("modifiers", &mods) != B_OK
+	|| message->FindInt32 ("buttons", &buttons) != B_OK)
+      return;
 
-    if (!grab_view_locker.Lock ())
-      gui_abort ("Couldn't lock grab view locker");
-    if (buttons)
-      grab_view = this;
-    grab_view_locker.Unlock ();
+    /* Find which button was pressed by comparing the previous button
+       mask to the current one.  This assumes that B_MOUSE_DOWN will
+       be sent for each button press.  */
+    button = buttons & ~grabbed_buttons;
+    grabbed_buttons = buttons;
+
+    if (!scroll_bar)
+      {
+	if (!grab_view_locker.Lock ())
+	  gui_abort ("Couldn't lock grab view locker");
+	grab_view = this;
+	grab_view_locker.Unlock ();
+      }
 
     rq.window = this->Window ();
     rq.scroll_bar = scroll_bar;
 
-    if (!(previous_buttons & B_PRIMARY_MOUSE_BUTTON)
-	&& (buttons & B_PRIMARY_MOUSE_BUTTON))
+    if (button == B_PRIMARY_MOUSE_BUTTON)
       rq.btn_no = 0;
-    else if (!(previous_buttons & B_SECONDARY_MOUSE_BUTTON)
-	     && (buttons & B_SECONDARY_MOUSE_BUTTON))
+    else if (button == B_SECONDARY_MOUSE_BUTTON)
       rq.btn_no = 2;
-    else if (!(previous_buttons & B_TERTIARY_MOUSE_BUTTON)
-	     && (buttons & B_TERTIARY_MOUSE_BUTTON))
+    else if (button == B_TERTIARY_MOUSE_BUTTON)
       rq.btn_no = 1;
     else
+      /* We don't know which button was pressed.  This usually happens
+	 when a B_MOUSE_UP is sent to a view that didn't receive a
+	 corresponding B_MOUSE_DOWN event, so simply ignore the
+	 message.  */
       return;
-
-    previous_buttons = buttons;
 
     rq.x = point.x;
     rq.y = point.y;
-
-    mods = modifiers ();
-
     rq.modifiers = 0;
+
     if (mods & B_SHIFT_KEY)
       rq.modifiers |= HAIKU_MODIFIER_SHIFT;
 
@@ -1884,61 +1907,75 @@ public:
       SetMouseEventMask (B_POINTER_EVENTS, (B_LOCK_WINDOW_FOCUS
 					    | B_NO_POINTER_HISTORY));
 
-    rq.time = system_time ();
+    rq.time = when;
     haiku_write (BUTTON_DOWN, &rq);
   }
 
   void
   MouseDown (BPoint point)
   {
-    BasicMouseDown (point, NULL);
+    BMessage *msg;
+    BLooper *looper;
+
+    looper = Looper ();
+    msg = (looper
+	   ? looper->CurrentMessage ()
+	   : NULL);
+
+    if (msg)
+      BasicMouseDown (point, NULL, msg);
   }
 
   void
-  BasicMouseUp (BPoint point, BView *scroll_bar)
+  BasicMouseUp (BPoint point, BView *scroll_bar, BMessage *message)
   {
     struct haiku_button_event rq;
-    uint32 buttons, mods;
+    int64 when;
+    int32 mods, button, buttons;
 
-    this->GetMouse (&point, &buttons, false);
+    if (message->FindInt64 ("when", &when) != B_OK
+	|| message->FindInt32 ("modifiers", &mods) != B_OK
+	|| message->FindInt32 ("buttons", &buttons) != B_OK)
+      return;
 
-    if (!grab_view_locker.Lock ())
-      gui_abort ("Couldn't lock grab view locker");
-    if (!buttons)
-      grab_view = NULL;
-    grab_view_locker.Unlock ();
-
-    if (!buttons && wait_for_release_message)
+    if (!scroll_bar)
       {
-	wait_for_release_message->SendReply (wait_for_release_message);
-	delete wait_for_release_message;
-	wait_for_release_message = NULL;
+	if (!grab_view_locker.Lock ())
+	  gui_abort ("Couldn't lock grab view locker");
+	if (!buttons)
+	  grab_view = NULL;
+	grab_view_locker.Unlock ();
+      }
 
-	previous_buttons = buttons;
+    button = (grabbed_buttons & ~buttons);
+    grabbed_buttons = buttons;
+
+    if (wait_for_release_message)
+      {
+	if (!grabbed_buttons)
+	  {
+	    wait_for_release_message->SendReply (wait_for_release_message);
+	    delete wait_for_release_message;
+	    wait_for_release_message = NULL;
+	  }
+
 	return;
       }
 
     rq.window = this->Window ();
     rq.scroll_bar = scroll_bar;
 
-    if ((previous_buttons & B_PRIMARY_MOUSE_BUTTON)
-	&& !(buttons & B_PRIMARY_MOUSE_BUTTON))
+    if (button == B_PRIMARY_MOUSE_BUTTON)
       rq.btn_no = 0;
-    else if ((previous_buttons & B_SECONDARY_MOUSE_BUTTON)
-	     && !(buttons & B_SECONDARY_MOUSE_BUTTON))
+    else if (button == B_SECONDARY_MOUSE_BUTTON)
       rq.btn_no = 2;
-    else if ((previous_buttons & B_TERTIARY_MOUSE_BUTTON)
-	     && !(buttons & B_TERTIARY_MOUSE_BUTTON))
+    else if (button == B_TERTIARY_MOUSE_BUTTON)
       rq.btn_no = 1;
     else
       return;
 
-    previous_buttons = buttons;
-
     rq.x = point.x;
     rq.y = point.y;
-
-    mods = modifiers ();
 
     rq.modifiers = 0;
     if (mods & B_SHIFT_KEY)
@@ -1953,14 +1990,23 @@ public:
     if (mods & B_OPTION_KEY)
       rq.modifiers |= HAIKU_MODIFIER_SUPER;
 
-    rq.time = system_time ();
+    rq.time = when;
     haiku_write (BUTTON_UP, &rq);
   }
 
   void
   MouseUp (BPoint point)
   {
-    BasicMouseUp (point, NULL);
+    BMessage *msg;
+    BLooper *looper;
+
+    looper = Looper ();
+    msg = (looper
+	   ? looper->CurrentMessage ()
+	   : NULL);
+
+    if (msg)
+      BasicMouseUp (point, NULL, msg);
   }
 };
 
@@ -1973,8 +2019,9 @@ public:
   float old_value;
   scroll_bar_info info;
 
-  /* True if button events should be passed to the parent.  */
-  bool handle_button;
+  /* How many button events were passed to the parent without
+     release.  */
+  int handle_button_count;
   bool in_overscroll;
   bool can_overscroll;
   bool maybe_overscroll;
@@ -1990,7 +2037,7 @@ public:
     : BScrollBar (BRect (x, y, x1, y1), NULL, NULL, 0, 0, horizontal_p ?
 		  B_HORIZONTAL : B_VERTICAL),
       dragging (0),
-      handle_button (false),
+      handle_button_count (0),
       in_overscroll (false),
       can_overscroll (false),
       maybe_overscroll (false),
@@ -2214,10 +2261,10 @@ public:
 	&& mods & B_CONTROL_KEY)
       {
 	/* Allow C-mouse-3 to split the window on a scroll bar.   */
-	handle_button = true;
+	handle_button_count += 1;
 	SetMouseEventMask (B_POINTER_EVENTS, (B_SUSPEND_VIEW_FOCUS
 					      | B_LOCK_WINDOW_FOCUS));
-	parent->BasicMouseDown (ConvertToParent (pt), this);
+	parent->BasicMouseDown (ConvertToParent (pt), this, message);
 
 	return;
       }
@@ -2280,14 +2327,23 @@ public:
   MouseUp (BPoint pt)
   {
     struct haiku_scroll_bar_drag_event rq;
+    BMessage *msg;
+    BLooper *looper;
 
     in_overscroll = false;
     maybe_overscroll = false;
 
-    if (handle_button)
+    if (handle_button_count)
       {
-	handle_button = false;
-	parent->BasicMouseUp (ConvertToParent (pt), this);
+	handle_button_count--;
+	looper = Looper ();
+	msg = (looper
+	       ? looper->CurrentMessage ()
+	       : NULL);
+
+	if (msg)
+	  parent->BasicMouseUp (ConvertToParent (pt),
+				this, msg);
 
 	return;
       }
@@ -5046,13 +5102,17 @@ be_drag_message (void *view, void *message, bool allow_same_view,
   BMessage cancel_message (CANCEL_DROP);
   struct object_wait_info infos[2];
   ssize_t stat;
+  thread_id window_thread;
 
   block_input_function ();
 
-  if (!allow_same_view &&
-      (msg->ReplaceInt32 ("emacs:window_id", window->window_id)
-       == B_NAME_NOT_FOUND))
-    msg->AddInt32 ("emacs:window_id", window->window_id);
+  if (!allow_same_view)
+    window_thread = window->Looper ()->Thread ();
+
+  if (!allow_same_view
+      && (msg->ReplaceInt64 ("emacs:thread_id", window_thread)
+	  == B_NAME_NOT_FOUND))
+    msg->AddInt64 ("emacs:thread_id", window_thread);
 
   if (!vw->LockLooper ())
     gui_abort ("Failed to lock view looper for drag");
@@ -5419,4 +5479,78 @@ be_get_explicit_workarea (int *x, int *y, int *width, int *height)
   *height = BE_RECT_HEIGHT (zoom);
 
   return true;
+}
+
+/* Clear the grab view.  This has to be called manually from some
+   places, since we don't get B_MOUSE_UP messages after a popup menu
+   is run.  */
+
+void
+be_clear_grab_view (void)
+{
+  if (grab_view_locker.Lock ())
+    {
+      grab_view = NULL;
+      grab_view_locker.Unlock ();
+    }
+}
+
+void
+be_set_use_frame_synchronization (void *view, bool sync)
+{
+  EmacsView *vw;
+
+  vw = (EmacsView *) view;
+  vw->SetFrameSynchronization (sync);
+}
+
+status_t
+be_write_node_message (const char *path, const char *name, void *message)
+{
+  BNode node (path);
+  status_t rc;
+  ssize_t flat, result;
+  char *buffer;
+  BMessage *msg;
+
+  rc = node.InitCheck ();
+  msg = (BMessage *) message;
+
+  if (rc < B_OK)
+    return rc;
+
+  flat = msg->FlattenedSize ();
+  if (flat < B_OK)
+    return flat;
+
+  buffer = new (std::nothrow) char[flat];
+  if (!buffer)
+    return B_NO_MEMORY;
+
+  rc = msg->Flatten (buffer, flat);
+  if (rc < B_OK)
+    {
+      delete[] buffer;
+      return rc;
+    }
+
+  result = node.WriteAttr (name, B_MIME_TYPE, 0,
+			   buffer, flat);
+  delete[] buffer;
+
+  if (result < B_OK)
+    return result;
+
+  if (result != flat)
+    return B_ERROR;
+
+  return B_OK;
+}
+
+void
+be_send_message (const char *app_id, void *message)
+{
+  BMessenger messenger (app_id);
+
+  messenger.SendMessage ((BMessage *) message);
 }

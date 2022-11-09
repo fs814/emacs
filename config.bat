@@ -276,6 +276,7 @@ cd lib
 Rem Rename files like djtar on plain DOS filesystem would.
 If Exist c++defs.h update c++defs.h cxxdefs.h
 If Exist alloca.in.h update alloca.in.h alloca.in-h
+If Exist assert.in.h update assert.in.h assert.in-h
 If Exist byteswap.in.h update byteswap.in.h byteswap.in-h
 If Exist dirent.in.h update dirent.in.h dirent.in-h
 If Exist errno.in.h update errno.in.h errno.in-h
@@ -301,6 +302,7 @@ If Exist sys_time.in.h update sys_time.in.h sys_time.in-h
 If Exist sys_types.in.h update sys_types.in.h sys_types.in-h
 If Exist time.in.h update time.in.h time.in-h
 If Exist unistd.in.h update unistd.in.h unistd.in-h
+If Exist stdckdint.in.h update stdckdint.in.h stdckdint.in-h
 If Exist gnulib.mk.in update gnulib.mk.in gnulib.mk-in
 Rem Only repository has the msdos/autogen directory
 If Exist Makefile.in sed -f ../msdos/sedlibcf.inp < Makefile.in > makefile.tmp

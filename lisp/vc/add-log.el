@@ -208,8 +208,6 @@ a case simply use the directory containing the changed file."
   '((t (:inherit font-lock-comment-face)))
   "Face for highlighting acknowledgments."
   :version "21.1")
-(define-obsolete-face-alias 'change-log-acknowledgement
-  'change-log-acknowledgment "24.3")
 
 (defconst change-log-file-names-re "^\\( +\\|\t\\)\\* \\([^ ,:([\n]+\\)")
 (defconst change-log-start-entry-re "^\\sw.........[0-9:+ ]*")
@@ -568,14 +566,12 @@ Compatibility function for \\[next-error] invocations."
 	;; Select window displaying source file.
 	(select-window change-log-find-window)))))
 
-(defvar change-log-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [?\C-c ?\C-p] #'add-log-edit-prev-comment)
-    (define-key map [?\C-c ?\C-n] #'add-log-edit-next-comment)
-    (define-key map [?\C-c ?\C-f] #'change-log-find-file)
-    (define-key map [?\C-c ?\C-c] #'change-log-goto-source)
-    map)
-  "Keymap for Change Log major mode.")
+(defvar-keymap change-log-mode-map
+  :doc "Keymap for Change Log major mode."
+  "C-c C-p" #'add-log-edit-prev-comment
+  "C-c C-n" #'add-log-edit-next-comment
+  "C-c C-f" #'change-log-find-file
+  "C-c C-c" #'change-log-goto-source)
 
 (easy-menu-define change-log-mode-menu change-log-mode-map
   "Menu for Change Log major mode."
@@ -810,7 +806,7 @@ if it were to exist."
 
 (defun add-log-find-changelog-buffer (changelog-file-name)
   "Find a ChangeLog buffer for CHANGELOG-FILE-NAME.
-Respect `add-log-use-pseudo-changelog', which see."
+Respect `add-log--pseudo-changelog-buffer-name', which see."
   (if (or (file-exists-p changelog-file-name)
           (not add-log-dont-create-changelog-file))
       (find-file-noselect changelog-file-name)

@@ -3,8 +3,10 @@
 ;; Copyright (C) 2019-2022  Free Software Foundation, Inc.
 
 ;; Author: Protesilaos Stavrou <info@protesilaos.com>
+;; Maintainer: Modus-Themes Development <~protesilaos/modus-themes@lists.sr.ht>
 ;; URL: https://git.sr.ht/~protesilaos/modus-themes
-;; Version: 2.4.1
+;; Mailing-List: https://lists.sr.ht/~protesilaos/modus-themes
+;; Version: 3.0.0
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: faces, theme, accessibility
 
@@ -68,5 +70,8 @@ which corresponds to a minimum contrast in relative luminance of
   (modus-themes-theme modus-operandi)
 
   (provide-theme 'modus-operandi))
+
+;;;###theme-autoload
+(put 'modus-operandi 'theme-properties '(:background-mode light :kind color-scheme :family modus))
 
 ;;; modus-operandi-theme.el ends here

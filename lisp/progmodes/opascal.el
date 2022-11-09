@@ -29,7 +29,6 @@
 ;; .pas (and .dpr and .dpk) files.  Emacs, by default, will otherwise
 ;; enter Pascal mode.  For example:
 ;;
-;; (autoload 'opascal-mode "opascal")
 ;; (add-to-list 'auto-mode-alist
 ;;              '("\\.\\(pas\\|dpr\\|dpk\\)\\'" . opascal-mode))
 
@@ -276,8 +275,7 @@ nested routine.")
   (declare (debug t))
   `(save-excursion
      (save-match-data
-      (let ((inhibit-point-motion-hooks t)
-            (deactivate-mark nil))
+      (let ((deactivate-mark nil))
         (progn ,@forms)))))
 
 
