@@ -23,7 +23,7 @@
 ### Commentary:
 
 ## This script takes as input Unicode's Blocks.txt
-## (http://www.unicode.org/Public/UNIDATA/Blocks.txt)
+## (https://www.unicode.org/Public/UNIDATA/Blocks.txt)
 ## and produces output for Emacs's lisp/international/charscript.el.
 
 ## It lumps together all the blocks belonging to the same language.
@@ -224,9 +224,14 @@ FILENAME ~ "emoji-data.txt" && /^[0-9A-F].*; Emoji_Presentation / {
 
 END {
     idx = 0
-    # ## These are here so that font_range can choose Emoji presentation
-    # ## for the preceding codepoint when it encounters a VS
-    override_start[idx] = "FE00"
+    ## This is here so that font_range can choose Emoji presentation
+    ## for the preceding codepoint when it encounters a VS-16
+    ## (U+FE0F).  See also font_range and the comments in composite.el
+    ## around the setup of `composition-function-table' for
+    ## U+FE00..U+FE0E.
+    ## It originally covered the whole FE00-FE0F range, but that
+    ## turned out to be a mistake.
+    override_start[idx] = "FE0F"
     override_end[idx] = "FE0F"
 
     for (k in override_start)

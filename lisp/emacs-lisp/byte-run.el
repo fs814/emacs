@@ -112,44 +112,6 @@ So far, FUNCTION can only be a symbol, not a lambda expression."
 (function-put 'defmacro 'doc-string-elt 3)
 (function-put 'defmacro 'lisp-indent-function 2)
 
-;; `macro-declaration-function' are both obsolete (as marked at the end of this
-;; file) but used in many .elc files.
-
-;; We don't use #' here, because it's an obsolete function, and we
-;; can't use `with-suppressed-warnings' here due to how this file is
-;; used in the bootstrapping process.
-(defvar macro-declaration-function 'macro-declaration-function
-  "Function to process declarations in a macro definition.
-The function will be called with two args MACRO and DECL.
-MACRO is the name of the macro being defined.
-DECL is a list `(declare ...)' containing the declarations.
-The value the function returns is not used.")
-
-(defalias 'macro-declaration-function
-  #'(lambda (macro decl)
-      "Process a declaration found in a macro definition.
-This is set as the value of the variable `macro-declaration-function'.
-MACRO is the name of the macro being defined.
-DECL is a list `(declare ...)' containing the declarations.
-The return value of this function is not used."
-      ;; We can't use `dolist' or `cadr' yet for bootstrapping reasons.
-      (let (d)
-        ;; Ignore the first element of `decl' (it's always `declare').
-        (while (setq decl (cdr decl))
-          (setq d (car decl))
-          (if (and (consp d)
-                   (listp (cdr d))
-                   (null (cdr (cdr d))))
-              (cond ((eq (car d) 'indent)
-                     (put macro 'lisp-indent-function (car (cdr d))))
-                    ((eq (car d) 'debug)
-                     (put macro 'edebug-form-spec (car (cdr d))))
-                    ((eq (car d) 'doc-string)
-                     (put macro 'doc-string-elt (car (cdr d))))
-                    (t
-                     (message "Unknown declaration %s" d)))
-            (message "Invalid declaration %s" d))))))
-
 ;; We define macro-declaration-alist here because it is needed to
 ;; handle declarations in macro definitions and this is the first file
 ;; loaded by loadup.el that uses declarations in macros.  We specify
@@ -236,6 +198,20 @@ The return value of this function is not used."
       (list 'function-put (list 'quote f)
             ''command-modes (list 'quote val))))
 
+(defalias 'byte-run--set-interactive-args
+  #'(lambda (f args &rest val)
+      (setq args (remove '&optional (remove '&rest args)))
+      (list 'function-put (list 'quote f)
+            ''interactive-args
+            (list
+             'quote
+             (mapcar
+              (lambda (elem)
+                (cons
+                 (seq-position args (car elem))
+                 (cadr elem)))
+              val)))))
+
 ;; Add any new entries to info node `(elisp)Declare Form'.
 (defvar defun-declarations-alist
   (list
@@ -255,7 +231,8 @@ If `error-free', drop calls even if `byte-compile-delete-errors' is nil.")
    (list 'indent #'byte-run--set-indent)
    (list 'speed #'byte-run--set-speed)
    (list 'completion #'byte-run--set-completion)
-   (list 'modes #'byte-run--set-modes))
+   (list 'modes #'byte-run--set-modes)
+   (list 'interactive-args #'byte-run--set-interactive-args))
   "List associating function properties to their macro expansion.
 Each element of the list takes the form (PROP FUN) where FUN is
 a function.  For each (PROP . VALUES) in a function's declaration,
@@ -504,6 +481,11 @@ convention was modified."
   (puthash (indirect-function function) signature
            advertised-signature-table))
 
+(defun get-advertised-calling-convention (function)
+  "Get the advertised SIGNATURE of FUNCTION.
+Return t if there isn't any."
+  (gethash function advertised-signature-table t))
+
 (defun make-obsolete (obsolete-name current-name when)
   "Make the byte-compiler warn that function OBSOLETE-NAME is obsolete.
 OBSOLETE-NAME should be a function name or macro name (a symbol).
@@ -552,7 +534,6 @@ ACCESS-TYPE if non-nil should specify the kind of access that will trigger
   (put obsolete-name 'byte-obsolete-variable
        (purecopy (list current-name access-type when)))
   obsolete-name)
-
 
 (defmacro define-obsolete-variable-alias ( obsolete-name current-name when
                                            &optional docstring)
@@ -672,7 +653,7 @@ types.  The types that can be suppressed with this macro are
 `suspicious'.
 
 For the `mapcar' case, only the `mapcar' function can be used in
-the symbol list.  For `suspicious', only `set-buffer' can be used."
+the symbol list.  For `suspicious', only `set-buffer' and `lsh' can be used."
   ;; Note: during compilation, this definition is overridden by the one in
   ;; byte-compile-initial-macro-environment.
   (declare (debug (sexp body)) (indent 1))
@@ -756,10 +737,5 @@ type is.  This defaults to \"INFO\"."
 ;;       (warnings (- free-vars))		; Don't warn about free variables
 ;;       (file-format emacs19))"
 ;;   nil)
-
-(make-obsolete-variable 'macro-declaration-function
-                        'macro-declarations-alist "24.3")
-(make-obsolete 'macro-declaration-function
-               'macro-declarations-alist "24.3")
 
 ;;; byte-run.el ends here

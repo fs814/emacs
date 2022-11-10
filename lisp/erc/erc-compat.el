@@ -25,7 +25,13 @@
 
 ;; This mostly defines stuff that cannot be worked around easily.
 
+;; ERC depends on the `compat' library from GNU ELPA for supporting
+;; older versions of Emacs.  See this discussion for additional info:
+;; https://lists.gnu.org/archive/html/emacs-devel/2022-07/msg00512.html
+
 ;;; Code:
+
+(require 'compat nil 'noerror)
 
 ;;;###autoload(autoload 'erc-define-minor-mode "erc-compat")
 (define-obsolete-function-alias 'erc-define-minor-mode
@@ -149,6 +155,18 @@ If START or END is negative, it counts from the end."
 		 (aset res i (aref seq start))
 		 (setq i (1+ i) start (1+ start)))
 	       res))))))
+
+
+;;;; Misc 29.1
+
+(defmacro erc-compat--with-memoization (table &rest forms)
+  (declare (indent defun))
+  (cond
+   ((fboundp 'with-memoization)
+    `(with-memoization ,table ,@forms)) ; 29.1
+   ((fboundp 'cl--generic-with-memoization)
+    `(cl--generic-with-memoization ,table ,@forms))
+   (t `(progn ,@forms))))
 
 (provide 'erc-compat)
 

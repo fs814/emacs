@@ -2287,6 +2287,8 @@ struct composition_it
      reverse order, and thus the grapheme clusters must be rendered
      from the last to the first.  */
   bool reversed_p;
+  /* Parent iterator. */
+  struct it *parent_it;
 
   /** The following members contain information about the current
       grapheme cluster.  */
@@ -2332,6 +2334,14 @@ struct it
      with which display_string was called.  */
   ptrdiff_t end_charpos;
 
+  /* Alternate begin position of the buffer that may be used to
+     optimize display (see the SET_WITH_NARROWED_BEGV macro).  */
+  ptrdiff_t narrowed_begv;
+
+  /* Alternate end position of the buffer that may be used to
+     optimize display.  */
+  ptrdiff_t narrowed_zv;
+
   /* C string to iterate over.  Non-null means get characters from
      this string, otherwise characters are read from current_buffer
      or it->string.  */
@@ -2341,9 +2351,6 @@ struct it
      over.  Used only in display_string and its subroutines; never
      used for overlay strings and strings from display properties.  */
   ptrdiff_t string_nchars;
-
-  /* Position at which redisplay end trigger functions should be run.  */
-  ptrdiff_t redisplay_end_trigger_charpos;
 
   /* True means multibyte characters are enabled.  */
   bool_bf multibyte_p : 1;
@@ -2867,18 +2874,17 @@ typedef struct {
 INLINE void
 reset_mouse_highlight (Mouse_HLInfo *hlinfo)
 {
-
-    hlinfo->mouse_face_beg_row = hlinfo->mouse_face_beg_col = -1;
-    hlinfo->mouse_face_end_row = hlinfo->mouse_face_end_col = -1;
-    hlinfo->mouse_face_mouse_x = hlinfo->mouse_face_mouse_y = 0;
-    hlinfo->mouse_face_beg_x = hlinfo->mouse_face_end_x = 0;
-    hlinfo->mouse_face_face_id = DEFAULT_FACE_ID;
-    hlinfo->mouse_face_mouse_frame = NULL;
-    hlinfo->mouse_face_window = Qnil;
-    hlinfo->mouse_face_overlay = Qnil;
-    hlinfo->mouse_face_past_end = false;
-    hlinfo->mouse_face_hidden = false;
-    hlinfo->mouse_face_defer = false;
+  hlinfo->mouse_face_beg_row = hlinfo->mouse_face_beg_col = -1;
+  hlinfo->mouse_face_end_row = hlinfo->mouse_face_end_col = -1;
+  hlinfo->mouse_face_mouse_x = hlinfo->mouse_face_mouse_y = 0;
+  hlinfo->mouse_face_beg_x = hlinfo->mouse_face_end_x = 0;
+  hlinfo->mouse_face_face_id = DEFAULT_FACE_ID;
+  hlinfo->mouse_face_mouse_frame = NULL;
+  hlinfo->mouse_face_window = Qnil;
+  hlinfo->mouse_face_overlay = Qnil;
+  hlinfo->mouse_face_past_end = false;
+  hlinfo->mouse_face_hidden = false;
+  hlinfo->mouse_face_defer = false;
 }
 
 /***********************************************************************
@@ -3396,6 +3402,9 @@ void mark_window_display_accurate (Lisp_Object, bool);
 void redisplay_preserve_echo_area (int);
 void init_iterator (struct it *, struct window *, ptrdiff_t,
                     ptrdiff_t, struct glyph_row *, enum face_id);
+ptrdiff_t get_narrowed_begv (struct window *, ptrdiff_t);
+ptrdiff_t get_narrowed_zv (struct window *, ptrdiff_t);
+ptrdiff_t get_closer_narrowed_begv (struct window *, ptrdiff_t);
 void init_iterator_to_row_start (struct it *, struct window *,
                                  struct glyph_row *);
 void start_display (struct it *, struct window *, struct text_pos);

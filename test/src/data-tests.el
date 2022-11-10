@@ -200,8 +200,7 @@ this is exactly representable and is greater than
             nibbles)
       (setf v (nthcdr 4 v)))
     (mapconcat (lambda (n) (format "%X" n))
-               (nreverse nibbles)
-               "")))
+               (nreverse nibbles))))
 
 (defun test-bool-vector-count-consecutive-tc (desc)
   "Run a test case for `bool-vector-count-consecutive'.
@@ -741,14 +740,15 @@ comparing the subr with a much slower Lisp implementation."
   (should (= (ash 1000 (* 2 most-negative-fixnum)) 0))
   (should (= (ash -1000 (* 2 most-negative-fixnum)) -1))
   (should (= (ash (* 2 most-negative-fixnum) (* 2 most-negative-fixnum)) -1))
-  (should (= (lsh most-negative-fixnum 1)
-             (* most-negative-fixnum 2)))
   (should (= (ash (* 2 most-negative-fixnum) -1)
 	     most-negative-fixnum))
-  (should (= (lsh most-positive-fixnum -1) (/ most-positive-fixnum 2)))
-  (should (= (lsh most-negative-fixnum -1) (lsh (- most-negative-fixnum) -1)))
-  (should (= (lsh -1 -1) most-positive-fixnum))
-  (should-error (lsh (1- most-negative-fixnum) -1)))
+  (with-suppressed-warnings ((suspicious lsh))
+    (should (= (lsh most-negative-fixnum 1)
+               (* most-negative-fixnum 2)))
+    (should (= (lsh most-positive-fixnum -1) (/ most-positive-fixnum 2)))
+    (should (= (lsh most-negative-fixnum -1) (lsh (- most-negative-fixnum) -1)))
+    (should (= (lsh -1 -1) most-positive-fixnum))
+    (should-error (lsh (1- most-negative-fixnum) -1))))
 
 (ert-deftest data-tests-make-local-forwarded-var () ;bug#34318
   ;; Boy, this bug is tricky to trigger.  You need to:
@@ -767,5 +767,9 @@ comparing the subr with a much slower Lisp implementation."
     (should (equal (list last-coding-system-used
                          (default-value 'last-coding-system-used))
                    '(no-conversion bug34318)))))
+
+(ert-deftest data-tests-make_symbol_constant ()
+  "Can't set variable marked with 'make_symbol_constant'."
+  (should-error (setq most-positive-fixnum 1) :type 'setting-constant))
 
 ;;; data-tests.el ends here

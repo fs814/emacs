@@ -268,7 +268,7 @@ Currently, only Latin-1 characters are supported.")
   ;; prefer tidy because (o)nsgmls is often built without --enable-http
   ;; which makes it next to useless
   (cond ((executable-find "tidy")
-         ;; tidy is available from http://tidy.sourceforge.net/
+         ;; tidy is available from https://tidy.sourceforge.net/
          "tidy --gnu-emacs yes -utf8 -e -q")
         ((executable-find "nsgmls")
          ;; nsgmls is a free SGML parser in the SP suite available from
@@ -276,7 +276,7 @@ Currently, only Latin-1 characters are supported.")
          "nsgmls -s")
         ((executable-find "onsgmls")
          ;; onsgmls is the community version of `nsgmls'
-         ;; hosted on http://openjade.sourceforge.net/
+         ;; hosted on https://openjade.sourceforge.net/
          "onsgmls -s")
         (t "Install (o)nsgmls, tidy, or some other SGML validator, and set `sgml-validate-command'"))
   "The command to validate an SGML document.
@@ -1536,8 +1536,7 @@ not the case, the first tag returned is the one inside which we are."
 	    ;; [ Well, actually it depends, but we don't have the info about
 	    ;; when it doesn't and when it does.   --Stef ]
 	    (setq ignore nil)))
-	 ((eq t (compare-strings (sgml-tag-name tag-info) nil nil
-				 (car stack) nil nil t))
+	 ((string-equal-ignore-case (sgml-tag-name tag-info) (car stack))
 	  (setq stack (cdr stack)))
 	 (t
 	  ;; The open and close tags don't match.
@@ -1549,9 +1548,8 @@ not the case, the first tag returned is the one inside which we are."
 		  ;; but it's a bad assumption when tags *are* closed but
 		  ;; not properly nested.
 		  (while (and (cdr tmp)
-			      (not (eq t (compare-strings
-					  (sgml-tag-name tag-info) nil nil
-					  (cadr tmp) nil nil t))))
+			      (not (string-equal-ignore-case
+				    (sgml-tag-name tag-info) (cadr tmp))))
 		    (setq tmp (cdr tmp)))
 		  (if (cdr tmp) (setcdr tmp (cddr tmp)))))
 	    (message "Unmatched tags <%s> and </%s>"
@@ -1701,9 +1699,8 @@ LCON is the lexical context, if any."
 	    (there (point)))
        ;; Ignore previous unclosed start-tag in context.
        (while (and context unclosed
-		   (eq t (compare-strings
-			  (sgml-tag-name (car context)) nil nil
-			  unclosed nil nil t)))
+		   (string-equal-ignore-case
+		    (sgml-tag-name (car context)) unclosed))
 	 (setq context (cdr context)))
        ;; Indent to reflect nesting.
        (cond
@@ -1916,7 +1913,7 @@ This takes effect when first loading the library.")
 	 (valign '(("top") ("middle") ("bottom") ("baseline")))
 	 (rel '(("next") ("previous") ("parent") ("subdocument") ("made")))
 	 (href '("href" ("ftp:") ("file:") ("finger:") ("gopher:") ("http:")
-		 ("mailto:") ("news:") ("rlogin:") ("telnet:") ("tn3270:")
+                 ("https:") ("mailto:") ("news:") ("rlogin:") ("telnet:") ("tn3270:")
 		 ("wais:") ("/cgi-bin/")))
 	 (name '("name"))
 	 (link `(,href

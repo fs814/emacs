@@ -1503,17 +1503,7 @@ do_switch_frame (Lisp_Object frame, int for_deletion, Lisp_Object norecord)
 
   sf->select_mini_window_flag = MINI_WINDOW_P (XWINDOW (sf->selected_window));
 
-  selected_frame = frame;
-
-  move_minibuffers_onto_frame (sf, for_deletion);
-
-  if (f->select_mini_window_flag
-      && !NILP (Fminibufferp (XWINDOW (f->minibuffer_window)->contents, Qt)))
-    f->selected_window = f->minibuffer_window;
-  f->select_mini_window_flag = false;
-
-  if (! FRAME_MINIBUF_ONLY_P (XFRAME (selected_frame)))
-    last_nonminibuf_frame = XFRAME (selected_frame);
+  move_minibuffers_onto_frame (sf, frame, for_deletion);
 
   /* If the selected window in the target frame is its mini-window, we move
      to a different window, the most recently used one, unless there is a
@@ -1527,6 +1517,20 @@ do_switch_frame (Lisp_Object frame, int for_deletion, Lisp_Object norecord)
       if (WINDOW_LIVE_P (w)) /* W can be nil in minibuffer-only frames.  */
         Fset_frame_selected_window (frame, w, Qnil);
     }
+
+  /* After setting `selected_frame`, we're temporarily in an inconsistent
+     state where (selected-window) != (frame-selected-window).  Until this
+     invariant is restored we should be very careful not to run ELisp code.
+     (bug#58343)  */
+  selected_frame = frame;
+
+  if (f->select_mini_window_flag
+      && !NILP (Fminibufferp (XWINDOW (f->minibuffer_window)->contents, Qt)))
+    f->selected_window = f->minibuffer_window;
+  f->select_mini_window_flag = false;
+
+  if (! FRAME_MINIBUF_ONLY_P (XFRAME (selected_frame)))
+    last_nonminibuf_frame = XFRAME (selected_frame);
 
   Fselect_window (f->selected_window, norecord);
 
@@ -2110,7 +2114,7 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
   else
     /* Ensure any minibuffers on FRAME are moved onto the selected
        frame.  */
-    move_minibuffers_onto_frame (f, true);
+    move_minibuffers_onto_frame (f, selected_frame, true);
 
   /* Don't let echo_area_window to remain on a deleted frame.  */
   if (EQ (f->minibuffer_window, echo_area_window))
@@ -3916,9 +3920,10 @@ static const struct frame_parm_table frame_parms[] =
   {"z-group",			SYMBOL_INDEX (Qz_group)},
   {"override-redirect",		SYMBOL_INDEX (Qoverride_redirect)},
   {"no-special-glyphs",		SYMBOL_INDEX (Qno_special_glyphs)},
-  {"alpha-background",          SYMBOL_INDEX (Qalpha_background)},
+  {"alpha-background",		SYMBOL_INDEX (Qalpha_background)},
+  {"use-frame-synchronization",	SYMBOL_INDEX (Quse_frame_synchronization)},
 #ifdef HAVE_X_WINDOWS
-  {"shaded", 			SYMBOL_INDEX (Qshaded)},
+  {"shaded",			SYMBOL_INDEX (Qshaded)},
 #endif
 #ifdef NS_IMPL_COCOA
   {"ns-appearance",		SYMBOL_INDEX (Qns_appearance)},
@@ -6195,6 +6200,7 @@ syms_of_frame (void)
   DEFSYM (Qtop_only, "top-only");
   DEFSYM (Qiconify_top_level, "iconify-top-level");
   DEFSYM (Qmake_invisible, "make-invisible");
+  DEFSYM (Quse_frame_synchronization, "use-frame-synchronization");
 
   {
     int i;
@@ -6241,7 +6247,7 @@ You can also use a floating number between 0.0 and 1.0.  */);
 #endif
 
   DEFVAR_LISP ("default-frame-alist", Vdefault_frame_alist,
-	       doc: /* Alist of default values for frame creation.
+    doc: /* Alist of default values of frame parameters for frame creation.
 These may be set in your init file, like this:
   (setq default-frame-alist \\='((width . 80) (height . 55) (menu-bar-lines . 1)))
 

@@ -66,6 +66,7 @@ SYMBOL should be one of `grep-command', `grep-template',
 		 integer)
   :version "22.1")
 
+;;;###autoload
 (defcustom grep-highlight-matches 'auto-detect
   "Use special markers to highlight grep matches.
 
@@ -125,10 +126,21 @@ include it when specifying `grep-command'.
 
 In interactive usage, the actual value of this variable is set up
 by `grep-compute-defaults'; to change the default value, use
-\\[customize] or call the function `grep-apply-setting'."
+\\[customize] or call the function `grep-apply-setting'.
+
+Also see `grep-command-position'."
   :type '(choice string
 		 (const :tag "Not Set" nil))
   :set #'grep-apply-setting)
+
+(defcustom grep-command-position nil
+  "Where to put point when prompting for a grep command.
+This controls the placement of point in the minibuffer when Emacs
+prompts for the grep command.  If nil, put point at the end of
+the suggested command.  If non-nil, this should be the one-based
+position in the minibuffer where to place point."
+  :type '(choice (const :tag "At the end" nil)
+                 natnum))
 
 (defcustom grep-template nil
   "The default command to run for \\[lgrep].
@@ -345,13 +357,14 @@ See `compilation-error-screen-columns'."
 
 (defalias 'kill-grep #'kill-compilation)
 
-;; override compilation-last-buffer
+;; override next-error-last-buffer
 (defvar grep-last-buffer nil
   "The most recent grep buffer.
 A grep buffer becomes most recent when you select Grep mode in it.
 Notice that using \\[next-error] or \\[compile-goto-error] modifies
-`compilation-last-buffer' rather than `grep-last-buffer'.")
+`next-error-last-buffer' rather than `grep-last-buffer'.")
 
+;;;###autoload
 (defvar grep-match-face	'match
   "Face name to use for grep matches.")
 
@@ -929,10 +942,15 @@ list is empty)."
    (progn
      (grep-compute-defaults)
      (let ((default (grep-default-command)))
-       (list (read-shell-command "Run grep (like this): "
-                                 (if current-prefix-arg default grep-command)
-                                 'grep-history
-                                 (if current-prefix-arg nil default))))))
+       (list (read-shell-command
+              "Run grep (like this): "
+              (if current-prefix-arg
+                  default
+                (if grep-command-position
+                    (cons grep-command grep-command-position)
+                  grep-command))
+              'grep-history
+              (if current-prefix-arg nil default))))))
   ;; If called non-interactively, also compute the defaults if we
   ;; haven't already.
   (when (eq grep-highlight-matches 'auto-detect)

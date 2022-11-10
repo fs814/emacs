@@ -361,7 +361,8 @@ AGES is the list of ages that are to be shown."
   (mapc (lambda (feed)
           (let ((feed-name-symbol (intern (car feed))))
             (mapc (lambda (item)
-                    (when (memq (newsticker--age item) ages)
+                    (when (or (memq 'all ages)
+                              (memq (newsticker--age item) ages))
                       (newsticker--treeview-list-add-item
                        item feed-name-symbol t)))
                   (newsticker--treeview-list-sort-items
@@ -540,7 +541,7 @@ The sort function is chosen according to the value of
         (let ((inhibit-read-only t))
           (goto-char (point-min))
           (while (not (eobp))
-            (let* ((pos (point-at-eol))
+            (let* ((pos (line-end-position))
                    (item (get-text-property (point) :nt-item))
                    (age (newsticker--age item))
                    (selected (get-text-property (point) :nt-selected))
@@ -578,7 +579,8 @@ The sort function is chosen according to the value of
   (newsticker--treeview-list-clear-highlight)
   (with-current-buffer (newsticker--treeview-list-buffer)
     (let ((inhibit-read-only t))
-      (put-text-property (point-at-bol) (point-at-eol) :nt-selected t))
+      (put-text-property (line-beginning-position) (line-end-position)
+                         :nt-selected t))
     (newsticker--treeview-list-update-faces)))
 
 (defun newsticker--treeview-list-highlight-start ()
@@ -1079,7 +1081,7 @@ Arguments are ignored."
       (with-current-buffer (newsticker--treeview-tree-buffer)
         (goto-char pos)
         (move-overlay newsticker--tree-selection-overlay
-                      (point-at-bol) (1+ (point-at-eol))
+                      (line-beginning-position) (1+ (line-end-position))
                       (current-buffer)))
       (if (window-live-p (newsticker--treeview-tree-window))
           (set-window-point (newsticker--treeview-tree-window) pos)))))
@@ -1218,11 +1220,11 @@ Note: does not update the layout."
     (newsticker--treeview-list-update t)
     (newsticker--treeview-item-update)
     (newsticker--treeview-tree-update-tags)
-    (cond (newsticker--treeview-current-feed
-           (newsticker--treeview-list-items newsticker--treeview-current-feed))
-          (newsticker--treeview-current-vfeed
+    (cond (newsticker--treeview-current-vfeed
            (newsticker--treeview-list-items-with-age
-            (intern newsticker--treeview-current-vfeed))))
+            (intern newsticker--treeview-current-vfeed)))
+          (newsticker--treeview-current-feed
+           (newsticker--treeview-list-items newsticker--treeview-current-feed)))
     (newsticker--treeview-tree-update-highlight)
     (newsticker--treeview-list-update-highlight)
     (let ((cur-feed (or newsticker--treeview-current-feed

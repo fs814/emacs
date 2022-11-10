@@ -80,6 +80,7 @@
 (require 'org-element)
 (require 'org-macro)
 (require 'tabulated-list)
+(require 'subr-x)
 
 (declare-function org-src-coderef-format "org-src" (&optional element))
 (declare-function org-src-coderef-regexp "org-src" (fmt &optional label))
@@ -1908,8 +1909,10 @@ Return a string."
 			   (org-element-property :archivedp data)))
 		  (let ((transcoder (org-export-transcoder data info)))
 		    (or (and (functionp transcoder)
-			     (broken-link-handler
-			      (funcall transcoder data nil info)))
+                             (if (eq type 'link)
+			         (broken-link-handler
+			          (funcall transcoder data nil info))
+                               (funcall transcoder data nil info)))
 			;; Export snippets never return a nil value so
 			;; that white spaces following them are never
 			;; ignored.
@@ -4434,15 +4437,12 @@ INFO is a plist used as a communication channel.
 
 Return value can be a radio-target object or nil.  Assume LINK
 has type \"radio\"."
-  (let ((path (replace-regexp-in-string
-	       "[ \r\t\n]+" " " (org-element-property :path link))))
+  (let ((path (string-clean-whitespace (org-element-property :path link))))
     (org-element-map (plist-get info :parse-tree) 'radio-target
       (lambda (radio)
-	(and (eq (compare-strings
-		  (replace-regexp-in-string
-		   "[ \r\t\n]+" " " (org-element-property :value radio))
-		  nil nil path nil nil t)
-		 t)
+	(and (string-equal-ignore-case
+	      (string-clean-whitespace (org-element-property :value radio))
+              path)
 	     radio))
       info 'first-match)))
 
@@ -4642,7 +4642,7 @@ from the export back-end."
 ;; a given element, excluded.  Note: "-n" switches reset that count.
 ;;
 ;; `org-export-unravel-code' extracts source code (along with a code
-;; references alist) from an `element-block' or `src-block' type
+;; references alist) from an `example-block' or `src-block' type
 ;; element.
 ;;
 ;; `org-export-format-code' applies a formatting function to each line
@@ -6479,7 +6479,7 @@ to send the output file through additional processing, e.g,
     (let ((outfile (org-export-output-file-name \".tex\" subtreep)))
       (org-export-to-file \\='latex outfile
         async subtreep visible-only body-only ext-plist
-        #'org-latex-compile)))
+        #\\='org-latex-compile)))
 
 When expressed as an anonymous function, using `lambda',
 POST-PROCESS needs to be quoted.

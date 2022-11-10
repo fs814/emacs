@@ -36,6 +36,7 @@
 (require 'shell)
 (require 'subr-x)
 
+(declare-function tramp-compat-rx "tramp")
 (declare-function tramp-error "tramp")
 (declare-function tramp-file-name-handler "tramp")
 (declare-function tramp-tramp-file-p "tramp")
@@ -48,6 +49,13 @@
 	   (car (version-to-list tramp-compat-emacs-compiled-version)))
   (warn "Tramp has been compiled with Emacs %s, this is Emacs %s"
 	tramp-compat-emacs-compiled-version emacs-version))
+
+(with-eval-after-load 'docker-tramp
+  (warn (concat "Package `docker-tramp' has been obsoleted, "
+		"please use integrated package `tramp-container'")))
+(with-eval-after-load 'kubernetes-tramp
+  (warn (concat "Package `kubernetes-tramp' has been obsoleted, "
+		"please use integrated package `tramp-container'")))
 
 ;; For not existing functions, obsolete functions, or functions with a
 ;; changed argument list, there are compiler warnings.  We want to
@@ -79,6 +87,7 @@ Add the extension of F, if existing."
 
 ;; `file-name-quoted-p', `file-name-quote' and `file-name-unquote' got
 ;; a second argument in Emacs 27.1.
+;;;###tramp-autoload
 (defalias 'tramp-compat-file-name-quoted-p
   (if (equal (func-arity #'file-name-quoted-p) '(1 . 2))
       #'file-name-quoted-p
@@ -178,6 +187,50 @@ Otherwise, return result of last form in BODY.
 CONDITION can also be a list of error conditions."
   (declare (debug t) (indent 1))
   `(condition-case nil (progn ,@body) (,condition nil)))
+
+;; `rx' in Emacs 26 doesn't know the `literal', `anychar' and
+;; `multibyte' constructs.  The `not' construct requires an `any'
+;; construct as argument.  The `regexp' construct requires a literal
+;; string.
+(defvar tramp-compat-rx--runtime-params)
+
+(defun tramp-compat-rx--transform-items (items)
+  (mapcar #'tramp-compat-rx--transform-item items))
+
+;; There is an error in Emacs 26.  `(rx "a" (? ""))' => "a?".
+;; We must protect the string in regexp and literal, therefore.
+(defun tramp-compat-rx--transform-item (item)
+  (pcase item
+    ('anychar 'anything)
+    ('multibyte 'nonascii)
+    (`(not ,expr)
+     (if (consp expr) item (list 'not (list 'any expr))))
+    (`(regexp ,expr)
+     (setq tramp-compat-rx--runtime-params t)
+     `(regexp ,(list '\, `(concat "\\(?:" ,expr "\\)"))))
+    (`(literal ,expr)
+     (setq tramp-compat-rx--runtime-params t)
+     `(regexp ,(list '\, `(concat "\\(?:" (regexp-quote ,expr) "\\)"))))
+    (`(eval . ,_) item)
+    (`(,head . ,rest) (cons head (tramp-compat-rx--transform-items rest)))
+    (_ item)))
+
+(defun tramp-compat-rx--transform (items)
+  (let* ((tramp-compat-rx--runtime-params nil)
+         (new-rx (cons ': (tramp-compat-rx--transform-items items))))
+    (if tramp-compat-rx--runtime-params
+        `(rx-to-string ,(list '\` new-rx) t)
+      (rx-to-string new-rx t))))
+
+(if (ignore-errors (rx-to-string '(literal "a"))) ;; Emacs 27+.
+    (defalias 'tramp-compat-rx #'rx)
+  (defmacro tramp-compat-rx (&rest items)
+    (tramp-compat-rx--transform items)))
+
+;; This is needed for compilation in the Emacs source tree.
+;;;###autoload (defalias 'tramp-compat-rx #'rx)
+
+(put #'tramp-compat-rx 'tramp-autoload t)
 
 ;; `file-modes', `set-file-modes' and `set-file-times' got argument
 ;; FLAG in Emacs 28.1.
@@ -294,6 +347,64 @@ CONDITION can also be a list of error conditions."
           (setq secret (funcall secret)))
 	secret))))
 
+;; Function `take' is new in Emacs 29.1.
+(defalias 'tramp-compat-take
+  (if (fboundp 'take)
+      #'take
+    (lambda (n list)
+      (when (and (natnump n) (> n 0))
+	(if (>= n (length list))
+	    list (butlast list (- (length list) n)))))))
+
+;; Function `ntake' is new in Emacs 29.1.
+(defalias 'tramp-compat-ntake
+  (if (fboundp 'ntake)
+      #'ntake
+    (lambda (n list)
+      (when (and (natnump n) (> n 0))
+	(if (>= n (length list))
+	    list (nbutlast list (- (length list) n)))))))
+
+;; Function `string-equal-ignore-case' is new in Emacs 29.1.
+(defalias 'tramp-compat-string-equal-ignore-case
+  (if (fboundp 'string-equal-ignore-case)
+      #'string-equal-ignore-case
+    (lambda (string1 string2)
+      (eq t (compare-strings string1 nil nil string2 nil nil t)))))
+
+;; Function `auth-source-netrc-parse-all' is new in Emacs 29.1.
+;; `netrc-parse' has been obsoleted in parallel.
+(defalias 'tramp-compat-auth-source-netrc-parse-all
+  (if (fboundp 'auth-source-netrc-parse-all)
+      #'auth-source-netrc-parse-all
+    (lambda (&optional file)
+      (declare-function netrc-parse "netrc")
+      (autoload 'netrc-parse "netrc")
+      (netrc-parse file))))
+
+;; Function `replace-regexp-in-region' is new in Emacs 28.1.
+(defalias 'tramp-compat-replace-regexp-in-region
+  (if (fboundp 'replace-regexp-in-region)
+      #'replace-regexp-in-region
+    (lambda (regexp replacement &optional start end)
+      (if start
+	  (when (< start (point-min))
+            (error "Start before start of buffer"))
+	(setq start (point)))
+      (if end
+	  (when (> end (point-max))
+            (error "End after end of buffer"))
+	(setq end (point-max)))
+      (save-excursion
+	(let ((matches 0)
+              (case-fold-search nil))
+	  (goto-char start)
+	  (while (re-search-forward regexp end t)
+            (replace-match replacement t)
+            (setq matches (1+ matches)))
+	  (and (not (zerop matches))
+               matches))))))
+
 (dolist (elt (all-completions "tramp-compat-" obarray 'functionp))
   (put (intern elt) 'tramp-suppress-trace t))
 
@@ -310,6 +421,6 @@ CONDITION can also be a list of error conditions."
 ;;   parentheses with a backslash in docstrings anymore.
 ;;
 ;; * Starting with Emacs 27.1, there's `make-empty-file'.  Could be
-;;   used instead of `write-region'.
+;;   used instead of `(write-region "" ...)'.
 
 ;;; tramp-compat.el ends here

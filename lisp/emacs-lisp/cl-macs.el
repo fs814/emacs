@@ -527,7 +527,7 @@ its argument list allows full Common Lisp conventions."
   (while (and (eq (car args) '&aux) (pop args))
     (while (and args (not (memq (car args) cl--lambda-list-keywords)))
       (if (consp (car args))
-          (if (and cl--bind-enquote (cl-cadar args))
+          (if (and cl--bind-enquote (cadar args))
               (cl--do-arglist (caar args)
                               `',(cadr (pop args)))
             (cl--do-arglist (caar args) (cadr (pop args))))
@@ -612,7 +612,7 @@ its argument list allows full Common Lisp conventions."
                              (if (eq ?_ (aref name 0))
                                  (setq name (substring name 1)))
                              (intern (format ":%s" name)))))
-		   (varg (if (consp (car arg)) (cl-cadar arg) (car arg)))
+                   (varg (if (consp (car arg)) (cadar arg) (car arg)))
 		   (def (if (cdr arg) (cadr arg)
                           ;; The ordering between those two or clauses is
                           ;; irrelevant, since in practice only one of the two
@@ -775,14 +775,34 @@ compared by `eql'.
 \(fn EXPR (KEYLIST BODY...)...)"
   (declare (indent 1) (debug (form &rest (sexp body))))
   (macroexp-let2 macroexp-copyable-p temp expr
-    (let* ((head-list nil))
+    (let* ((head-list nil)
+           (has-otherwise nil))
       `(cond
         ,@(mapcar
            (lambda (c)
-             (cons (cond ((memq (car c) '(t otherwise)) t)
+             (cons (cond (has-otherwise
+                          (error "Misplaced t or `otherwise' clause"))
+                         ((memq (car c) '(t otherwise))
+                          (setq has-otherwise t)
+                          t)
                          ((eq (car c) 'cl--ecase-error-flag)
                           `(error "cl-ecase failed: %s, %s"
                                   ,temp ',(reverse head-list)))
+                         ((null (car c))
+                          (macroexp-warn-and-return
+                           "Case nil will never match"
+                           nil 'suspicious))
+                         ((and (consp (car c)) (cdar c) (not (cddar c))
+                               (memq (caar c) '(quote function)))
+                          (macroexp-warn-and-return
+                           (format-message
+                            (concat "Case %s will match `%s'.  If "
+                                    "that's intended, write %s "
+                                    "instead.  Otherwise, don't "
+                                    "quote `%s'.")
+                            (car c) (caar c) (list (cadar c) (caar c))
+                            (cadar c))
+                           `(cl-member ,temp ',(car c)) 'suspicious))
                          ((listp (car c))
                           (setq head-list (append (car c) head-list))
                           `(cl-member ,temp ',(car c)))
@@ -1339,7 +1359,7 @@ For more details, see Info node `(cl)Loop Facility'.
 		      (temp-idx
                        (if (eq (car cl--loop-args) 'using)
                            (if (and (= (length (cadr cl--loop-args)) 2)
-                                    (eq (cl-caadr cl--loop-args) 'index))
+                                    (eq (caadr cl--loop-args) 'index))
                                (cadr (cl--pop2 cl--loop-args))
                              (error "Bad `using' clause"))
                          (make-symbol "--cl-idx--"))))
@@ -1370,8 +1390,8 @@ For more details, see Info node `(cl)Loop Facility'.
 		       (other
                         (if (eq (car cl--loop-args) 'using)
                             (if (and (= (length (cadr cl--loop-args)) 2)
-                                     (memq (cl-caadr cl--loop-args) hash-types)
-                                     (not (eq (cl-caadr cl--loop-args) word)))
+                                     (memq (caadr cl--loop-args) hash-types)
+                                     (not (eq (caadr cl--loop-args) word)))
                                 (cadr (cl--pop2 cl--loop-args))
                               (error "Bad `using' clause"))
                           (make-symbol "--cl-var--"))))
@@ -1433,8 +1453,8 @@ For more details, see Info node `(cl)Loop Facility'.
 		      (other
                        (if (eq (car cl--loop-args) 'using)
                            (if (and (= (length (cadr cl--loop-args)) 2)
-                                    (memq (cl-caadr cl--loop-args) key-types)
-                                    (not (eq (cl-caadr cl--loop-args) word)))
+                                    (memq (caadr cl--loop-args) key-types)
+                                    (not (eq (caadr cl--loop-args) word)))
                                (cadr (cl--pop2 cl--loop-args))
                              (error "Bad `using' clause"))
                          (make-symbol "--cl-var--"))))
@@ -1656,7 +1676,7 @@ If BODY is `setq', then use SPECS for assignments rather than for bindings."
   (let ((temps nil) (new nil))
     (when par
       (let ((p specs))
-        (while (and p (or (symbolp (car-safe (car p))) (null (cl-cadar p))))
+        (while (and p (or (symbolp (car-safe (car p))) (null (cadar p))))
           (setq p (cdr p)))
         (when p
           (setq par nil)
@@ -1731,7 +1751,7 @@ such that COMBO is equivalent to (and . CLAUSES)."
 	      (setq clauses (cons (nconc (butlast (car clauses))
 					 (if (eq (car-safe (cadr clauses))
 						 'progn)
-					     (cl-cdadr clauses)
+                                             (cdadr clauses)
 					   (list (cadr clauses))))
 				  (cddr clauses)))
             ;; A final (progn ,@A t) is moved outside of the `and'.
@@ -2261,139 +2281,131 @@ This is like `cl-flet', but for macros instead of functions.
                                      (eval `(function (lambda ,@res)) t))
 			       macroexpand-all-environment))))))
 
-(defun cl--sm-macroexpand (orig-fun exp &optional env)
+(defun cl--sm-macroexpand (exp &optional env)
+  "Special macro expander used inside `cl-symbol-macrolet'."
+  ;; FIXME: Arguably, this should be the official definition of `macroexpand'.
+  (while (not (eq exp (setq exp (macroexpand-1 exp env)))))
+  exp)
+
+(defun cl--sm-macroexpand-1 (orig-fun exp &optional env)
   "Special macro expander advice used inside `cl-symbol-macrolet'.
-This function extends `macroexpand' during macro expansion
+This function extends `macroexpand-1' during macro expansion
 of `cl-symbol-macrolet' to additionally expand symbol macros."
-  (let ((macroexpand-all-environment env)
+  (let ((exp (funcall orig-fun exp env))
         (venv (alist-get :cl-symbol-macros env)))
-    (while
-        (progn
-          (setq exp (funcall orig-fun exp env))
-          (pcase exp
-            ((pred symbolp)
-             ;; Perform symbol-macro expansion.
-             (let ((symval (assq exp venv)))
-               (when symval
-                 (setq exp (cadr symval)))))
-            (`(setq . ,args)
-             ;; Convert setq to setf if required by symbol-macro expansion.
-             (let ((convert nil)
-                   (rargs nil))
-               (while args
-                 (let ((place (pop args)))
-                   ;; Here, we know `place' should be a symbol.
-                   (while
-                       (let ((symval (assq place venv)))
-                         (when symval
-                           (setq place (cadr symval))
-                           (if (symbolp place)
-                               t        ;Repeat.
-                             (setq convert t)
-                             nil))))
-                   (push place rargs)
-                   (push (pop args) rargs)))
-               (setq exp (cons (if convert 'setf 'setq)
-                               (nreverse rargs)))
-               convert))
-            ;; CL's symbol-macrolet used to treat re-bindings as candidates for
-            ;; expansion (turning the let into a letf if needed), contrary to
-            ;; Common-Lisp where such re-bindings hide the symbol-macro.
-            ;; Not sure if there actually is code out there which depends
-            ;; on this behavior (haven't found any yet).
-            ;; Such code should explicitly use `cl-letf' instead, I think.
-            ;;
-            ;; (`(,(or `let `let*) . ,(or `(,bindings . ,body) pcase--dontcare))
-            ;;  (let ((letf nil) (found nil) (nbs ()))
-            ;;    (dolist (binding bindings)
-            ;;      (let* ((var (if (symbolp binding) binding (car binding)))
-            ;;             (sm (assq var venv)))
-            ;;        (push (if (not (cdr sm))
-            ;;                  binding
-            ;;                (let ((nexp (cadr sm)))
-            ;;                  (setq found t)
-            ;;                  (unless (symbolp nexp) (setq letf t))
-            ;;                  (cons nexp (cdr-safe binding))))
-            ;;              nbs)))
-            ;;    (when found
-            ;;      (setq exp `(,(if letf
-            ;;                       (if (eq (car exp) 'let) 'cl-letf 'cl-letf*)
-            ;;                     (car exp))
-            ;;                  ,(nreverse nbs)
-            ;;                  ,@body)))))
-            ;;
-            ;; We implement the Common-Lisp behavior, instead (see bug#26073):
-            ;; The behavior of CL made sense in a dynamically scoped
-            ;; language, but nowadays, lexical scoping semantics is more often
-            ;; expected.
-            (`(,(or 'let 'let*) . ,(or `(,bindings . ,body) pcase--dontcare))
-             (let ((nbs ()) (found nil))
-               (dolist (binding bindings)
-                 (let* ((var (if (symbolp binding) binding (car binding)))
-                        (val (and found (consp binding) (eq 'let* (car exp))
-                                  (list (macroexpand-all (cadr binding)
-                                                         env)))))
-                   (push (if (assq var venv)
-                             ;; This binding should hide "its" surrounding
-                             ;; symbol-macro, but given the way macroexpand-all
-                             ;; works (i.e. the `env' we receive as input will
-                             ;; be (re)applied to the code we return), we can't
-                             ;; prevent application of `env' to the
-                             ;; sub-expressions, so we need to α-rename this
-                             ;; variable instead.
-                             (let ((nvar (make-symbol (symbol-name var))))
-                               (setq found t)
-                               (push (list var nvar) venv)
-                               (push (cons :cl-symbol-macros venv) env)
-                               (cons nvar (or val (cdr-safe binding))))
-                           (if val (cons var val) binding))
-                         nbs)))
-               (when found
-                 (setq exp `(,(car exp)
-                             ,(nreverse nbs)
-                             ,@(macroexp-unprogn
-                                (macroexpand-all (macroexp-progn body)
-                                                 env)))))
-               nil))
-            ;; Do the same as for `let' but for variables introduced
-            ;; via other means, such as `lambda' and `condition-case'.
-            (`(function (lambda ,args . ,body))
-             (let ((nargs ()) (found nil))
-               (dolist (var args)
-                 (push (cond
-                        ((memq var '(&optional &rest)) var)
-                        ((assq var venv)
-                         (let ((nvar (make-symbol (symbol-name var))))
-                           (setq found t)
-                           (push (list var nvar) venv)
-                           (push (cons :cl-symbol-macros venv) env)
-                           nvar))
-                        (t var))
-                       nargs))
-               (when found
-                 (setq exp `(function
-                             (lambda ,(nreverse nargs)
-                               . ,(mapcar (lambda (exp)
-                                            (macroexpand-all exp env))
-                                          body)))))
-               nil))
-            ((and `(condition-case ,var ,exp . ,clauses)
-                  (guard (assq var venv)))
-             (let ((nvar (make-symbol (symbol-name var))))
-               (push (list var nvar) venv)
-               (push (cons :cl-symbol-macros venv) env)
-               (setq exp
-                     `(condition-case ,nvar ,(macroexpand-all exp env)
-                        . ,(mapcar
-                            (lambda (clause)
-                              `(,(car clause)
-                                . ,(mapcar (lambda (exp)
-                                             (macroexpand-all exp env))
-                                           (cdr clause))))
-                            clauses)))
-               nil))
-            )))
-    exp))
+    (pcase exp
+      ((pred symbolp)
+       ;; Try symbol-macro expansion.
+       (let ((symval (assq exp venv)))
+         (if symval (cadr symval) exp)))
+      (`(setq . ,args)
+       ;; Convert setq to setf if required by symbol-macro expansion.
+       (let ((convert nil))
+         (while args
+           (let* ((place (pop args))
+                  ;; Here, we know `place' should be a symbol.
+                  (symval (assq place venv)))
+             (pop args)
+             (when symval
+               (setq convert t))))
+         (if convert
+             (cons 'setf (cdr exp))
+           exp)))
+      ;; CL's symbol-macrolet used to treat re-bindings as candidates for
+      ;; expansion (turning the let into a letf if needed), contrary to
+      ;; Common-Lisp where such re-bindings hide the symbol-macro.
+      ;; Not sure if there actually is code out there which depends
+      ;; on this behavior (haven't found any yet).
+      ;; Such code should explicitly use `cl-letf' instead, I think.
+      ;;
+      ;; (`(,(or `let `let*) . ,(or `(,bindings . ,body) pcase--dontcare))
+      ;;  (let ((letf nil) (found nil) (nbs ()))
+      ;;    (dolist (binding bindings)
+      ;;      (let* ((var (if (symbolp binding) binding (car binding)))
+      ;;             (sm (assq var venv)))
+      ;;        (push (if (not (cdr sm))
+      ;;                  binding
+      ;;                (let ((nexp (cadr sm)))
+      ;;                  (setq found t)
+      ;;                  (unless (symbolp nexp) (setq letf t))
+      ;;                  (cons nexp (cdr-safe binding))))
+      ;;              nbs)))
+      ;;    (when found
+      ;;      (setq exp `(,(if letf
+      ;;                       (if (eq (car exp) 'let) 'cl-letf 'cl-letf*)
+      ;;                     (car exp))
+      ;;                  ,(nreverse nbs)
+      ;;                  ,@body)))))
+      ;;
+      ;; We implement the Common-Lisp behavior, instead (see bug#26073):
+      ;; The behavior of CL made sense in a dynamically scoped
+      ;; language, but nowadays, lexical scoping semantics is more often
+      ;; expected.
+      (`(,(or 'let 'let*) . ,(or `(,bindings . ,body) pcase--dontcare))
+       (let ((nbs ()) (found nil))
+         (dolist (binding bindings)
+           (let* ((var (if (symbolp binding) binding (car binding)))
+                  (val (and found (consp binding) (eq 'let* (car exp))
+                            (list (macroexpand-all (cadr binding)
+                                                   env)))))
+             (push (if (assq var venv)
+                       ;; This binding should hide "its" surrounding
+                       ;; symbol-macro, but given the way macroexpand-all
+                       ;; works (i.e. the `env' we receive as input will
+                       ;; be (re)applied to the code we return), we can't
+                       ;; prevent application of `env' to the
+                       ;; sub-expressions, so we need to α-rename this
+                       ;; variable instead.
+                       (let ((nvar (make-symbol (symbol-name var))))
+                         (setq found t)
+                         (push (list var nvar) venv)
+                         (push (cons :cl-symbol-macros venv) env)
+                         (cons nvar (or val (cdr-safe binding))))
+                     (if val (cons var val) binding))
+                   nbs)))
+         (if found
+             `(,(car exp)
+               ,(nreverse nbs)
+               ,@(macroexp-unprogn
+                  (macroexpand-all (macroexp-progn body)
+                                   env)))
+           exp)))
+      ;; Do the same as for `let' but for variables introduced
+      ;; via other means, such as `lambda' and `condition-case'.
+      (`(function (lambda ,args . ,body))
+       (let ((nargs ()) (found nil))
+         (dolist (var args)
+           (push (cond
+                  ((memq var '(&optional &rest)) var)
+                  ((assq var venv)
+                   (let ((nvar (make-symbol (symbol-name var))))
+                     (setq found t)
+                     (push (list var nvar) venv)
+                     (push (cons :cl-symbol-macros venv) env)
+                     nvar))
+                  (t var))
+                 nargs))
+         (if found
+             `(function
+               (lambda ,(nreverse nargs)
+                 . ,(mapcar (lambda (exp)
+                              (macroexpand-all exp env))
+                            body)))
+           exp)))
+      ((and `(condition-case ,var ,exp . ,clauses)
+            (guard (assq var venv)))
+       (let ((nvar (make-symbol (symbol-name var))))
+         (push (list var nvar) venv)
+         (push (cons :cl-symbol-macros venv) env)
+         `(condition-case ,nvar ,(macroexpand-all exp env)
+            . ,(mapcar
+                (lambda (clause)
+                  `(,(car clause)
+                    . ,(mapcar (lambda (exp)
+                                 (macroexpand-all exp env))
+                               (cdr clause))))
+                clauses))))
+      (_ exp))))
 
 ;;;###autoload
 (defmacro cl-symbol-macrolet (bindings &rest body)
@@ -2412,7 +2424,8 @@ by EXPANSION, and (setq NAME ...) will act like (setf EXPANSION ...).
     (unwind-protect
         (progn
           (unless advised
-            (advice-add 'macroexpand :around #'cl--sm-macroexpand))
+            (advice-add 'macroexpand :override #'cl--sm-macroexpand)
+            (advice-add 'macroexpand-1 :around #'cl--sm-macroexpand-1))
           (let* ((venv (cdr (assq :cl-symbol-macros
                                   macroexpand-all-environment)))
                  (expansion
@@ -2428,7 +2441,8 @@ by EXPANSION, and (setq NAME ...) will act like (setf EXPANSION ...).
                    expansion nil nil rev-malformed-bindings))
               expansion)))
       (unless advised
-        (advice-remove 'macroexpand #'cl--sm-macroexpand)))))
+        (advice-remove 'macroexpand   #'cl--sm-macroexpand)
+        (advice-remove 'macroexpand-1 #'cl--sm-macroexpand-1)))))
 
 ;;;###autoload
 (defmacro cl-with-gensyms (names &rest body)
@@ -2559,12 +2573,13 @@ values.  For compatibility, (cl-values A B C) is a synonym for (list A B C).
       (push x macro-declarations-alist)
       (push x defun-declarations-alist)))
 
+;;;###cl-autoload
 (defun cl--optimize (f _args &rest qualities)
   "Serve `cl-optimize' in function declarations.
 Example:
-(defun foo (x)
-  (declare (cl-optimize (speed 3) (safety 0)))
-  x)"
+  (defun foo (x)
+    (declare (cl-optimize (speed 3) (safety 0)))
+    x)"
   ;; FIXME this should make use of `cl--declare-stack' but I suspect
   ;; this mechanism should be reviewed first.
   (cl-loop for (qly val) in qualities
@@ -2612,7 +2627,7 @@ Example:
 	((and (eq (car-safe spec) 'warn) (boundp 'byte-compile-warnings))
 	 (while (setq spec (cdr spec))
 	   (if (consp (car spec))
-	       (if (eq (cl-cadar spec) 0)
+               (if (eq (cadar spec) 0)
                    (byte-compile-disable-warning (caar spec))
                  (byte-compile-enable-warning (caar spec)))))))
   nil)
@@ -2761,11 +2776,17 @@ Each PLACE may be a symbol, or any generalized variable allowed by `setf'.
                            (funcall setter vold)))
                        binds))))
     (let* ((binding (car bindings))
-           (place (macroexpand (car binding) macroexpand-all-environment)))
+           (place (car binding)))
       (gv-letplace (getter setter) place
         (macroexp-let2 nil vnew (cadr binding)
-          (if (symbolp place)
+          (if (and (symbolp place)
+                   ;; `place' could be some symbol-macro.
+                   (eq place getter))
               ;; Special-case for simple variables.
+              ;; FIXME: We currently only use this special case when `place'
+              ;; is a simple var.  Should we also use it when the
+              ;; macroexpansion of `place' is a simple var (i.e. when
+              ;; getter+setter is the same as that of a simple var)?
               (cl--letf (cdr bindings)
                         (cons `(,getter ,(if (cdr binding) vnew getter))
                               simplebinds)
@@ -3092,9 +3113,9 @@ To see the documentation for a defined struct type, use
                             (t `(and (consp cl-x)
 				     (memq (nth ,pos cl-x) ,tag-symbol))))))
 	  pred-check (and pred-form (> safety 0)
-			  (if (and (eq (cl-caadr pred-form) 'vectorp)
+                          (if (and (eq (caadr pred-form) 'vectorp)
 				   (= safety 1))
-			      (cons 'and (cl-cdddr pred-form))
+                              (cons 'and (cdddr pred-form))
                             `(,predicate cl-x))))
     (when pred-form
       (push `(,defsym ,predicate (cl-x)
@@ -3104,7 +3125,7 @@ To see the documentation for a defined struct type, use
                   `(and ,pred-form t)))
             forms)
       (push `(eval-and-compile
-               (put ',name 'cl-deftype-satisfies ',predicate))
+               (define-symbol-prop ',name 'cl-deftype-satisfies ',predicate))
             forms))
     (let ((pos 0) (descp descs))
       (while descp
@@ -3335,6 +3356,7 @@ the form NAME which is a shorthand for (NAME NAME)."
               :around #'cl--pcase-mutually-exclusive-p))
 
 
+;;;###cl-autoload
 (defun cl-struct-sequence-type (struct-type)
   "Return the sequence used to build STRUCT-TYPE.
 STRUCT-TYPE is a symbol naming a struct type.  Return values are
@@ -3374,6 +3396,7 @@ slots skipped by :initial-offset may appear in the list."
 
 (define-error 'cl-struct-unknown-slot "struct has no slot")
 
+;;;###cl-autoload
 (defun cl-struct-slot-offset (struct-type slot-name)
   "Return the offset of slot SLOT-NAME in STRUCT-TYPE.
 The returned zero-based slot index is relative to the start of
@@ -3408,7 +3431,7 @@ Of course, we really can't know that for sure, so it's just a heuristic."
                  (character	. natnump)
                  (char-table	. char-table-p)
                  (command	. commandp)
-                 (compiled-function . byte-code-function-p)
+                 (compiled-function . compiled-function-p)
                  (hash-table	. hash-table-p)
                  (cons		. consp)
                  (fixnum	. fixnump)
@@ -3567,7 +3590,7 @@ and then returning foo."
        (cl-defun ,fname ,(if (memq '&whole args) (delq '&whole args)
                            (cons '_cl-whole-arg args))
          ,@body)
-       (put ',func 'compiler-macro #',fname))))
+       (define-symbol-prop ',func 'compiler-macro #',fname))))
 
 ;;;###autoload
 (defun cl-compiler-macroexpand (form)
@@ -3676,8 +3699,8 @@ macro that returns its `&whole' argument."
 The type name can then be used in `cl-typecase', `cl-check-type', etc."
   (declare (debug cl-defmacro) (doc-string 3) (indent 2))
   `(cl-eval-when (compile load eval)
-     (put ',name 'cl-deftype-handler
-          (cl-function (lambda (&cl-defs ('*) ,@arglist) ,@body)))))
+     (define-symbol-prop ',name 'cl-deftype-handler
+                         (cl-function (lambda (&cl-defs ('*) ,@arglist) ,@body)))))
 
 (cl-deftype extended-char () '(and character (not base-char)))
 ;; Define fixnum so `cl-typep' recognize it and the type check emitted

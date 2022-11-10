@@ -90,12 +90,6 @@
 (defvar cl--optimize-safety 1)
 
 ;;;###autoload
-(define-obsolete-variable-alias
-  ;; This alias is needed for compatibility with .elc files that use defstruct
-  ;; and were compiled with Emacs<24.3.
-  'custom-print-functions 'cl-custom-print-functions "24.3")
-
-;;;###autoload
 (defvar cl-custom-print-functions nil
   "This is a list of functions that format user objects for printing.
 Each function is called in turn with three arguments: the object, the
@@ -372,8 +366,8 @@ SEQ, this is like `mapcar'.  With several, it is like the Common Lisp
 (cl--defalias 'cl-second 'cadr)
 (cl--defalias 'cl-rest 'cdr)
 
-(cl--defalias 'cl-third 'cl-caddr "Return the third element of the list X.")
-(cl--defalias 'cl-fourth 'cl-cadddr "Return the fourth element of the list X.")
+(cl--defalias 'cl-third #'caddr "Return the third element of the list X.")
+(cl--defalias 'cl-fourth #'cadddr "Return the fourth element of the list X.")
 
 (defsubst cl-fifth (x)
   "Return the fifth element of the list X."

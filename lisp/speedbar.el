@@ -2789,15 +2789,7 @@ to add more types of version control systems."
 	     (not (or (and (featurep 'ange-ftp)
 			   (string-match
 			    (car (symbol-value 'ange-ftp-name-format))
-			    (expand-file-name default-directory)))
-		      ;; efs support: Bob Weiner
-		      (and (featurep 'efs)
-			   (string-match
-			    (let ((reg (symbol-value 'efs-directory-regexp)))
-			      (if (stringp reg)
-				  reg
-				(car reg)))
-			    (expand-file-name default-directory))))))
+                            (expand-file-name default-directory))))))
 	(setq speedbar-vc-to-do-point 0))
     (if (numberp speedbar-vc-to-do-point)
 	(progn
@@ -3517,7 +3509,7 @@ Returns the tag list, or t for an error."
     (error t)))
 )
 
-;;; Tag Management -- etags  (old XEmacs compatibility part)
+;;; Tag Management -- etags
 ;;
 (defvar speedbar-fetch-etags-parse-list
   '(;; Note that java has the same parse-group as c
@@ -3560,10 +3552,7 @@ This variable is ignored if `speedbar-use-imenu-flag' is t."
 FLAG then becomes a member of etags command line arguments.  If flag
 is \"sort\", then toggle the value of `speedbar-sort-tags'.  If its
 value is \"show\" then toggle the value of
-`speedbar-show-unknown-files'.
-
-  This function is a convenience function for XEmacs menu created by
-Farzin Guilak <farzin@protocol.com>."
+`speedbar-show-unknown-files'."
   (interactive)
   (cond
    ((equal flag "sort")

@@ -128,7 +128,7 @@ from a file."
     font-lock-unfontify-region-function
     kill-buffer-query-functions kill-emacs-query-functions
     lisp-indent-function mouse-position-function
-    redisplay-end-trigger-functions suspend-tty-functions
+    suspend-tty-functions
     temp-buffer-show-function window-scroll-functions
     window-size-change-functions write-contents-functions
     write-file-functions write-region-annotate-functions)
@@ -171,6 +171,13 @@ unloading."
     (cond
      ((null hist)
       (defalias fun nil)
+      ;; FIXME: Arguably these properties should be applied via
+      ;; `define-symbol-prop', but most code still uses just `put'.
+      ;; FIXME: Maybe these properties should be attached to the
+      ;; function itself (as for `advertised-calling-convention')
+      ;; rather than to its symbol.
+      (if (get fun 'compiler-macro) (put fun 'compiler-macro nil))
+      (if (get fun 'gv-expander)    (put fun 'gv-expander nil))
       ;; Override the change that `defalias' just recorded.
       (put fun 'function-history nil))
      ((equal (car hist) loadhist-unload-filename)

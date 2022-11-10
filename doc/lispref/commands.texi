@@ -443,9 +443,9 @@ specification.  If the key sequence that invoked the command has
 and @acronym{ASCII} characters, do not count where @samp{e} is concerned.
 
 @item f
-A file name of an existing file (@pxref{File Names}).  The default
-directory is @code{default-directory}.  Existing, Completion, Default,
-Prompt.
+A file name of an existing file (@pxref{File Names}).  @xref{Reading
+File Names}, for details about default values.  Existing, Completion,
+Default, Prompt.
 
 @item F
 A file name.  The file need not exist.  Completion, Default, Prompt.
@@ -2701,7 +2701,10 @@ the character at that position.
 @cindex timestamp of a mouse event
 @defun posn-timestamp position
 Return the timestamp in @var{position}.  This is the time at which the
-event occurred, in milliseconds.
+event occurred, in milliseconds.  Such a timestamp is reported
+relative to an arbitrary starting time that varies according to the
+window system in use.  On the X Window System, for example, it is the
+number of milliseconds since the X server was started.
 @end defun
 
   These functions compute a position list given particular buffer
@@ -2723,7 +2726,7 @@ coordinates @var{x} and @var{y} in a specified frame or window,
 @var{frame-or-window}, which defaults to the selected window.
 The coordinates @var{x} and @var{y} are relative to the
 text area of the selected window.
-If @var{whole} is @code{non-nil}, the @var{x} coordinate is relative
+If @var{whole} is non-@code{nil}, the @var{x} coordinate is relative
 to the entire window area including scroll bars, margins and fringes.
 @end defun
 

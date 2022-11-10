@@ -213,20 +213,32 @@ struct color_name_cache_entry
 #ifdef HAVE_XINPUT2
 
 #ifdef HAVE_XINPUT2_1
+
 struct xi_scroll_valuator_t
 {
-  bool invalid_p;
-  bool pending_enter_reset;
-  double current_value;
-  double emacs_value;
-  double increment;
-
+  /* The ID of the valuator.  */
   int number;
-  int horizontal;
+
+  /* Whether or not it represents X axis movement.  */
+  bool_bf horizontal : 1;
+
+  /* Whether or not the value is currently invalid.  */
+  bool_bf invalid_p : 1;
+
+  /* The current value.  */
+  double current_value;
+
+  /* Value used to tally up deltas until a threshold is met.  */
+  double emacs_value;
+
+  /* The scroll increment.  */
+  double increment;
 };
+
 #endif
 
 #ifdef HAVE_XINPUT2_2
+
 struct xi_touch_point_t
 {
   struct xi_touch_point_t *next;
@@ -234,32 +246,69 @@ struct xi_touch_point_t
   int number;
   double x, y;
 };
+
 #endif
 
 struct xi_device_t
 {
+  /* The numerical ID of this device.  */
   int device_id;
+
 #ifdef HAVE_XINPUT2_1
+  /* The number of scroll valuators in `valuators'.  */
   int scroll_valuator_count;
 #endif
+
+  /* Whether or not the device is grabbed and its use.  */
   int grab, use;
+
+  /* The attached device.  Only valid if USE is some kind of master
+     device.  */
+  int attachment;
+
 #ifdef HAVE_XINPUT2_2
+  /* Whether or not this device is a direct touch device.  */
   bool direct_p;
 #endif
 
 #ifdef HAVE_XINPUT2_1
+  /* An array of scroll valuators Emacs knows about.  */
   struct xi_scroll_valuator_t *valuators;
 #endif
+
 #ifdef HAVE_XINPUT2_2
+  /* An array of in-progress touchscreen events.  */
   struct xi_touch_point_t *touchpoints;
 #endif
 
+  /* The name of this device.  */
   Lisp_Object name;
+
+  /* The time at which `focus_frame' became the keyboard focus (only
+     applies to master devices).  */
+  Time focus_frame_time;
+
+  /* The frame that is currently this device's keyboard focus, or
+     NULL.  */
+  struct frame *focus_frame;
+
+  /* The time at which `focus_frame' became the implicit keyboard
+     focus.  */
+  Time focus_implicit_time;
+
+  /* The frame that is currently this device's implicit keyboard
+     focus, or NULL.  */
+  struct frame *focus_implicit_frame;
+
+  /* The window on which the last motion event happened.  */
+  Window last_motion_window;
+
+  /* The rounded integer coordinates of the last motion event.  */
+  int last_motion_x, last_motion_y;
 };
 #endif
 
-Status x_parse_color (struct frame *f, const char *color_name,
-		      XColor *color);
+extern Status x_parse_color (struct frame *, const char *, XColor *);
 
 struct x_failable_request
 {
@@ -270,6 +319,22 @@ struct x_failable_request
      Otherwise, this is the request that ends this sequence.  */
   unsigned long end;
 };
+
+#ifdef HAVE_XFIXES
+
+struct x_monitored_selection
+{
+  /* The name of the selection.  */
+  Atom name;
+
+  /* The current owner of the selection.  */
+  Window owner;
+};
+
+/* An invalid window.  */
+#define X_INVALID_WINDOW 0xffffffff
+
+#endif
 
 
 /* For each X display, we have a structure that records
@@ -482,7 +547,10 @@ struct x_display_info
   /* The last frame mentioned in a FocusIn or FocusOut event.  This is
      separate from x_focus_frame, because whether or not LeaveNotify
      events cause us to lose focus depends on whether or not we have
-     received a FocusIn event for it.  */
+     received a FocusIn event for it.
+
+     This field is not used when the input extension is being
+     utilized.  */
   struct frame *x_focus_event_frame;
 
   /* The frame which currently has the visual highlight, and should get
@@ -540,6 +608,9 @@ struct x_display_info
   XIMStyles *xim_styles;
   struct xim_inst_t *xim_callback_data;
   XIMStyle preferred_xim_style;
+
+  /* The named coding system to use for this input method.  */
+  Lisp_Object xim_coding;
 #endif
 
   /* A cache mapping color names to RGB values.  */
@@ -614,9 +685,10 @@ struct x_display_info
     Xatom_net_wm_state_shaded, Xatom_net_frame_extents, Xatom_net_current_desktop,
     Xatom_net_workarea, Xatom_net_wm_opaque_region, Xatom_net_wm_ping,
     Xatom_net_wm_sync_request, Xatom_net_wm_sync_request_counter,
-    Xatom_net_wm_frame_drawn, Xatom_net_wm_user_time,
-    Xatom_net_wm_user_time_window, Xatom_net_client_list_stacking,
-    Xatom_net_wm_pid;
+    Xatom_net_wm_sync_fences, Xatom_net_wm_frame_drawn, Xatom_net_wm_frame_timings,
+    Xatom_net_wm_user_time, Xatom_net_wm_user_time_window,
+    Xatom_net_client_list_stacking, Xatom_net_wm_pid,
+    Xatom_net_wm_bypass_compositor;
 
   /* XSettings atoms and windows.  */
   Atom Xatom_xsettings_sel, Xatom_xsettings_prop, Xatom_xsettings_mgr;
@@ -678,13 +750,27 @@ struct x_display_info
 
 #ifdef HAVE_XINPUT2
   bool supports_xi2;
+
+  /* The minor version of the input extension.  (Major is always
+     2.x.) */
   int xi2_version;
+
+  /* The generic event opcode of XI2 events.  */
   int xi2_opcode;
 
+  /* The number of devices on this display known to Emacs.  */
   int num_devices;
+
+  /* Array of all input extension devices on this display known to
+     Emacs.  */
   struct xi_device_t *devices;
 
+  /* Pending keystroke time.  */
   Time pending_keystroke_time;
+
+  /* Pending keystroke source.  If a core KeyPress event arrives with
+     the same timestamp as pending_keystroke_time, it will be treated
+     as originating from this device.  */
   int pending_keystroke_source;
 
 #if defined USE_GTK && !defined HAVE_GTK3
@@ -694,6 +780,10 @@ struct x_display_info
      input method) core key event.  */
   bool pending_keystroke_time_special_p;
 #endif
+
+  /* The client pointer.  We keep a record client-side to avoid
+     calling XISetClientPointer all the time.  */
+  int client_pointer_device;
 #endif
 
 #ifdef HAVE_XKB
@@ -716,6 +806,7 @@ struct x_display_info
   bool xfixes_supported_p;
   int xfixes_major;
   int xfixes_minor;
+  int xfixes_event_base;
 #endif
 
 #ifdef HAVE_XSYNC
@@ -766,9 +857,31 @@ struct x_display_info
   /* Pointer to the next request in `failable_requests'.  */
   struct x_failable_request *next_failable_request;
 
+#ifdef HAVE_XFIXES
+  /* Array of selections being monitored and their owners.  */
+  struct x_monitored_selection *monitored_selections;
+
+  /* Window used to monitor those selections.  */
+  Window selection_tracking_window;
+
+  /* The number of those selections.  */
+  int n_monitored_selections;
+#endif
+
   /* The pending drag-and-drop time for middle-click based
      drag-and-drop emulation.  */
   Time pending_dnd_time;
+
+#if defined HAVE_XSYNC && !defined USE_GTK && defined HAVE_CLOCK_GETTIME
+  /* Whether or not the server time is probably the same as
+     "clock_gettime (CLOCK_MONOTONIC, ...)".  */
+  bool server_time_monotonic_p;
+
+  /* The time difference between the X server clock and the monotonic
+     clock, or 0 if unknown (if the difference is legitimately 0,
+     server_time_monotonic_p will be true).  */
+  int_fast64_t server_time_offset;
+#endif
 };
 
 #ifdef HAVE_X_I18N
@@ -842,11 +955,6 @@ struct x_output
      not present.  */
   Picture picture;
 #endif
-
-  /* Flag that indicates whether we've modified the back buffer and
-     need to publish our modifications to the front buffer at a
-     convenient time.  */
-  bool need_buffer_flip;
 
   /* The X window used for the bitmap icon;
      or 0 if we don't have a bitmap icon.  */
@@ -1018,6 +1126,18 @@ struct x_output
      and inactive states.  */
   bool_bf alpha_identical_p : 1;
 
+#ifdef HAVE_XDBE
+  /* Flag that indicates whether we've modified the back buffer and
+     need to publish our modifications to the front buffer at a
+     convenient time.  */
+  bool_bf need_buffer_flip : 1;
+
+  /* Flag that indicates whether or not the frame contents are
+     complete and can be safely flushed while handling async
+     input.  */
+  bool_bf complete : 1;
+#endif
+
 #ifdef HAVE_X_I18N
   /* Input context (currently, this means Compose key handler setup).  */
   XIC xic;
@@ -1026,15 +1146,54 @@ struct x_output
 #endif
 
 #ifdef HAVE_XSYNC
+  /* The "basic frame counter" used for resize synchronization.  */
   XSyncCounter basic_frame_counter;
+
+  /* The "extended frame counter" used for frame synchronization.  */
   XSyncCounter extended_frame_counter;
+
+  /* The pending value of the basic counter.  */
   XSyncValue pending_basic_counter_value;
+
+  /* The current value of the extended counter.  */
   XSyncValue current_extended_counter_value;
 
+  /* The configure event value of the extended counter.  */
+  XSyncValue resize_counter_value;
+
+  /* Whether or not basic resize synchronization is in progress.  */
   bool_bf sync_end_pending_p : 1;
+
+  /* Whether or not extended resize synchronization is in
+     progress.  */
   bool_bf ext_sync_end_pending_p : 1;
+
 #ifdef HAVE_GTK3
+  /* Whether or not GDK resize synchronization is in progress.  */
   bool_bf xg_sync_end_pending_p : 1;
+#endif
+
+  /* Whether or Emacs is waiting for the compositing manager to draw a
+     frame.  */
+  bool_bf waiting_for_frame_p : 1;
+
+#if !defined USE_GTK && defined HAVE_CLOCK_GETTIME
+  /* Whether or not Emacs should wait for the compositing manager to
+     draw frames before starting a new frame.  */
+  bool_bf use_vsync_p : 1;
+
+  /* The time (in microseconds) it took to draw the last frame.  */
+  uint_fast64_t last_frame_time;
+
+  /* A temporary time used to calculate that value.  */
+  uint_fast64_t temp_frame_time;
+
+#ifdef HAVE_XSYNCTRIGGERFENCE
+  /* An array of two sync fences that are triggered in order after a
+     frame completes.  Not initialized if the XSync extension is too
+     old to support sync fences.  */
+  XSyncFence sync_fences[2];
+#endif
 #endif
 #endif
 
@@ -1052,7 +1211,9 @@ struct x_output
 
   /* Keep track of focus.  May be EXPLICIT if we received a FocusIn for this
      frame, or IMPLICIT if we received an EnterNotify.
-     FocusOut and LeaveNotify clears EXPLICIT/IMPLICIT. */
+     FocusOut and LeaveNotify clears EXPLICIT/IMPLICIT.
+
+     Not used when the input extension is being utilized.  */
   int focus_state;
 
   /* The offset we need to add to compensate for type A WMs.  */
@@ -1085,6 +1246,15 @@ struct x_output
   XIEventMask *xi_masks;
   int num_xi_masks;
 #endif
+
+  /* Whether or not we are certain we know the offset from the root
+     window to this frame.  */
+  bool window_offset_certain_p;
+
+  /* The offset of the edit window from the root window.  This is
+     strictly an optimization to avoid extraneous synchronizing in
+     some cases.  */
+  int root_x, root_y;
 };
 
 enum
@@ -1098,7 +1268,6 @@ enum
   FOCUS_IMPLICIT = 1,
   FOCUS_EXPLICIT = 2
 };
-
 
 /* Return the X output data for frame F.  */
 #define FRAME_X_OUTPUT(f) ((f)->output_data.x)
@@ -1126,6 +1295,10 @@ extern void x_mark_frame_dirty (struct frame *f);
 
 /* Return the need-buffer-flip flag for frame F.  */
 #define FRAME_X_NEED_BUFFER_FLIP(f) ((f)->output_data.x->need_buffer_flip)
+
+/* Return whether or not the frame F has been completely drawn.  Used
+   while handling async input.  */
+#define FRAME_X_COMPLETE_P(f) ((f)->output_data.x->complete)
 #endif
 
 /* Return the outermost X window associated with the frame F.  */
@@ -1211,8 +1384,14 @@ extern void x_mark_frame_dirty (struct frame *f);
 #endif
 
 #ifdef HAVE_XSYNC
-#define FRAME_X_BASIC_COUNTER(f) FRAME_X_OUTPUT (f)->basic_frame_counter
-#define FRAME_X_EXTENDED_COUNTER(f) FRAME_X_OUTPUT (f)->extended_frame_counter
+#define FRAME_X_BASIC_COUNTER(f)		\
+  FRAME_X_OUTPUT (f)->basic_frame_counter
+#define FRAME_X_EXTENDED_COUNTER(f)		\
+  FRAME_X_OUTPUT (f)->extended_frame_counter
+#define FRAME_X_WAITING_FOR_DRAW(f)		\
+  FRAME_X_OUTPUT (f)->waiting_for_frame_p
+#define FRAME_X_COUNTER_VALUE(f)		\
+  FRAME_X_OUTPUT (f)->current_extended_counter_value
 #endif
 
 /* This is the Colormap which frame F uses.  */
@@ -1223,6 +1402,12 @@ extern void x_mark_frame_dirty (struct frame *f);
 #define FRAME_X_XIM_STYLES(f) (FRAME_DISPLAY_INFO (f)->xim_styles)
 #define FRAME_XIC_STYLE(f) ((f)->output_data.x->xic_style)
 #define FRAME_XIC_FONTSET(f) ((f)->output_data.x->xic_xfs)
+#define FRAME_X_XIM_CODING(f)				\
+  (SYMBOLP (Vx_input_coding_system)			\
+   ? Vx_input_coding_system				\
+   : (!NILP (FRAME_DISPLAY_INFO (f)->xim_coding)	\
+      ? FRAME_DISPLAY_INFO(f)->xim_coding		\
+      : Vlocale_coding_system))
 
 /* X-specific scroll bar stuff.  */
 
@@ -1249,11 +1434,6 @@ struct scroll_bar
 
   /* The X window representing this scroll bar.  */
   Window x_window;
-
-#if defined HAVE_XDBE && !defined USE_TOOLKIT_SCROLL_BARS
-  /* The X drawable representing this scroll bar.  */
-  Drawable x_drawable;
-#endif
 
   /* The position and size of the scroll bar in pixels, relative to the
      frame.  */
@@ -1473,6 +1653,11 @@ extern void x_make_frame_invisible (struct frame *);
 extern void x_iconify_frame (struct frame *);
 extern void x_free_frame_resources (struct frame *);
 extern void x_wm_set_size_hint (struct frame *, long, bool);
+#if defined HAVE_XSYNCTRIGGERFENCE && !defined USE_GTK \
+  && defined HAVE_CLOCK_GETTIME
+extern void x_sync_init_fences (struct frame *);
+#endif
+extern bool x_embed_frame (struct x_display_info *, struct frame *);
 
 extern void x_delete_terminal (struct terminal *);
 extern Cursor x_create_font_cursor (struct x_display_info *, int);
@@ -1511,13 +1696,26 @@ extern void x_cr_draw_frame (cairo_t *, struct frame *);
 extern Lisp_Object x_cr_export_frames (Lisp_Object, cairo_surface_type_t);
 #endif
 
+#ifdef HAVE_XFIXES
+extern Window x_find_selection_owner (struct x_display_info *, Atom);
+#endif
+
 #ifdef HAVE_XRENDER
 extern void x_xrender_color_from_gc_background (struct frame *, GC,
 						XRenderColor *, bool);
-extern void x_xr_ensure_picture (struct frame *f);
-extern void x_xr_apply_ext_clip (struct frame *f, GC gc);
-extern void x_xr_reset_ext_clip (struct frame *f);
+extern void x_xr_ensure_picture (struct frame *);
+extern void x_xr_apply_ext_clip (struct frame *, GC);
+extern void x_xr_reset_ext_clip (struct frame *);
 #endif
+
+extern void x_translate_coordinates (struct frame *, int, int, int *, int *);
+extern void x_translate_coordinates_to_root (struct frame *, int, int,
+					     int *, int *);
+extern Lisp_Object x_handle_translate_coordinates (struct frame *, Lisp_Object,
+						   int, int);
+
+extern Bool x_query_pointer (Display *, Window, Window *, Window *, int *,
+			     int *, int *, int *, unsigned int *);
 
 #ifdef HAVE_GTK3
 extern void x_scroll_bar_configure (GdkEvent *);
@@ -1645,6 +1843,7 @@ extern bool x_defined_color (struct frame *, const char *, Emacs_Color *,
                              bool, bool);
 extern void x_preserve_selections (struct x_display_info *, Lisp_Object,
 				   Lisp_Object);
+extern Lisp_Object x_get_keyboard_modifiers (struct x_display_info *);
 #ifdef HAVE_X_I18N
 extern void free_frame_xic (struct frame *);
 # if defined HAVE_X_WINDOWS && defined USE_X_TOOLKIT
@@ -1708,7 +1907,7 @@ extern void mark_xterm (void);
 
 /* Is the frame embedded into another application? */
 
-#define FRAME_X_EMBEDDED_P(f) (FRAME_X_OUTPUT(f)->explicit_parent != 0)
+#define FRAME_X_EMBEDDED_P(f) (FRAME_X_OUTPUT (f)->explicit_parent != 0)
 
 #define STORE_NATIVE_RECT(nr,rx,ry,rwidth,rheight)	\
   ((nr).x = (rx),					\

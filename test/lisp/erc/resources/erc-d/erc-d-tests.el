@@ -673,7 +673,7 @@ nonzero for this to work."
                             (cadr (pop errors))))))
 
 (ert-deftest erc-d-run-linger ()
-  :tags '(:expensive-test)
+  :tags '(:unstable :expensive-test)
   (erc-d-tests-with-server (dumb-s _) linger
     (with-current-buffer (erc-d-t-wait-for 6 (get-buffer "#chan"))
       (erc-d-t-search-for 2 "hey"))
@@ -683,7 +683,7 @@ nonzero for this to work."
       (erc-d-t-search-for 3 "Lingered for 1.00 seconds"))))
 
 (ert-deftest erc-d-run-linger-fail ()
-  :tags '(:expensive-test)
+  :tags '(:unstable :expensive-test)
   (let ((erc-server-flood-penalty 0.1)
         errors)
     (erc-d-tests-with-failure-spy
@@ -696,7 +696,7 @@ nonzero for this to work."
     (should (string-match-p "Match failed.*hi" (cadr (pop errors))))))
 
 (ert-deftest erc-d-run-linger-direct ()
-  :tags '(:expensive-test)
+  :tags '(:unstable :expensive-test)
   (let* ((dumb-server (erc-d-run "localhost" t
                                  'linger-multi-a 'linger-multi-b))
          (port (process-contact dumb-server :service))
@@ -1342,5 +1342,32 @@ DIALOGS are symbols representing the base names of dialog files in
             (kill-buffer client-buffer)
             (kill-buffer dumb-server-buffer)))
       (delete-file sock))))
+
+(ert-deftest erc-d-run-direct-foreign-protocol ()
+  :tags '(:expensive-test)
+  (let* ((server (erc-d-run "localhost" t "erc-d-server" 'foreign
+                            :ending "\n"))
+         (server-buffer (get-buffer "*erc-d-server*"))
+         (client-buffer (get-buffer-create "*erc-d-client*"))
+         client)
+    (with-current-buffer server-buffer (erc-d-t-search-for 4 "Starting"))
+    (setq client (make-network-process
+                  :buffer client-buffer
+                  :name "erc-d-client"
+                  :family 'ipv4
+                  :noquery t
+                  :coding 'binary
+                  :service (process-contact server :service)
+                  :host "localhost"))
+    (process-send-string client "ONE one\n")
+    (with-current-buffer client-buffer
+      (erc-d-t-search-for 5 "echo ONE one"))
+    (process-send-string client "TWO two\n")
+    (with-current-buffer client-buffer
+      (erc-d-t-search-for 2 "echo TWO two"))
+    (erc-d-t-wait-for 2 "server death" (not (process-live-p server)))
+    (when noninteractive
+      (kill-buffer client-buffer)
+      (kill-buffer server-buffer))))
 
 ;;; erc-d-tests.el ends here

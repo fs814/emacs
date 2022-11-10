@@ -1692,7 +1692,7 @@ test packages depend on each other, it might be helpful.")
                          (string-match-p "^Running 0 tests" logfile-contents))
                   (insert (format "  <testsuite id=\"%s\" name=\"%s\" tests=\"1\" errors=\"1\" failures=\"0\" skipped=\"0\" time=\"0\" timestamp=\"%s\">\n"
                                   id test-report
-                                  (ert--format-time-iso8601 (current-time))))
+				  (ert--format-time-iso8601 nil)))
                   (insert (format "    <testcase name=\"Test report missing %s\" status=\"error\" time=\"0\">\n"
                                   (file-name-nondirectory test-report)))
                   (insert (format "      <error message=\"Test report missing %s\" type=\"error\">\n"
@@ -1813,8 +1813,7 @@ Ran \\([0-9]+\\) tests, \\([0-9]+\\) results as expected\
     (unless (or (null tests) (zerop high))
       (message "\nLONG-RUNNING TESTS")
       (message "------------------")
-      (setq tests (sort tests (lambda (x y) (> (car x) (car y)))))
-      (when (< high (length tests)) (setcdr (nthcdr (1- high) tests) nil))
+      (setq tests (ntake high (sort tests (lambda (x y) (> (car x) (car y))))))
       (message "%s" (mapconcat #'cdr tests "\n")))
     ;; More details on hydra and emba, where the logs are harder to get to.
     (when (and (or (getenv "EMACS_HYDRA_CI") (getenv "EMACS_EMBA_CI"))

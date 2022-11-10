@@ -1162,7 +1162,7 @@ Used by `calc-user-invocation'.")
 
 
 ;;;; (Autoloads here)
-(load "calc-loaddefs.el" nil t)
+(load "calc-loaddefs" nil t)
 
 ;;;###autoload (define-key ctl-x-map "*" 'calc-dispatch)
 
@@ -1373,10 +1373,8 @@ Notations:  3.14e6     3.14 * 10^6
 	      (calc-check-defines))
 	  (setplist 'calc-define nil)))))
 
-(defvar calc-trail-mode-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map calc-mode-map)
-    map))
+(defvar-keymap calc-trail-mode-map
+  :parent calc-mode-map)
 
 (defun calc--header-line (long short width &optional fudge)
   "Return a Calc header line appropriate for the buffer WIDTH.
@@ -1627,8 +1625,7 @@ See calc-keypad for details."
 	  (error
 	   (if (and (eq (car err) 'error)
 		    (stringp (nth 1 err))
-		    (string-match "max-specpdl-size\\|max-lisp-eval-depth"
-				  (nth 1 err)))
+		    (string-search "max-lisp-eval-depth" (nth 1 err)))
                (error (substitute-command-keys
                        "Computation got stuck or ran too long.  Type \\`M' to increase the limit"))
 	     (setq calc-aborted-prefix nil)
@@ -1959,12 +1956,8 @@ See calc-keypad for details."
   (or n (setq n 1))
   (or m (setq m 1))
   (calc-check-stack (+ n m -1))
-  (and (> n 0)
-       (let ((top (copy-sequence (nthcdr (+ m calc-stack-top -1)
-					 calc-stack))))
-	 (setcdr (nthcdr (1- n) top) nil)
-	 (nreverse
-          (mapcar (lambda (x) (calc-get-stack-element x sel-mode)) top)))))
+  (nreverse (mapcar (lambda (x) (calc-get-stack-element x sel-mode))
+                    (take n (nthcdr (+ m calc-stack-top -1) calc-stack)))))
 
 (defun calc-top-list-n (&optional n m sel-mode)
   (mapcar #'math-check-complete
@@ -2291,9 +2284,7 @@ the United States."
              ((and (null n)
                    (eq (car-safe top) 'incomplete)
                    (> (length top) (if (eq (nth 1 top) 'intv) 3 2)))
-              (calc-pop-push-list 1 (let ((tt (copy-sequence top)))
-                                      (setcdr (nthcdr (- (length tt) 2) tt) nil)
-                                      (list tt))))
+              (calc-pop-push-list 1 (list (butlast top))))
              ((< nn 0)
               (if (and calc-any-selections
                        (calc-top-selected 1 (- nn)))

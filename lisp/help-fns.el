@@ -229,7 +229,7 @@ interactive command."
                (lambda (f) (if want-command
                           (commandp f)
                         (or (fboundp f) (get f 'function-documentation))))
-               t nil nil
+               'confirm nil nil
                (and fn (symbol-name fn)))))
     (unless (equal val "")
       (setq fn (intern val)))
@@ -266,13 +266,9 @@ handling of autoloaded functions."
              (current-buffer)))
         (help-buffer-under-preparation t))
 
-    (help-setup-xref
-     (list (lambda (function buffer)
-             (let ((describe-function-orig-buffer
-                    (if (buffer-live-p buffer) buffer)))
-               (describe-function function)))
-           function describe-function-orig-buffer)
-     (called-interactively-p 'interactive))
+    (help-setup-xref (list #'describe-function--helper
+                           function describe-function-orig-buffer)
+                     (called-interactively-p 'interactive))
 
     (save-excursion
       (with-help-window (help-buffer)
@@ -461,7 +457,9 @@ the C sources, too."
 		     load-path '(".el" ".elc") 'readable))))))))
 
     (cond
-     ((and (not file-name) (subrp type))
+     ((and (not file-name)
+           (subrp type)
+           (not (subr-native-elisp-p type)))
       ;; A built-in function.  The form is from `describe-function-1'.
       (if (or (get-buffer " *DOC*")
               (and also-c-source
@@ -519,8 +517,11 @@ the C sources, too."
     (let ((pt2 (with-current-buffer standard-output (point)))
           (remapped (command-remapping function)))
       (unless (memq remapped '(ignore undefined))
-        (let* ((all-keys (where-is-internal
-                          (or remapped function) overriding-local-map nil nil))
+        (let* ((all-keys
+                (with-current-buffer
+                    (or describe-function-orig-buffer (current-buffer))
+                  (where-is-internal
+                   (or remapped function) overriding-local-map nil nil)))
                (seps (seq-group-by
                       (lambda (key)
                         (and (vectorp key)
@@ -587,36 +588,43 @@ the C sources, too."
                   keys))
 
 (defun help-fns--insert-menu-bindings (menus heading)
-  (seq-do-indexed
-   (lambda (menu i)
-     (insert
-      (cond ((zerop i) "")
-            ((= i (1- (length menus))) " and ")
-            (t ", ")))
-     (let ((map (lookup-key global-map (seq-take menu 1)))
-           (start (point)))
-       (seq-do-indexed
-        (lambda (entry level)
-          (when (symbolp map)
-            (setq map (symbol-function map)))
-          (when-let ((elem (assq entry (cdr map))))
-            (when heading
-              (insert heading)
-              (setq heading nil start (point)))
-            (when (> level 0)
-              (insert
-               (if (char-displayable-p ?→)
-                   " → "
-                 " => ")))
-            (if (eq (nth 1 elem) 'menu-item)
-                (progn
-                  (insert (nth 2 elem))
-                  (setq map (cadddr elem)))
-              (insert (nth 1 elem))
-              (setq map (cddr elem)))))
-        (cdr (seq-into menu 'list)))
-       (put-text-property start (point) 'face 'help-key-binding)))
-   menus))
+  (let ((strings nil))
+    ;; First collect all the printed representations of menus.
+    (dolist (menu menus)
+      (let ((map (lookup-key global-map (seq-take menu 1)))
+            (string nil))
+        (seq-do-indexed
+         (lambda (entry level)
+           (when (symbolp map)
+             (setq map (symbol-function map)))
+           (when-let ((elem (assq entry (cdr map))))
+             (when (> level 0)
+               (push (if (char-displayable-p ?→)
+                         " → "
+                       " => ")
+                     string))
+             (if (eq (nth 1 elem) 'menu-item)
+                 (progn
+                   (push (nth 2 elem) string)
+                   (setq map (cadddr elem)))
+               (push (nth 1 elem) string)
+               (setq map (cddr elem)))))
+         (cdr (seq-into menu 'list)))
+        (when string
+          (push string strings))))
+    ;; Then output them.
+    (when strings
+      (when heading
+        (insert heading))
+      (seq-do-indexed
+       (lambda (string i)
+         (insert
+          (cond ((zerop i) "")
+                ((= i (1- (length menus))) " and ")
+                (t ", "))
+          (propertize (string-join (nreverse string))
+                      'face 'help-key-binding)))
+       strings))))
 
 (defun help-fns--compiler-macro (function)
   (pcase-dolist (`(,type . ,handler)
@@ -661,7 +669,7 @@ the C sources, too."
   "Insert usage at point and return docstring.  With highlighting."
   (if (keymapp function)
       doc                       ; If definition is a keymap, skip arglist note.
-    (let* ((advertised (gethash real-def advertised-signature-table t))
+    (let* ((advertised (get-advertised-calling-convention real-def))
            (arglist (if (listp advertised)
                         advertised (help-function-arglist real-def)))
            (usage (help-split-fundoc doc function)))
@@ -713,13 +721,13 @@ the C sources, too."
                           (get function
                                'derived-mode-parent))))
     (when parent-mode
-      (insert (substitute-command-keys "  Parent mode: `"))
+      (insert (substitute-quotes "  Parent mode: `"))
       (let ((beg (point)))
         (insert (format "%s" parent-mode))
         (make-text-button beg (point)
                           'type 'help-function
                           'help-args (list parent-mode)))
-      (insert (substitute-command-keys "'.\n")))))
+      (insert (substitute-quotes "'.\n")))))
 
 (defun help-fns--obsolete (function)
   ;; Ignore lambda constructs, keyboard macros, etc.
@@ -791,15 +799,40 @@ the C sources, too."
              (function-get function 'disabled))
     (insert "  This function is disabled.\n")))
 
+(defun help-fns--first-release-regexp (symbol)
+  (let* ((name (symbol-name symbol))
+         (quoted (regexp-quote name)))
+    ;; We used to use just (concat "\\_<" (regexp-quote name) "\\_>"),
+    ;; which had the advantage of adapting to the various notational
+    ;; conventions we've used over the years in etc/NEWS*, but it was also
+    ;; leading to many false positives.  So we use a more restrictive regexp
+    ;; now (which can still lead to false positives, e.g. because we don't
+    ;; distinguish between occurrences of the same symbol for
+    ;; different purposes, such as function name, var name, face name,
+    ;; property name, ...).
+    (concat
+     ;; The main "canonical" occurrence of symbols is within '...'.
+     "'" quoted "'"
+     ;; Commands can also occur as `M-x blabla'.
+     "\\|M-x[ \t\n]+" quoted "\\_>"
+     ;; Other times we do '<key>' (<cmdname>).
+     "\\|(" quoted ")"
+     ;; Finally other times we just include sample code, which we will
+     ;; only recognize if it's indented by at least 2 spaces and start with
+     ;; an open paren.
+     "\\|^\\(?:  \\|\t\\)[ \t]*(\\(.*[( ']\\)?" quoted "\\_>")
+    ))
+
+
 (defun help-fns--first-release (symbol)
   "Return the likely first release that defined SYMBOL, or nil."
   ;; Code below relies on the etc/NEWS* files.
   ;; FIXME: Maybe we should also use the */ChangeLog* files when available.
   ;; FIXME: Maybe we should also look for announcements of the addition
   ;; of the *packages* in which the function is defined.
-  (let* ((name (symbol-name symbol))
-         (re (concat "\\_<" (regexp-quote name) "\\_>"))
+  (let* ((re (help-fns--first-release-regexp symbol))
          (news (directory-files data-directory t "\\`NEWS\\(\\'\\|\\.\\)"))
+         (case-fold-search nil)
          (place nil)
          (first nil))
     (with-temp-buffer
@@ -816,16 +849,59 @@ the C sources, too."
                 ;; Almost all entries are of the form "* ... in Emacs NN.MM."
                 ;; but there are also a few in the form "* Emacs NN.MM is a bug
                 ;; fix release ...".
-                (if (not (re-search-backward "^\\* .* Emacs \\([0-9.]+[0-9]\\)"
-                                             nil t))
-                    (message "Ref found in non-versioned section in %S"
-                             (file-name-nondirectory f))
+                (if (not (re-search-backward
+                          "^\\* \\(?:.* \\)?Emacs \\([0-9.]+[0-9]\\)"
+                          nil t))
+                    (message "Ref to %S found in non-versioned section in %S"
+                             symbol (file-name-nondirectory f))
                   (let ((version (match-string 1)))
                     (when (or (null first) (version< version first))
                       (setq place (list f pos))
                       (setq first version))))))))))
     (when first
       (make-text-button first nil 'type 'help-news 'help-args place))))
+
+;; (defun help-fns--check-first-releases ()
+;;   "Compare the old liberal regexp to the new more restrictive one."
+;;   (interactive)
+;;   (let* ((quoted nil)
+;;          (rx-fun (lambda (orig-fun symbol)
+;;                    (if quoted
+;;                        (funcall orig-fun symbol)
+;;                      (format "\\_<%s\\_>"
+;;                              (regexp-quote (symbol-name symbol))))))
+;;          (count
+;;           (let ((count 0))
+;;             (obarray-map (lambda (sym)
+;;                            (when (or (fboundp sym) (boundp sym))
+;;                              (cl-incf count)))
+;;                          obarray)
+;;             count))
+;;          (p (make-progress-reporter "Check first releases..." 0 count)))
+;;     (with-current-buffer (get-buffer-create "*Check-first-release*")
+;;       (unwind-protect
+;;           (progn
+;;             (advice-add 'help-fns--first-release-regexp :around rx-fun)
+;;             (erase-buffer)
+;;             (setq count 0)
+;;             (obarray-map
+;;              (lambda (sym)
+;;                (when (or (fboundp sym) (boundp sym))
+;;                  (cl-incf count)
+;;                  (progress-reporter-update p count)
+;;                  (let ((vt (progn (setq quoted t)
+;;                                   (help-fns--first-release sym)))
+;;                        (vnil (progn (setq quoted nil)
+;;                                     (help-fns--first-release sym))))
+;;                    (when (and vnil (not (equal vt vnil)))
+;;                      (insert (symbol-name sym)
+;;                              "\nnot-quoted: " (or vnil "nil")
+;;                              "\nquoted:     " (or vt "nil")
+;;                              "\n\n")))))
+;;              obarray)
+;;             (progress-reporter-done p))
+;;         (advice-remove 'help-fns--first-release-regexp rx-fun))
+;;       (display-buffer (current-buffer)))))
 
 (add-hook 'help-fns-describe-function-functions
           #'help-fns--mention-first-release)
@@ -837,15 +913,6 @@ the C sources, too."
   (unless (memq 'help-fns--customize-variable-version
                 help-fns--activated-functions)
     (when-let ((first (and (symbolp object)
-                           ;; Weed out things that probably aren't
-                           ;; official things (so that we don't say
-                           ;; "Introduced in version 1.1" if the user
-                           ;; has done `(setq a 42)').
-                           (or (string-search "-" (symbol-name object))
-                               (and (boundp object)
-                                    (get object 'variable-documentation))
-                               (and (fboundp object)
-                                    (documentation object)))
                            (help-fns--first-release object))))
       (with-current-buffer standard-output
         (insert (format "  Probably introduced at or before Emacs version %s.\n"
@@ -950,9 +1017,9 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
                 (help-fns--analyze-function function))
                (file-name (find-lisp-object-file-name
                            function (if aliased 'defun def)))
-               (beg (if (and (or (byte-code-function-p def)
+               (beg (if (and (or (functionp def)
                                  (keymapp def)
-                                 (memq (car-safe def) '(macro lambda closure)))
+                                 (eq (car-safe def) 'macro))
                              (stringp file-name)
                              (help-fns--autoloaded-p function))
                         (concat
@@ -971,7 +1038,7 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
 		 (aliased
 		  (format-message "an alias for `%s'" real-def))
                  ((subr-native-elisp-p def)
-                  (concat beg "native compiled Lisp function"))
+                  (concat beg "native-compiled Lisp function"))
 		 ((subrp def)
 		  (concat beg (if (eq 'unevalled (cdr (subr-arity def)))
 		                  "special form"
@@ -985,12 +1052,12 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
                            (t "Lisp function"))))
 		 ((or (eq (car-safe def) 'macro)
 		      ;; For advised macros, def is a lambda
-		      ;; expression or a byte-code-function-p, so we
+		      ;; expression or a compiled-function-p, so we
 		      ;; need to check macros before functions.
 		      (macrop function))
 		  (concat beg "Lisp macro"))
 		 ((byte-code-function-p def)
-		  (concat beg "compiled Lisp function"))
+		  (concat beg "byte-compiled Lisp function"))
                  ((module-function-p def)
                   (concat beg "module function"))
 		 ((eq (car-safe def) 'lambda)
@@ -1099,6 +1166,18 @@ Returns a list of the form (REAL-FUNCTION DEF ALIASED REAL-DEF)."
 (add-hook 'help-fns-describe-function-functions #'help-fns--interactive-only)
 (add-hook 'help-fns-describe-function-functions #'help-fns--parent-mode)
 (add-hook 'help-fns-describe-function-functions #'help-fns--compiler-macro 100)
+
+(defun help-fns--generalized-variable (function)
+  (when (and (symbolp function)
+             (get function 'gv-expander)
+             ;; Don't mention obsolete generalized variables.
+             (not (get function 'byte-obsolete-generalized-variable)))
+    (insert (format-message "  `%s' is also a " function)
+            (buttonize "generalized variable"
+                       (lambda (_) (info "(elisp)Generalized Variables")))
+            ".\n")))
+(add-hook 'help-fns-describe-function-functions
+          #'help-fns--generalized-variable)
 
 
 ;; Variables
@@ -1479,8 +1558,8 @@ This cancels value editing without updating the value."
     (when safe-var
       (princ "  This variable is safe as a file local variable ")
       (princ "if its value\n  satisfies the predicate ")
-      (princ (if (byte-code-function-p safe-var)
-		 "which is a byte-compiled expression.\n"
+      (princ (if (compiled-function-p safe-var)
+		 "which is a compiled expression.\n"
 	       (format-message "`%s'.\n" safe-var))))))
 
 (add-hook 'help-fns-describe-variable-functions #'help-fns--var-risky)
@@ -1490,7 +1569,7 @@ This cancels value editing without updating the value."
     (princ "  This variable may be risky if used as a \
 file-local variable.\n")
     (when (assq variable safe-local-variable-values)
-      (princ (substitute-command-keys
+      (princ (substitute-quotes
               "  However, you have added it to \
 `safe-local-variable-values'.\n")))))
 
@@ -1540,8 +1619,8 @@ variable.\n")))
 	          (insert-text-button
 	           file 'type 'help-dir-local-var-def
                    'help-args (list variable file)))
-	        (princ (substitute-command-keys "'.\n"))))
-          (princ (substitute-command-keys
+                (princ (substitute-quotes "'.\n"))))
+          (princ (substitute-quotes
 	          "  This variable's value is file-local.\n")))))))
 
 (add-hook 'help-fns-describe-variable-functions #'help-fns--var-watchpoints)
@@ -1621,10 +1700,10 @@ variable.\n")))
      ((not permanent-local))
      ((bufferp locus)
       (princ
-       (substitute-command-keys
+       (substitute-quotes
         "  This variable's buffer-local value is permanent.\n")))
      (t
-      (princ (substitute-command-keys
+      (princ (substitute-quotes
 	      "  This variable's value is permanent \
 if it is given a local binding.\n"))))))
 
@@ -1701,9 +1780,9 @@ If FRAME is omitted or nil, use the selected frame."
                     (setq help-mode--current-data (list :symbol f))
                   (setq help-mode--current-data (list :symbol f
                                                       :file file-name))
-		  (princ (substitute-command-keys "Defined in `"))
+                (princ (substitute-quotes "Defined in `"))
 		  (princ (help-fns-short-filename file-name))
-		  (princ (substitute-command-keys "'"))
+                (princ (substitute-quotes "'"))
 		  ;; Make a hyperlink to the library.
 		  (save-excursion
 		    (re-search-backward
@@ -1800,8 +1879,10 @@ current buffer and the selected frame, respectively."
                                (when (funcall testfn symbol)
                                  ;; Don't record the current entry in the stack.
                                  (setq help-xref-stack-item nil)
-                                 (cons name
-                                       (funcall descfn symbol buffer frame))))
+                                 (let ((help-xref-stack nil)
+                                       (help-xref-forward-stack nil))
+                                   (funcall descfn symbol buffer frame))
+                                 (cons name (buffer-string))))
                              describe-symbol-backends))))
              (single (null (cdr docs))))
         (while (cdr docs)
@@ -1822,6 +1903,8 @@ current buffer and the selected frame, respectively."
           ;; Don't record the `describe-variable' item in the stack.
           (setq help-xref-stack-item nil)
           (help-setup-xref (list #'describe-symbol symbol) nil))
+        (goto-char (point-max))
+        (help-xref--navigation-buttons)
         (goto-char (point-min))))))
 
 ;;;###autoload
@@ -2109,8 +2192,7 @@ documentation for the major and minor modes of that buffer."
 	;; Document the minor modes fully.
         (insert (buttonize
                  (propertize pretty-minor-mode 'help-minor-mode mode)
-                 (lambda (mode)
-                   (describe-function mode))
+                 #'describe-function
                  mode))
         (let ((indicator
                (format-mode-line (assq mode minor-mode-alist))))
@@ -2119,7 +2201,8 @@ documentation for the major and minor modes of that buffer."
 			      "no indicator"
 			    (format "indicator%s"
 				    indicator)))))
-	(insert (help-split-fundoc (documentation mode) nil 'doc)))))
+	(insert (or (help-split-fundoc (documentation mode) nil 'doc)
+	            "No docstring")))))
   (forward-line -1)
   (fill-paragraph nil)
   (forward-paragraph 1)
@@ -2132,6 +2215,8 @@ documentation for the major and minor modes of that buffer."
        (when (and (commandp sym)
                   ;; Ignore aliases.
                   (not (symbolp (symbol-function sym)))
+                  ;; Ignore obsolete commands.
+                  (not (get sym 'byte-obsolete-info))
                   ;; Ignore everything bound.
                   (not (where-is-internal sym nil t))
                   (apply #'derived-mode-p (command-modes sym)))

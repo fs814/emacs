@@ -621,8 +621,9 @@ manner suitable for prepending to a user-specified script."
   "Find any overlays for IMG-FILE in the current Org buffer, and refresh them."
   (dolist (img-overlay org-inline-image-overlays)
     (when (string= img-file (plist-get (cdr (overlay-get img-overlay 'display)) :file))
-      (when (file-exists-p img-file)
-        (image-refresh (overlay-get img-overlay 'display))))))
+      (when (and (file-exists-p img-file)
+                 (fboundp 'image-flush))
+        (image-flush (overlay-get img-overlay 'display))))))
 
 ;;-----------------------------------------------------------------------------
 ;; facade functions
@@ -682,9 +683,10 @@ line directly before or after the table."
 				  (looking-at "[[:space:]]*#\\+"))
 			(setf params (org-plot/collect-options params))))
       ;; Dump table to datafile
-      (if-let ((dump-func (plist-get type :data-dump)))
-	  (funcall dump-func table data-file num-cols params)
-	(org-plot/gnuplot-to-data table data-file params))
+      (let ((dump-func (plist-get type :data-dump)))
+        (if dump-func
+	    (funcall dump-func table data-file num-cols params)
+	  (org-plot/gnuplot-to-data table data-file params)))
       ;; Check type of ind column (timestamp? text?)
       (when (plist-get params :check-ind-type)
 	(let* ((ind (1- (plist-get params :ind)))

@@ -232,6 +232,7 @@ static void
 x_menu_translate_generic_event (XEvent *event)
 {
   struct x_display_info *dpyinfo;
+  struct xi_device_t *device;
   XEvent copy;
   XIDeviceEvent *xev;
 
@@ -241,45 +242,65 @@ x_menu_translate_generic_event (XEvent *event)
     {
       eassert (!event->xcookie.data);
 
-      if (XGetEventData (dpyinfo->display, &event->xcookie))
+      switch (event->xcookie.evtype)
 	{
-	  switch (event->xcookie.evtype)
-	    {
-	    case XI_ButtonPress:
-	    case XI_ButtonRelease:
-	      xev = (XIDeviceEvent *) event->xcookie.data;
-	      copy.xbutton.type = (event->xcookie.evtype == XI_ButtonPress
-				   ? ButtonPress : ButtonRelease);
-	      copy.xbutton.serial = xev->serial;
-	      copy.xbutton.send_event = xev->send_event;
-	      copy.xbutton.display = dpyinfo->display;
-	      copy.xbutton.window = xev->event;
-	      copy.xbutton.root = xev->root;
-	      copy.xbutton.subwindow = xev->child;
-	      copy.xbutton.time = xev->time;
-	      copy.xbutton.x = lrint (xev->event_x);
-	      copy.xbutton.y = lrint (xev->event_y);
-	      copy.xbutton.x_root = lrint (xev->root_x);
-	      copy.xbutton.y_root = lrint (xev->root_y);
-	      copy.xbutton.state = xi_convert_event_state (xev);
-	      copy.xbutton.button = xev->detail;
-	      copy.xbutton.same_screen = True;
+	case XI_ButtonPress:
+	case XI_ButtonRelease:
 
-	      XPutBackEvent (dpyinfo->display, &copy);
+	  if (!XGetEventData (dpyinfo->display, &event->xcookie))
+	    break;
 
-	      break;
-	    }
+	  xev = (XIDeviceEvent *) event->xcookie.data;
+	  copy.xbutton.type = (event->xcookie.evtype == XI_ButtonPress
+			       ? ButtonPress : ButtonRelease);
+	  copy.xbutton.serial = xev->serial;
+	  copy.xbutton.send_event = xev->send_event;
+	  copy.xbutton.display = dpyinfo->display;
+	  copy.xbutton.window = xev->event;
+	  copy.xbutton.root = xev->root;
+	  copy.xbutton.subwindow = xev->child;
+	  copy.xbutton.time = xev->time;
+	  copy.xbutton.x = lrint (xev->event_x);
+	  copy.xbutton.y = lrint (xev->event_y);
+	  copy.xbutton.x_root = lrint (xev->root_x);
+	  copy.xbutton.y_root = lrint (xev->root_y);
+	  copy.xbutton.state = xi_convert_event_state (xev);
+	  copy.xbutton.button = xev->detail;
+	  copy.xbutton.same_screen = True;
+
+	  device = xi_device_from_id (dpyinfo, xev->deviceid);
+
+	  /* I don't know the repercussions of changing
+	     device->grab on XI_ButtonPress events, so be safe and
+	     only do what is necessary to prevent the grab from
+	     being left invalid as XMenuActivate swallows
+	     events.  */
+	  if (device && xev->evtype == XI_ButtonRelease)
+	    device->grab &= ~(1 << xev->detail);
+
+	  XPutBackEvent (dpyinfo->display, &copy);
 	  XFreeEventData (dpyinfo->display, &event->xcookie);
+
+	  break;
+
+	case XI_HierarchyChanged:
+	case XI_DeviceChanged:
+	  /* These events must always be handled.  */
+	  x_dispatch_event (event, dpyinfo->display);
+	  break;
 	}
     }
 }
 #endif
 
 #if !defined USE_X_TOOLKIT && !defined USE_GTK
-static void
-x_menu_expose_event (XEvent *event)
+static int
+x_menu_dispatch_event (XEvent *event)
 {
   x_dispatch_event (event, event->xexpose.display);
+
+  /* The return doesn't really matter.  */
+  return 0;
 }
 #endif
 #endif /* ! MSDOS */
@@ -1503,26 +1524,15 @@ create_and_show_popup_menu (struct frame *f, widget_value *first_wv,
 
   if (use_pos_func)
     {
-      Window dummy_window;
-
       /* Not invoked by a click.  pop up at x/y.  */
       pos_func = menu_position_func;
 
       /* Adjust coordinates to be root-window-relative.  */
       block_input ();
-      XTranslateCoordinates (FRAME_X_DISPLAY (f),
-
-                             /* From-window, to-window.  */
-                             FRAME_X_WINDOW (f),
-                             FRAME_DISPLAY_INFO (f)->root_window,
-
-                             /* From-position, to-position.  */
-                             x, y, &x, &y,
-
-                             /* Child of win.  */
-                             &dummy_window);
+      x_translate_coordinates_to_root (f, x, y, &x, &y);
 #ifdef HAVE_GTK3
-      /* Use window scaling factor to adjust position for hidpi screens. */
+      /* Use window scaling factor to adjust position for scaled
+	 outputs.  */
       x /= xg_get_scale (f);
       y /= xg_get_scale (f);
 #endif
@@ -1725,7 +1735,6 @@ create_and_show_popup_menu (struct frame *f, widget_value *first_wv,
   XButtonPressedEvent *event = &(dummy.xbutton);
   LWLIB_ID menu_id;
   Widget menu;
-  Window dummy_window;
 #if defined HAVE_XINPUT2 && defined USE_MOTIF
   XEvent property_dummy;
   Atom property_atom;
@@ -1757,17 +1766,7 @@ create_and_show_popup_menu (struct frame *f, widget_value *first_wv,
   /* Adjust coordinates to be root-window-relative.  */
   block_input ();
   x += FRAME_LEFT_SCROLL_BAR_AREA_WIDTH (f);
-  XTranslateCoordinates (FRAME_X_DISPLAY (f),
-
-                         /* From-window, to-window.  */
-                         FRAME_X_WINDOW (f),
-                         FRAME_DISPLAY_INFO (f)->root_window,
-
-                         /* From-position, to-position.  */
-                         x, y, &x, &y,
-
-                         /* Child of win.  */
-                         &dummy_window);
+  x_translate_coordinates_to_root (f, x, y, &x, &y);
   unblock_input ();
 
   event->x_root = x;
@@ -2507,6 +2506,10 @@ pop_down_menu (void *arg)
   struct pop_down_menu *data = arg;
   struct frame *f = data->frame;
   XMenu *menu = data->menu;
+#ifdef HAVE_XINPUT2
+  int i;
+  struct xi_device_t *device;
+#endif
 
   block_input ();
 #ifndef MSDOS
@@ -2526,6 +2529,19 @@ pop_down_menu (void *arg)
      results, and it is a pain to ask which are actually held now.  */
   FRAME_DISPLAY_INFO (f)->grabbed = 0;
 
+#ifdef HAVE_XINPUT2
+  /* Likewise for XI grabs when the mouse is released on top of the
+     menu itself.  */
+
+  for (i = 0; i < FRAME_DISPLAY_INFO (f)->num_devices; ++i)
+    {
+      device = &FRAME_DISPLAY_INFO (f)->devices[i];
+      device->grab = 0;
+    }
+#endif
+
+  /* Decrement the popup_activated_flag.  */
+  popup_activated_flag = 0;
 #endif /* HAVE_X_WINDOWS */
 
   unblock_input ();
@@ -2584,20 +2600,12 @@ x_menu_show (struct frame *f, int x, int y, int menuflags,
   inhibit_garbage_collection ();
 
 #ifdef HAVE_X_WINDOWS
-  {
-    /* Adjust coordinates to relative to the outer (window manager) window. */
-    int left_off, top_off;
-
-    x_real_pos_and_offsets (f, &left_off, NULL, &top_off, NULL,
-                            NULL, NULL, NULL, NULL, NULL);
-
-    x += left_off;
-    y += top_off;
-  }
-#endif /* HAVE_X_WINDOWS */
-
+  x_translate_coordinates_to_root (f, x, y, &x, &y);
+#else
+  /* MSDOS without X support.  */
   x += f->left_pos;
   y += f->top_pos;
+#endif
 
   /* Create all the necessary panes and their items.  */
   maxwidth = maxlines = lines = i = 0;
@@ -2744,18 +2752,22 @@ x_menu_show (struct frame *f, int x, int y, int menuflags,
       y += 1.5 * height/ (maxlines + 2);
     }
 
-  XMenuSetAEQ (menu, true);
   XMenuSetFreeze (menu, true);
   pane = selidx = 0;
 
 #ifndef MSDOS
   DEFER_SELECTIONS;
 
-  XMenuActivateSetWaitFunction (x_menu_wait_for_event, FRAME_X_DISPLAY (f));
+  XMenuActivateSetWaitFunction (x_menu_wait_for_event,
+				FRAME_X_DISPLAY (f));
+  XMenuEventHandler (x_menu_dispatch_event);
+
+  /* When the input extension is in use, the owner_events grab will
+     report extension events on frames, which the XMenu library does
+     not normally understand.  */
 #ifdef HAVE_XINPUT2
   XMenuActivateSetTranslateFunction (x_menu_translate_generic_event);
 #endif
-  XMenuActivateSetExposeFunction (x_menu_expose_event);
 #endif
 
   record_unwind_protect_ptr (pop_down_menu,
@@ -2781,6 +2793,12 @@ x_menu_show (struct frame *f, int x, int y, int menuflags,
     }
 #endif
 
+#ifdef HAVE_X_WINDOWS
+  /* Increment the popup flag; this prevents nested popups from being
+     displayed by user Lisp code in help-echo callbacks, and also
+     prevents mouse face from being displayed.  */
+  popup_activated_flag = 1;
+#endif
   status = XMenuActivate (FRAME_X_DISPLAY (f), menu, &pane, &selidx,
                           x, y, ButtonReleaseMask, &datap,
                           menu_help_callback);

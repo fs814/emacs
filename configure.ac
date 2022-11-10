@@ -494,7 +494,6 @@ OPTION_DEFAULT_ON([gnutls],[don't use -lgnutls for SSL/TLS support])
 OPTION_DEFAULT_ON([zlib],[don't compile with zlib decompression support])
 OPTION_DEFAULT_ON([modules],[don't compile with dynamic modules support])
 OPTION_DEFAULT_ON([threads],[don't compile with elisp threading support])
-OPTION_DEFAULT_OFF([native-compilation],[compile with Emacs Lisp native compiler support])
 OPTION_DEFAULT_OFF([cygwin32-native-compilation],[use native compilation on 32-bit Cygwin])
 OPTION_DEFAULT_ON([xinput2],[don't use version 2 of the X Input Extension for input])
 OPTION_DEFAULT_OFF([small-ja-dic],[generate a smaller-size Japanese dictionary])
@@ -1010,6 +1009,29 @@ AC_ARG_ENABLE([gcc-warnings],
          [gl_GCC_VERSION_IFELSE([5], [3], [gl_gcc_warnings=warn-only])])
    fi])
 
+NATIVE_COMPILATION_AOT=no
+AC_ARG_WITH([native-compilation],
+  [AS_HELP_STRING([--with-native-compilation@<:@=TYPE@:>@],
+                  [compile with Emacs Lisp native compiler support.  The TYPE
+		   'yes' (or empty) means to enable it and compile natively
+		   preloaded Lisp files; 'no' means to disable it;
+		   'aot' will make the build process compile all the Lisp
+		   files in the tree natively ahead of time.  (This will
+		   usually be quite slow.)])],
+  [
+  case $withval in
+     aot)
+       withval=yes
+       NATIVE_COMPILATION_AOT=yes
+       ;;
+     yes|no) ;;
+     *)      AC_MSG_ERROR([bad value $withval for native-compilation option]) ;;
+   esac
+   with_native_compilation=$withval],
+  [with_native_compilation=no]
+)
+AC_SUBST([NATIVE_COMPILATION_AOT])
+
 AC_ARG_ENABLE([check-lisp-object-type],
   [AS_HELP_STRING([--enable-check-lisp-object-type],
      [Enable compile time checks for the Lisp_Object data type,
@@ -1147,6 +1169,13 @@ if test "$emacs_cv_clang" = yes; then
   gl_WARN_ADD([-Wno-initializer-overrides])
   gl_WARN_ADD([-Wno-tautological-compare])
   gl_WARN_ADD([-Wno-tautological-constant-out-of-range-compare])
+fi
+
+# Suppress deprecation warnings from using sprintf variants,
+# starting with Xcode 14.1 on macOS 13.
+# These warnings are false alarms, as Emacs usage of sprintf is safe.
+if test $opsys = darwin; then
+  gl_WARN_ADD([-Wno-deprecated-declarations])
 fi
 
 # Use a slightly smaller set of warning options for lib/.
@@ -2157,17 +2186,16 @@ AC_SUBST([NS_OBJ])
 AC_SUBST([NS_OBJC_OBJ])
 
 if test "${HAVE_NS}" = yes; then
+  AC_LANG_PUSH([Objective C])
   AC_CACHE_CHECK(
     [if the Objective C compiler supports instancetype],
     [emacs_cv_objc_instancetype],
-    [AC_LANG_PUSH([Objective C])
-     AC_COMPILE_IFELSE(
+    [AC_COMPILE_IFELSE(
        [AC_LANG_SOURCE([[@interface Test
                           + (instancetype)test;
                           @end]])],
        [emacs_cv_objc_instancetype=yes],
-       [emacs_cv_objc_instancetype=no])
-     AC_LANG_POP([Objective C])])
+       [emacs_cv_objc_instancetype=no])])
 
   if test x$emacs_cv_objc_instancetype = xyes ; then
     AC_DEFINE([NATIVE_OBJC_INSTANCETYPE], [1],
@@ -2177,16 +2205,15 @@ if test "${HAVE_NS}" = yes; then
   AC_CACHE_CHECK(
     [if the Objective C compiler defaults to C99],
     [emacs_cv_objc_c99],
-    [AC_LANG_PUSH([Objective C])
-     AC_COMPILE_IFELSE(
+    [AC_COMPILE_IFELSE(
        [AC_LANG_PROGRAM([], [[for (int i = 0;;);]])],
        [emacs_cv_objc_c99=yes],
-       [emacs_cv_objc_c99=no])
-     AC_LANG_POP([Objective C])])
+       [emacs_cv_objc_c99=no])])
 
-   if test x$emacs_cv_objc_c99 = xno ; then
-     GNU_OBJC_CFLAGS="$GNU_OBJC_CFLAGS -std=c99"
-   fi
+  if test x$emacs_cv_objc_c99 = xno ; then
+    GNU_OBJC_CFLAGS="$GNU_OBJC_CFLAGS -std=c99"
+  fi
+  AC_LANG_POP([Objective C])
 fi
 
 HAVE_BE_APP=no
@@ -2777,12 +2804,9 @@ if test "${with_webp}" != "no"; then
    || test "${HAVE_W32}" = "yes" || test "${HAVE_NS}" = "yes" \
    || test "${HAVE_BE_APP}" = "yes" || test "${HAVE_PGTK}" = "yes"; then
       WEBP_REQUIRED=0.6.0
-      WEBP_MODULE="libwebp >= $WEBP_REQUIRED"
+      WEBP_MODULE="libwebpdemux >= $WEBP_REQUIRED"
 
       EMACS_CHECK_MODULES([WEBP], [$WEBP_MODULE])
-      if test "$HAVE_WEBP" = "yes"; then
-        WEBP_LIBS="-lwebp -lwebpdemux"
-      fi
       AC_SUBST([WEBP_CFLAGS])
       AC_SUBST([WEBP_LIBS])
    fi
@@ -3563,8 +3587,8 @@ if test "$with_xwidgets" != "no"; then
   elif test "${NS_IMPL_COCOA}" = "yes"; then
     dnl FIXME: Check framework WebKit2
     dnl WEBKIT_REQUIRED=M.m.p
-    WEBKIT_LIBS="-Wl,-framework -Wl,WebKit -Wl,-framework -Wl,Metal -Wl,-framework -Wl,MetalKit -lc++ -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/filament -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/filament/backend -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/bluegl -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/bluevk -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/camutils -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filabridge -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filaflat -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filagui -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filamat -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filamentapp -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filameshio -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/ibl -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/math -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/utils -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/third_party/smol-v/tnt -L/usr/local/lib -L/opt/homebrew/lib -L/opt/homebrew/opt/webp/lib -lfilament -lbackend -lvkshaders -lutils -lglfw -lbluevk -lbluegl -lcamutils -lfilabridge -lfilaflat -lfilagui -lfilamat -lfilamentapp -lfilameshio -lmath -libl -lsmol-v -L/Users/fs814/VulkanSDK/1.3.216.0/macOS/lib -L/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/build-emacs/base -lvulkan -lbase -lstdc++"
-    WEBKIT_CFLAGS="-I/System/Library/Frameworks/WebKit.framework/Headers -I/System/Library/Frameworks/Metal.framework/Headers -I/System/Library/Frameworks/MetalKit.framework/Headers -I/Users/fs814/sourcecode/renderer/filament/filament/include -I/Users/fs814/sourcecode/renderer/filament/libs/utils/include -I/Users/fs814/sourcecode/renderer/filament/libs/math/include -I/Users/fs814/sourcecode/renderer/filament/filament/backend/include -I/Users/fs814/sourcecode/renderer/filament/libs/filabridge/include -I/Users/fs814/sourcecode/renderer/filament/filament/src -I/Users/fs814/sourcecode/renderer/filament/third_party/robin-map -I/Users/fs814/sourcecode/renderer/filament/third_party/stb -I/Users/fs814/sourcecode/editor/emacs-fswork/generated -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/examples/triangle -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/base -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/ktx/other_include -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/ktx/include -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/tinygltf -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/imgui -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external -I/Users/fs814/VulkanSDK/1.3.216.0/macOS/include/"
+    WEBKIT_LIBS="-Wl,-framework -Wl,WebKit -Wl,-framework -Wl,Metal -Wl,-framework -Wl,MetalKit -lc++ -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/filament -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/filament/backend -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/bluegl -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/bluevk -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/camutils -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filabridge -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filaflat -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filagui -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filamat -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filamentapp -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/filameshio -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/ibl -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/math -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/libs/utils -L/Users/fs814/sourcecode/renderer/filament/out/cmake-debug/third_party/smol-v/tnt -L/usr/local/lib -L/opt/homebrew/lib -L/opt/homebrew/opt/webp/lib -lfilament -lbackend -lvkshaders -lutils -lglfw -lbluevk -lbluegl -lcamutils -lfilabridge -lfilaflat -lfilagui -lfilamat -lfilamentapp -lfilameshio -lmath -libl -lsmol-v -L/Users/fs814/VulkanSDK/1.3.224.1/macOS/lib -L/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/build/base -lvulkan -lbase -lstdc++"
+    WEBKIT_CFLAGS="-I/System/Library/Frameworks/WebKit.framework/Headers -I/System/Library/Frameworks/Metal.framework/Headers -I/System/Library/Frameworks/MetalKit.framework/Headers -I/Users/fs814/sourcecode/renderer/filament/filament/include -I/Users/fs814/sourcecode/renderer/filament/libs/utils/include -I/Users/fs814/sourcecode/renderer/filament/libs/math/include -I/Users/fs814/sourcecode/renderer/filament/filament/backend/include -I/Users/fs814/sourcecode/renderer/filament/libs/filabridge/include -I/Users/fs814/sourcecode/renderer/filament/filament/src -I/Users/fs814/sourcecode/renderer/filament/third_party/robin-map -I/Users/fs814/sourcecode/renderer/filament/third_party/stb -I/Users/fs814/sourcecode/editor/emacs-fswork/generated -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/examples/triangle -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/base -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/ktx/other_include -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/ktx/include -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/tinygltf -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external/imgui -I/Users/fs814/sourcecode/myproject/MonoRepo/vulkan/Vulkan/external -I/Users/fs814/VulkanSDK/1.3.224.1/macOS/include/"
     HAVE_WEBKIT="yes"
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
@@ -4248,8 +4272,8 @@ if test "${with_native_compilation}" != "no"; then
         if test -n "`$BREW --prefix --installed libgccjit 2>/dev/null`"; then
           MAC_CFLAGS="-I$(dirname $($BREW ls -v libgccjit | \
                                                 grep libgccjit.h))"
-          MAC_LIBS="-L$(dirname $($BREW ls -v libgccjit| \
-                                            grep -E 'libgccjit\.(so|dylib)$'))"
+          MAC_LIBS="-L$(dirname $($BREW ls -v libgccjit \
+                                  | grep -m1 -E 'libgccjit\.(so|dylib)$'))"
         fi
       fi
 
@@ -4683,6 +4707,10 @@ if test "${HAVE_X11}" = "yes"; then
     AC_DEFINE([HAVE_XSYNC], [1],
       [Define to 1 if the X Synchronization Extension is available.])
     XSYNC_LIBS="-lXext"
+    OLDLIBS="$LIBS"
+    LIBS="-lXext $LIBS" # Set this temporarily for AC_CHECK_FUNC
+    AC_CHECK_FUNCS([XSyncTriggerFence]) # Check for version 3.1
+    LIBS="$OLDLIBS"
   fi
 fi
 AC_SUBST([XSYNC_LIBS])
@@ -6696,6 +6724,7 @@ if test -f "$srcdir/$opt_makefile.in"; then
   dnl Again, it's best not to use a variable.  Though you can add
   dnl ", [], [opt_makefile='$opt_makefile']" and it should work.
   AC_CONFIG_FILES([test/Makefile])
+  AC_CONFIG_FILES([test/manual/noverlay/Makefile])
 fi
 opt_makefile=test/infra/Makefile
 if test -f "$srcdir/$opt_makefile.in"; then

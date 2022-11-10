@@ -374,7 +374,7 @@ Optional arg POS is a buffer position where to look for a fake header;
 defaults to `point-min'."
   (overlays-at (or pos (point-min))))
 
-(defun tabulated-list-revert (&rest ignored)
+(defun tabulated-list-revert (&rest _ignored)
   "The `revert-buffer-function' for `tabulated-list-mode'.
 It runs `tabulated-list-revert-hook', then calls `tabulated-list-print'."
   (interactive)
@@ -465,7 +465,7 @@ changing `tabulated-list-sort-key'."
       (let* ((elt (car entries))
              (tabulated-list--near-rows
               (list
-               (or (tabulated-list-get-entry (point-at-bol 0)) (cadr elt))
+               (or (tabulated-list-get-entry (pos-bol 0)) (cadr elt))
                (cadr elt)
                (or (cadr (cadr entries)) (cadr elt))))
              (id (car elt)))
@@ -519,7 +519,7 @@ of column descriptors."
 	(insert (make-string x ?\s)))
     (let ((tabulated-list--near-rows ; Bind it if not bound yet (Bug#25506).
            (or (bound-and-true-p tabulated-list--near-rows)
-               (list (or (tabulated-list-get-entry (point-at-bol 0))
+               (list (or (tabulated-list-get-entry (pos-bol 0))
                          cols)
                      cols))))
       (dotimes (n ncols)
@@ -611,7 +611,7 @@ This function only changes the buffer contents; it does not alter
 	 (cols (tabulated-list-get-entry))
 	 (inhibit-read-only t))
     (when cols
-      (delete-region (line-beginning-position) (1+ (line-end-position)))
+      (delete-region (pos-bol) (1+ (pos-eol)))
       (list id cols))))
 
 (defun tabulated-list-set-col (col desc &optional change-entry-data)
@@ -625,8 +625,8 @@ by setting the appropriate slot of the vector originally used to
 print this entry.  If `tabulated-list-entries' has a list value,
 this is the vector stored within it."
   (let* ((opoint (point))
-	 (eol    (line-end-position))
-	 (pos    (line-beginning-position))
+         (eol    (pos-eol))
+         (pos    (pos-bol))
 	 (id     (tabulated-list-get-id pos))
 	 (entry  (tabulated-list-get-entry pos))
 	 (prop 'tabulated-list-column-name)
@@ -651,9 +651,9 @@ this is the vector stored within it."
       (goto-char pos)
       (let ((tabulated-list--near-rows
              (list
-              (tabulated-list-get-entry (point-at-bol 0))
+              (tabulated-list-get-entry (pos-bol 0))
               entry
-              (or (tabulated-list-get-entry (point-at-bol 2)) entry))))
+              (or (tabulated-list-get-entry (pos-bol 2)) entry))))
         (tabulated-list-print-col col desc (current-column)))
       (if change-entry-data
 	  (aset entry col desc))
@@ -785,7 +785,7 @@ If ARG is provided, move that many columns."
     (let ((prev (or (previous-single-property-change
                      (point) 'tabulated-list-column-name)
                     1)))
-      (unless (< prev (line-beginning-position))
+      (unless (< prev (pos-bol))
         (goto-char prev)))))
 
 ;;; The mode definition:

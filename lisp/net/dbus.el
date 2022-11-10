@@ -37,6 +37,7 @@
 (declare-function dbus-message-internal "dbusbind.c")
 (declare-function dbus--init-bus "dbusbind.c")
 (declare-function libxml-parse-xml-region "xml.c")
+(defvar dbus-debug)
 (defvar dbus-message-type-invalid)
 (defvar dbus-message-type-method-call)
 (defvar dbus-message-type-method-return)
@@ -941,9 +942,7 @@ association to the service from D-Bus."
 
     ;; Loop over the registered functions.
     (dolist (elt entry)
-      (when (equal
-	     value
-	     (butlast (cdr elt) (- (length (cdr elt)) (length value))))
+      (when (equal value (take (length value) (cdr elt)))
 	(setq ret t)
 	;; Compute new hash value.  If it is empty, remove it from the
 	;; hash table.

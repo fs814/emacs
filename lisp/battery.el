@@ -255,14 +255,14 @@ of the following information may or may not be available:
 For instance, to play an alarm when the battery power dips below
 10%, you could use a function like the following:
 
-(defvar my-prev-battery nil)
-(defun my-battery-alarm (data)
-  (when (and my-prev-battery
-             (equal (alist-get ?L data) \"off-line\")
-             (< (string-to-number (alist-get ?p data)) 10)
-             (>= (string-to-number (alist-get ?p my-prev-battery)) 10))
-    (play-sound-file \"~/alarm.wav\" 5))
-  (setq my-prev-battery data))"
+  (defvar my-prev-battery nil)
+  (defun my-battery-alarm (data)
+    (when (and my-prev-battery
+               (equal (alist-get ?L data) \"off-line\")
+               (< (string-to-number (alist-get ?p data)) 10)
+               (>= (string-to-number (alist-get ?p my-prev-battery)) 10))
+      (play-sound-file \"~/alarm.wav\" 5))
+    (setq my-prev-battery data))"
   :version "29.1"
   :type '(repeat function))
 
@@ -369,11 +369,11 @@ The following %-sequences are provided:
 	(setq driver-version (match-string 1))
 	(setq bios-version (match-string 2))
 	(setq tem (string-to-number (match-string 3) 16))
-	(if (not (logand tem 2))
+        (if (zerop (logand tem 2))
 	    (setq bios-interface "not supported")
 	  (setq bios-interface "enabled")
-	  (cond ((logand tem 16) (setq bios-interface "disabled"))
-		((logand tem 32) (setq bios-interface "disengaged")))
+          (cond ((/= (logand tem 16) 0) (setq bios-interface "disabled"))
+                ((/= (logand tem 32) 0) (setq bios-interface "disengaged")))
 	  (setq tem (string-to-number (match-string 4) 16))
 	  (cond ((= tem 0) (setq line-status "off-line"))
 		((= tem 1) (setq line-status "on-line"))
@@ -914,6 +914,15 @@ The following %-sequences are provided:
 
 ;;; `apm' interface for BSD.
 
+;; This function is a wrapper on `call-process' that return the
+;; standard output in a string.  We are using it instead
+;; `shell-command-to-string' because this last one is trying to run
+;; PROGRAM on the remote host if the buffer is remote.
+(defun battery--call-process-to-string (program &rest args)
+  (with-output-to-string
+    (with-current-buffer standard-output
+      (apply #'call-process program nil t nil args))))
+
 (defun battery-bsd-apm ()
   "Get APM status information from BSD apm binary.
 The following %-sequences are provided:
@@ -929,13 +938,14 @@ The following %-sequences are provided:
 %t Remaining time (to charge or discharge) in the form `h:min'"
   (let* ((os-name (car (split-string
                         ;; FIXME: Can't we use something like `system-type'?
-                        (shell-command-to-string "/usr/bin/uname"))))
+                        (battery--call-process-to-string "uname"))))
          (apm-flag (pcase os-name
                      ("OpenBSD" "mP")
                      ("FreeBSD" "st")
                      (_         "ms")))
-         (apm-cmd (concat "/usr/sbin/apm -abl" apm-flag))
-         (apm-output (split-string (shell-command-to-string apm-cmd)))
+         (apm-args (concat "-abl" apm-flag))
+         (apm-output (split-string
+                      (battery--call-process-to-string "apm" apm-args)))
          (indices (pcase os-name
                     ;; FreeBSD's manpage documents that multiple
                     ;; outputs are ordered by "the order in which

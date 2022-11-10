@@ -537,8 +537,6 @@ This is like `describe-bindings', but displays only Isearch keys."
     (describe-function 'isearch-forward))
   (when isearch-mode (isearch-update)))
 
-(defalias 'isearch-mode-help 'isearch-describe-mode)
-
 
 ;; Define isearch-mode keymap.
 
@@ -834,17 +832,15 @@ This is like `describe-bindings', but displays only Isearch keys."
             :image '(isearch-tool-bar-image "left-arrow")))
     map))
 
-(defvar minibuffer-local-isearch-map
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map minibuffer-local-map)
-    (define-key map "\r"    'exit-minibuffer)
-    (define-key map "\M-\t" 'isearch-complete-edit)
-    (define-key map "\C-s"  'isearch-forward-exit-minibuffer)
-    (define-key map "\C-r"  'isearch-reverse-exit-minibuffer)
-    (define-key map "\C-f"  'isearch-yank-char-in-minibuffer)
-    (define-key map [right] 'isearch-yank-char-in-minibuffer)
-    map)
-  "Keymap for editing Isearch strings in the minibuffer.")
+(defvar-keymap minibuffer-local-isearch-map
+  :doc "Keymap for editing Isearch strings in the minibuffer."
+  :parent minibuffer-local-map
+  "RET"     #'exit-minibuffer
+  "M-TAB"   #'isearch-complete-edit
+  "C-s"     #'isearch-forward-exit-minibuffer
+  "C-r"     #'isearch-reverse-exit-minibuffer
+  "C-f"     #'isearch-yank-char-in-minibuffer
+  "<right>" #'isearch-yank-char-in-minibuffer)
 
 ;; Internal variables declared globally for byte-compiler.
 ;; These are all set with setq while isearching
@@ -2391,8 +2387,7 @@ type \\[help-command] at that time."
 	      (if (use-region-p) " in region" ""))
       isearch-regexp)
      t isearch-regexp (or delimited isearch-regexp-function) nil nil
-     (if (use-region-p) (region-beginning))
-     (if (use-region-p) (region-end))
+     (use-region-beginning) (use-region-end)
      backward))
   (and isearch-recursive-edit (exit-recursive-edit)))
 
@@ -2838,7 +2833,9 @@ The command accepts Unicode names like \"smiling face\" or
 			    isearch-barrier
 			    (1+ isearch-other-end)))))
       (isearch-search)
-      ))
+      (when (and (memq isearch-wrap-pause '(no no-ding))
+                 (not isearch-success))
+        (isearch-repeat (if isearch-forward 'forward 'backward)))))
   (isearch-push-state)
   (if isearch-op-fun (funcall isearch-op-fun))
   (isearch-update))
@@ -3652,8 +3649,7 @@ Optional third argument, if t, means if fail just return nil (no error).
       (setq isearch-case-fold-search
 	    (isearch-no-upper-case-p isearch-string isearch-regexp)))
   (condition-case lossage
-      (let ((inhibit-point-motion-hooks isearch-invisible)
-	    (inhibit-quit nil)
+      (let ((inhibit-quit nil)
 	    (case-fold-search isearch-case-fold-search)
 	    (search-invisible isearch-invisible)
 	    (retry t))
@@ -4512,21 +4508,35 @@ is a list of cons cells of the form (START . END)."
            (setq bounds (cdr bounds))))
        found))))
 
-(defun isearch-search-fun-in-text-property (search-fun property)
-  "Return the function to search inside text that has the specified PROPERTY.
+(defun isearch-search-fun-in-text-property (search-fun properties)
+  "Return the function to search inside text that has the specified PROPERTIES.
 The function will limit the search for matches only inside text which has
-this property in the current buffer.
+at least one of the text PROPERTIES.
 The argument SEARCH-FUN provides the function to search text, and
 defaults to the value of `isearch-search-fun-default' when nil."
+  (setq properties (ensure-list properties))
   (apply-partially
    #'search-within-boundaries
    search-fun
-   (lambda (pos) (get-text-property (if isearch-forward pos
-                                      (max (1- pos) (point-min)))
-                                    property))
-   (lambda (pos) (if isearch-forward
-                     (next-single-property-change pos property)
-                   (previous-single-property-change pos property)))))
+   (lambda (pos)
+     (let ((pos (if isearch-forward pos (max (1- pos) (point-min)))))
+       (seq-some (lambda (property)
+                   (get-text-property pos property))
+                 properties)))
+   (lambda (pos)
+     (let ((pos-list (if isearch-forward
+                         (mapcar (lambda (property)
+                                   (next-single-property-change
+                                    pos property))
+                                 properties)
+                       (mapcar (lambda (property)
+                                 (previous-single-property-change
+                                  pos property))
+                               properties))))
+       (setq pos-list (delq nil pos-list))
+       (when pos-list (if isearch-forward
+                          (seq-min pos-list)
+                        (seq-max pos-list)))))))
 
 (defun search-within-boundaries ( search-fun get-fun next-fun
                                   string &optional bound noerror count)
@@ -4633,6 +4643,8 @@ CASE-FOLD non-nil means the search was case-insensitive."
                        (replace-regexp-in-string "'" "['’]")
                        (replace-regexp-in-string "\"" "[\"“”]")))))
     (buffer-local-restore-state isearch-fold-quotes-mode--state)))
+
+(define-obsolete-function-alias 'isearch-mode-help #'isearch-describe-mode "29.1")
 
 (provide 'isearch)
 

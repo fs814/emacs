@@ -634,9 +634,6 @@ for use at QPOS."
       (let ((qstr (funcall qfun completion)))
 	(cons qstr (length qstr))))))
 
-(defun completion--string-equal-p (s1 s2)
-  (eq t (compare-strings s1 nil nil s2 nil nil 'ignore-case)))
-
 (defun completion--twq-all (string ustring completions boundary
                                    _unquote requote)
   (when completions
@@ -650,7 +647,7 @@ for use at QPOS."
          (qfullprefix (substring string 0 qfullpos))
 	 ;; FIXME: This assertion can be wrong, e.g. in Cygwin, where
 	 ;; (unquote "c:\bin") => "/usr/bin" but (unquote "c:\") => "/".
-         ;;(cl-assert (completion--string-equal-p
+         ;;(cl-assert (string-equal-ignore-case
          ;;            (funcall unquote qfullprefix)
          ;;            (concat (substring ustring 0 boundary) prefix))
          ;;           t))
@@ -688,7 +685,7 @@ for use at QPOS."
                            (let* ((rest (substring completion
                                                    0 (length prefix)))
                                   (qrest (funcall qfun rest)))
-                             (if (completion--string-equal-p qprefix qrest)
+                             (if (string-equal-ignore-case qprefix qrest)
                                  (propertize qrest 'face
                                              'completions-common-part)
                                qprefix))))
@@ -696,7 +693,7 @@ for use at QPOS."
 		   ;; FIXME: Similarly here, Cygwin's mapping trips this
 		   ;; assertion.
                    ;;(cl-assert
-                   ;; (completion--string-equal-p
+                   ;; (string-equal-ignore-case
 		   ;;  (funcall unquote
 		   ;;           (concat (substring string 0 qboundary)
 		   ;;                   qcompletion))
@@ -975,10 +972,18 @@ ALL-COMPLETIONS is the function that lists the completions (it should
 follow the calling convention of `completion-all-completions'),
 and DOC describes the way this style of completion works.")
 
+(defun completion--update-styles-options (widget)
+  "Function to keep updated the options in `completion-category-overrides'."
+  (let ((lst (mapcar (lambda (x)
+                       (list 'const (car x)))
+		     completion-styles-alist)))
+    (widget-put widget :args (mapcar #'widget-convert lst))
+    widget))
+
 (defconst completion--styles-type
   `(repeat :tag "insert a new menu to add more styles"
-           (choice ,@(mapcar (lambda (x) (list 'const (car x)))
-                             completion-styles-alist))))
+           (choice :convert-widget completion--update-styles-options)))
+
 (defconst completion--cycling-threshold-type
   '(choice (const :tag "No cycling" nil)
            (const :tag "Always cycle" t)
@@ -1240,9 +1245,9 @@ pair of a group title string and a list of group candidate strings."
   :version "28.1")
 
 (defface completions-group-separator
-  '((t :inherit shadow :strike-through t))
+  '((t :inherit shadow :underline t))
   "Face used for the separator lines between the candidate groups."
-  :version "28.1")
+  :version "29.1")
 
 (defun completion--cycle-threshold (metadata)
   (let* ((cat (completion-metadata-get metadata 'category))
@@ -1309,10 +1314,8 @@ when the buffer's text is already an exact match."
       ;; for appearance, the string is rewritten if the case changes.
       (let* ((comp-pos (cdr comp))
              (completion (car comp))
-             (completed (not (eq t (compare-strings completion nil nil
-                                                    string nil nil t))))
-             (unchanged (eq t (compare-strings completion nil nil
-                                               string nil nil nil))))
+             (completed (not (string-equal-ignore-case completion string)))
+             (unchanged (string-equal completion string)))
         (if unchanged
 	    (goto-char end)
           ;; Insert in minibuffer the chars we got.
@@ -2760,7 +2763,6 @@ The completion method is determined by `completion-at-point-functions'."
 (defvar-keymap minibuffer-local-must-match-map
   :doc "Local keymap for minibuffer input with completion, for exact match."
   :parent minibuffer-local-completion-map
-  "M-X" #'execute-extended-command-cycle
   "RET" #'minibuffer-complete-and-exit
   "C-j" #'minibuffer-complete-and-exit)
 
@@ -4408,27 +4410,41 @@ minibuffer, but don't quit the completions window."
 Like `minibuffer-complete' but completes on the history items
 instead of the default completion table."
   (interactive)
-  (let ((completions-sort nil)
-        (history (mapcar (lambda (h)
-                           ;; Support e.g. `C-x ESC ESC TAB' as
-                           ;; a replacement of `list-command-history'
-                           (if (consp h) (format "%S" h) h))
-                         (symbol-value minibuffer-history-variable))))
-    (completion-in-region (minibuffer--completion-prompt-end) (point-max)
-                          history nil)))
+  (let* ((history (symbol-value minibuffer-history-variable))
+         (completions
+          (if (listp history)
+              ;; Support e.g. `C-x ESC ESC TAB' as
+              ;; a replacement of `list-command-history'
+              (mapcar (lambda (h)
+                        (if (stringp h) h (format "%S" h)))
+                      history)
+            (user-error "No history available"))))
+    ;; FIXME: Can we make it work for CRM?
+    (completion-in-region
+     (minibuffer--completion-prompt-end) (point-max)
+     (lambda (string pred action)
+       (if (eq action 'metadata)
+           '(metadata (display-sort-function . identity)
+                      (cycle-sort-function . identity))
+         (complete-with-action action completions string pred))))))
 
 (defun minibuffer-complete-defaults ()
   "Complete minibuffer defaults as far as possible.
 Like `minibuffer-complete' but completes on the default items
 instead of the completion table."
   (interactive)
-  (let ((completions-sort nil))
-    (when (and (not minibuffer-default-add-done)
-               (functionp minibuffer-default-add-function))
-      (setq minibuffer-default-add-done t
-            minibuffer-default (funcall minibuffer-default-add-function)))
-    (completion-in-region (minibuffer--completion-prompt-end) (point-max)
-                          (ensure-list minibuffer-default) nil)))
+  (when (and (not minibuffer-default-add-done)
+             (functionp minibuffer-default-add-function))
+    (setq minibuffer-default-add-done t
+          minibuffer-default (funcall minibuffer-default-add-function)))
+  (let ((completions (ensure-list minibuffer-default)))
+    (completion-in-region
+     (minibuffer--completion-prompt-end) (point-max)
+     (lambda (string pred action)
+       (if (eq action 'metadata)
+           '(metadata (display-sort-function . identity)
+                      (cycle-sort-function . identity))
+         (complete-with-action action completions string pred))))))
 
 (define-key minibuffer-local-map [?\C-x up] 'minibuffer-complete-history)
 (define-key minibuffer-local-map [?\C-x down] 'minibuffer-complete-defaults)
@@ -4453,6 +4469,11 @@ FORMAT-ARGS is non-nil, PROMPT is used as a format control
 string, and FORMAT-ARGS are the arguments to be substituted into
 it.  See `format' for details.
 
+Both PROMPT and `minibuffer-default-prompt-format' are run
+through `substitute-command-keys' (which see).  In particular,
+this means that single quotes may be displayed by equivalent
+characters, according to the capabilities of the terminal.
+
 If DEFAULT is a list, the first element is used as the default.
 If not, the element is used as is.
 
@@ -4460,12 +4481,12 @@ If DEFAULT is nil or an empty string, no \"default value\" string
 is included in the return value."
   (concat
    (if (null format-args)
-       prompt
-     (apply #'format prompt format-args))
+       (substitute-command-keys prompt)
+     (apply #'format (substitute-command-keys prompt) format-args))
    (and default
         (or (not (stringp default))
             (length> default 0))
-        (format minibuffer-default-prompt-format
+        (format (substitute-command-keys minibuffer-default-prompt-format)
                 (if (consp default)
                     (car default)
                   default)))

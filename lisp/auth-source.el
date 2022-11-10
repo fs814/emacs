@@ -522,6 +522,21 @@ parameters."
 
 ;; (mapcar #'auth-source-backend-parse auth-sources)
 
+(defun auth-source-file-name-p (file)
+  "Say whether FILE is used by `auth-sources'."
+  (let* ((backends (mapcar #'auth-source-backend-parse auth-sources))
+         (files
+          (mapcar (lambda (x)
+                    (when (member (slot-value x 'type) '(json netrc plstore))
+                      (slot-value x 'source)))
+                  backends)))
+    (member (expand-file-name file)
+            (mapcar #'expand-file-name (remq nil files)))))
+
+(with-eval-after-load 'bookmark
+  (add-hook 'bookmark-inhibit-context-functions
+	    #'auth-source-file-name-p))
+
 (cl-defun auth-source-search (&rest spec
                               &key max require create delete
                               &allow-other-keys)
@@ -909,10 +924,17 @@ Remove trailing \": \"."
 (defun auth-source--aget (alist key)
   (cdr (assoc key alist)))
 
+;;;###autoload
+(defun auth-source-netrc-parse-all (file)
+  "Parse FILE and return all entries."
+  (auth-source-netrc-parse :file file :allow-null t))
+
 ;; (auth-source-netrc-parse :file "~/.authinfo.gpg")
 (cl-defun auth-source-netrc-parse (&key file max host user port require
-                                   &allow-other-keys)
-  "Parse FILE and return a list of all entries in the file.
+                                        allow-null &allow-other-keys)
+  "Parse FILE and return a list of matching entries in the file.
+If ALLOW-NULL, allow nil values of HOST, USER and PORT to match.
+
 Note that the MAX parameter is used so we can exit the parse early."
   (if (listp file)
       ;; We got already parsed contents; just return it.
@@ -925,27 +947,33 @@ Note that the MAX parameter is used so we can exit the parse early."
                (cached (cdr-safe (assoc file auth-source-netrc-cache)))
                (cached-mtime (plist-get cached :mtime))
                (cached-secrets (plist-get cached :secret))
-               (check (lambda(alist)
+               (check (lambda (alist)
                         (and alist
-                             (auth-source-search-collection
-                              host
-                              (or
-                               (auth-source--aget alist "machine")
-                               (auth-source--aget alist "host")
-                               t))
-                             (auth-source-search-collection
-                              user
-                              (or
-                               (auth-source--aget alist "login")
-                               (auth-source--aget alist "account")
-                               (auth-source--aget alist "user")
-                               t))
-                             (auth-source-search-collection
-                              port
-                              (or
-                               (auth-source--aget alist "port")
-                               (auth-source--aget alist "protocol")
-                               t))
+                             (or
+                              (and allow-null (null host))
+                              (auth-source-search-collection
+                               host
+                               (or
+                                (auth-source--aget alist "machine")
+                                (auth-source--aget alist "host")
+                                t)))
+                             (or
+                              (and allow-null (null user))
+                              (auth-source-search-collection
+                               user
+                               (or
+                                (auth-source--aget alist "login")
+                                (auth-source--aget alist "account")
+                                (auth-source--aget alist "user")
+                                t)))
+                             (or
+                              (and allow-null (null port))
+                              (auth-source-search-collection
+                               port
+                               (or
+                                (auth-source--aget alist "port")
+                                (auth-source--aget alist "protocol")
+                                t)))
                              (or
                               ;; the required list of keys is nil, or
                               (null require)
@@ -957,7 +985,8 @@ Note that the MAX parameter is used so we can exit the parse early."
                result)
 
           (if (and (functionp cached-secrets)
-                   (equal cached-mtime
+		   (time-equal-p
+			  cached-mtime
                           (file-attribute-modification-time
                            (file-attributes file))))
               (progn
@@ -1604,10 +1633,13 @@ authentication tokens:
          (search-specs (auth-source-secrets-listify-pattern
                         (apply #'append (mapcar
                                       (lambda (k)
-                                        (if (or (null (plist-get spec k))
-                                                (eq t (plist-get spec k)))
-                                            nil
-                                          (list k (plist-get spec k))))
+                                        (let ((v (plist-get spec k)))
+                                          (if (or (null v)
+                                                  (eq t v))
+                                              nil
+                                            (list
+                                             k
+                                             (auth-source-ensure-strings v)))))
                                       search-keys))))
          ;; needed keys (always including host, login, port, and secret)
          (returned-keys (delete-dups (append
@@ -1622,7 +1654,7 @@ authentication tokens:
                                 (not (string-match label item)))
                     collect item)))
          ;; TODO: respect max in `secrets-search-items', not after the fact
-         (items (butlast items (- (length items) max)))
+         (items (take max items))
          ;; convert the item name to a full plist
          (items (mapcar (lambda (item)
                           (append
@@ -2080,7 +2112,7 @@ entries for git.gnus.org:
 				      search-keys)))
          (items (plstore-find store search-spec))
          (item-names (mapcar #'car items))
-         (items (butlast items (- (length items) max)))
+         (items (take max items))
          ;; convert the item to a full plist
          (items (mapcar (lambda (item)
                           (let* ((plist (copy-tree (cdr item)))

@@ -199,10 +199,6 @@ struct window
        and Qt, so bitfield can't be used here.  */
     Lisp_Object dedicated;
 
-    /* If redisplay in this window goes beyond this buffer position,
-       must run the redisplay-end-trigger-hook.  */
-    Lisp_Object redisplay_end_trigger;
-
     /* t means this window's child windows are not (re-)combined.  */
     Lisp_Object combination_limit;
 
@@ -495,12 +491,6 @@ INLINE void
 wset_prev (struct window *w, Lisp_Object val)
 {
   w->prev = val;
-}
-
-INLINE void
-wset_redisplay_end_trigger (struct window *w, Lisp_Object val)
-{
-  w->redisplay_end_trigger = val;
 }
 
 INLINE void
@@ -1193,6 +1183,7 @@ enum window_body_unit
     WINDOW_BODY_IN_REMAPPED_CHARS
   };
 extern int window_body_width (struct window *w, enum window_body_unit);
+extern int window_body_height (struct window *w, enum window_body_unit);
 enum margin_unit { MARGIN_IN_LINES, MARGIN_IN_PIXELS };
 extern int window_scroll_margin (struct window *, enum margin_unit);
 extern void temp_output_buffer_show (Lisp_Object);
@@ -1219,6 +1210,16 @@ output_cursor_to (struct window *w, int vpos, int hpos, int y, int x)
   w->output_cursor.vpos = vpos;
   w->output_cursor.x = x;
   w->output_cursor.y = y;
+}
+
+/* Return true, if overlay OV's properties should have an effect in
+   window W. */
+INLINE bool
+overlay_matches_window (const struct window *w, Lisp_Object ov)
+{
+  eassert (OVERLAYP (ov));
+  Lisp_Object  window = Foverlay_get (ov, Qwindow);
+  return (! WINDOWP (window) || XWINDOW (window) == w);
 }
 
 INLINE_HEADER_END

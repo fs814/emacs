@@ -152,7 +152,7 @@ certificate."
 (defcustom smime-CA-file (car (gnutls-trustfiles))
   "File containing certificates for CAs you trust.
 The file should contain certificates in PEM format.  By default,
-this is initialized from the `gnutls-trusfiles' variable."
+this is initialized from the `gnutls-trustfiles' variable."
   :version "29.1"
   :type '(choice (const :tag "none" nil)
 		 file))
@@ -519,7 +519,7 @@ A string or a list of strings is returned."
     (goto-char b)
     (let (res)
       (while (< (point) e)
-	(let ((str (buffer-substring (point) (point-at-eol))))
+        (let ((str (buffer-substring (point) (line-end-position))))
 	  (unless (string= "" str)
 	    (push str res)))
 	(forward-line))
@@ -614,12 +614,10 @@ A string or a list of strings is returned."
 
 (defvar smime-buffer "*SMIME*")
 
-(defvar smime-mode-map
-  (let ((map (make-sparse-keymap)))
-    (suppress-keymap map)
-    (define-key map "q" 'smime-exit)
-    (define-key map "f" 'smime-certificate-info)
-    map))
+(defvar-keymap smime-mode-map
+  :suppress t
+  "q" #'smime-exit
+  "f" #'smime-certificate-info)
 
 (autoload 'gnus-completing-read "gnus-util")
 

@@ -1,25 +1,23 @@
-#+title: Modus themes for GNU Emacs
-#+author: Protesilaos Stavrou
-#+email: info@protesilaos.com
-#+language: en
-#+options: ':t toc:nil author:t email:t num:t
-#+startup: content
-
-#+macro: stable-version 2.4.0
-#+macro: release-date 2022-06-01
-#+macro: development-version 2.5.0-dev
-#+macro: file @@texinfo:@file{@@$1@@texinfo:}@@
-#+macro: space @@texinfo:@: @@
-#+macro: kbd @@texinfo:@kbd{@@$1@@texinfo:}@@
-
-#+texinfo_filename: modus-themes.info
-#+texinfo_dir_category: Emacs misc features
-#+texinfo_dir_title: Modus Themes: (modus-themes)
-#+texinfo_dir_desc: Elegant, highly legible and customizable themes
-#+texinfo_header: @set MAINTAINERSITE @uref{https://protesilaos.com,maintainer webpage}
-#+texinfo_header: @set MAINTAINER Protesilaos Stavrou
-#+texinfo_header: @set MAINTAINEREMAIL @email{info@protesilaos.com}
-#+texinfo_header: @set MAINTAINERCONTACT @uref{mailto:info@protesilaos.com,contact the maintainer}
+#+title:                 Modus themes for GNU Emacs
+#+author:                Protesilaos Stavrou
+#+email:                 info@protesilaos.com
+#+language:              en
+#+options:               ':t toc:nil author:t email:t num:t
+#+startup:               content
+#+macro:                 stable-version 3.0.0
+#+macro:                 release-date 2022-10-28
+#+macro:                 development-version 3.1.0-dev
+#+macro:                 file @@texinfo:@file{@@$1@@texinfo:}@@
+#+macro:                 space @@texinfo:@: @@
+#+macro:                 kbd @@texinfo:@kbd{@@$1@@texinfo:}@@
+#+texinfo_filename:      modus-themes.info
+#+texinfo_dir_category:  Emacs misc features
+#+texinfo_dir_title:     Modus Themes: (modus-themes)
+#+texinfo_dir_desc:      Elegant, highly legible and customizable themes
+#+texinfo_header:        @set MAINTAINERSITE @uref{https://protesilaos.com,maintainer webpage}
+#+texinfo_header:        @set MAINTAINER Protesilaos Stavrou
+#+texinfo_header:        @set MAINTAINEREMAIL @email{info@protesilaos.com}
+#+texinfo_header:        @set MAINTAINERCONTACT @uref{mailto:info@protesilaos.com,contact the maintainer}
 
 #+texinfo: @insertcopying
 
@@ -37,6 +35,7 @@ Current development target is {{{development-version}}}.
 + Homepage: https://protesilaos.com/emacs/modus-themes.
 + Git repository: https://git.sr.ht/~protesilaos/modus-themes.
 + Mailing list: https://lists.sr.ht/~protesilaos/modus-themes.
++ Backronym: My Old Display Unexpectedly Sharpened ... themes
 
 #+toc: headlines 8 insert TOC here, with eight headline levels
 
@@ -197,6 +196,9 @@ sudo apt install elpa-modus-themes
 #+end_src
 
 They are now ready to be used: [[#h:3f3c3728-1b34-437d-9d0c-b110f5b161a9][Enable and load]].
+
+NOTE that Debian's package is severely out-of-date as of this writing
+2022-07-24 09:57 +0300.
 
 *** GNU Guix
 :properties:
@@ -360,7 +362,7 @@ package configurations in their setup.  We use this as an example:
   :config
   ;; Load the theme of your choice:
   (load-theme 'modus-operandi) ;; OR (load-theme 'modus-vivendi)
-  :bind ("<f5>" . modus-themes-toggle)
+  :bind ("<f5>" . modus-themes-toggle))
 
 
 
@@ -631,7 +633,7 @@ to user options to take effect ([[#h:3f3c3728-1b34-437d-9d0c-b110f5b161a9][Enabl
 :end:
 #+vindex: modus-themes-deuteranopia
 
-Brief: When non-nil use red/blue color-coding instead of red/green,
+Brief: When non-~nil~ use red/blue color-coding instead of red/green,
 where appropriate.
 
 Symbol: ~modus-themes-deuteranopia~ (=boolean= type)
@@ -678,7 +680,7 @@ Possible values:
 The default is to use a bold typographic weight only when it is
 required.
 
-With a non-nil value (~t~) display several syntactic constructs in bold
+With a non-~nil~ value (~t~) display several syntactic constructs in bold
 weight.  This concerns keywords and other important aspects of code
 syntax.  It also affects certain mode line indicators and command-line
 prompts.
@@ -708,7 +710,7 @@ Possible values:
 The default is to not use slanted text forms (italics) unless it is
 absolutely necessary.
 
-With a non-nil value (~t~) choose to render more faces in italics.  This
+With a non-~nil~ value (~t~) choose to render more faces in italics.  This
 typically affects documentation strings and code comments.
 
 Advanced users may also want to configure the exact attributes of the
@@ -798,7 +800,7 @@ Possible values:
 1. ~nil~ (default)
 2. ~t~
 
-When set to non-nil (~t~), configure some spacing-sensitive faces like Org
+When set to non-~nil~ (~t~), configure some spacing-sensitive faces like Org
 tables and code blocks to always inherit from the ~fixed-pitch~ face.
 This is to ensure that certain constructs like code blocks and tables
 remain monospaced even when users opt for a mode that remaps typeface
@@ -925,8 +927,8 @@ an empty list).  The list can include any of the following symbols:
   the form of =(height . FLOAT)=
 + ~all-buttons~
 
-The default (a nil value or an empty list) is a gray background combined
-with a pseudo three-dimensional effect.
+The default (a ~nil~ value or an empty list) is a gray background
+combined with a pseudo three-dimensional effect.
 
 The ~flat~ property makes the button two dimensional.
 
@@ -1067,7 +1069,7 @@ effect, color, and border visibility:
 + A floating point to set the height of the mode line's text.  It can
   also be a cons cell in the form of ~(height . FLOAT)~.
 
-The default (a nil value or an empty list) is a two-dimensional
+The default (a ~nil~ value or an empty list) is a two-dimensional
 rectangle with a border around it.  The active and the inactive mode
 lines use different shades of grayscale values for the background,
 foreground, border.
@@ -1096,7 +1098,7 @@ of NATNUM pixels at the boundaries of the mode lines.  The default value
 is 1 and does not need to be specified explicitly.  The padding has no
 effect when the ~moody~ property is also used, because Moody already
 applies its own tweaks.  To ensure that the underline is placed at the
-bottom of the mode line, set ~x-underline-at-descent-line~ to non-nil
+bottom of the mode line, set ~x-underline-at-descent-line~ to non-~nil~
 (this is not needed when the ~borderless~ property is also set).  For
 users on Emacs 29, the ~x-use-underline-position-properties~ variable must
 also be set to nil.
@@ -1158,7 +1160,7 @@ colors (which have been carefully designed to be highly accessible).
 
 Furthermore, because Moody expects an underline and overline instead of
 a box style, it is strongly advised to set ~x-underline-at-descent-line~
-to a non-nil value.
+to a non-~nil~ value.
 
 Finally, note that various packages which heavily modify the mode line,
 such as =doom-modeline=, =nano-modeline=, =powerline=, =spaceline= may not look
@@ -1182,7 +1184,7 @@ Possible values:
 + ~t~
 
 By default, all tab interfaces use backgrounds which are shades of gray.
-When this option is set to non-nil, the backgrounds become colorful.
+When this option is set to non-~nil~, the backgrounds become colorful.
 
 This affects the built-in ~tab-bar-mode~ and ~tab-line-mode~, as well as the
 Centaur tabs package.
@@ -1199,10 +1201,11 @@ Brief: Set the overall style of completion framework interfaces.
 
 Symbol: ~modus-themes-completions~ (=alist= type properties)
 
-This affects Company, Corfu, Flx, Helm, Icomplete/Fido, Ido, Ivy, Mct,
+This affects Company, Corfu, Flx, Helm, Icomplete/Fido, Ido, Ivy,
 Orderless, Selectrum, Vertico.  The value is an alist that takes the
-form of a =(key . properties)= combination.  Here is a sample, followed
-by a description of the particularities:
+form of a =(KEY . PROPERTIES)= combination.  =KEY= is a symbol, while
+=PROPERTIES= is a list.  Here is a sample, followed by a description
+of the particularities:
 
 #+begin_src emacs-lisp
 (setq modus-themes-completions
@@ -1212,10 +1215,10 @@ by a description of the particularities:
 #+end_src
 
 The ~matches~ key refers to the highlighted characters that correspond
-to the user's input.  By default (nil or an empty list), they have a
-bold weight and a colored foreground.  The list of properties may
-include any of the following symbols regardless of the order they may
-appear in:
+to the user's input.  When its properties are ~nil~ or an empty list,
+matching characters in the user interface will have a bold weight and
+a colored foreground.  The list of properties may include any of the
+following symbols regardless of the order they may appear in:
 
 - ~background~ to add a background color;
 
@@ -1231,10 +1234,10 @@ appear in:
   variable.  The absence of a weight means that bold will be used.
 
 The ~selection~ key applies to the current line or currently matched
-candidate, depending on the specifics of the User Interface.  By default
-(nil or an empty list), it has a subtle gray background, a bold weight,
-and the base foreground value for the text. The list of properties it
-accepts is as follows (order is not significant):
+candidate, depending on the specifics of the user interface.  When its
+properties are ~nil~ or an empty list, it has a subtle gray background,
+a bold weight, and the base foreground value for the text.  The list
+of properties it accepts is as follows (order is not significant):
 
 - ~accented~ to make the background colorful instead of gray;
 
@@ -1250,7 +1253,11 @@ accepts is as follows (order is not significant):
   cetera.  Valid symbols are defined in the ~modus-themes-weights~
   variable.  The absence of a weight means that bold will be used.
 
-The ~popup~ key takes the same values as ~selection~.
+The ~popup~ key takes the same values as ~selection~.  The only
+difference is that it applies specifically to user interfaces that
+display an inline popup and thus have slightly different styling
+requirements than the minibuffer.  The two prominent packages are
+=company= and =corfu=.
 
 Apart from specifying each key separately, a fallback list is accepted.
 This is only useful when the desired aesthetic is the same across all
@@ -1275,21 +1282,10 @@ corresponding key is simply ignored (~matches~ does not have ~accented~
 and ~text-also~, while ~selection~ and ~popup~ do not have
 ~background~).
 
-A concise expression of those associations can be written as follows,
-where the ~car~ is always the key and the ~cdr~ is the list of
-properties (whatever order they may appear in):
-
-#+begin_src emacs-lisp
-(setq modus-themes-completions
-      '((matches extrabold background intense)
-        (selection semibold accented intense)
-        (popup accented)))
-#+end_src
-
 [[#h:2793a224-2109-4f61-a106-721c57c01375][Configure bold and italic faces]].
 
-Also refer to the Orderless documentation for its intersection with
-Company (if you choose to use those in tandem).
+Also refer to the documentation of the ~orderless~ package for its
+intersection with ~company~ (if you choose to use those in tandem).
 
 ** Option for mail citations
 :properties:
@@ -1311,7 +1307,7 @@ Possible values:
 3. ~faint~
 4. ~monochrome~
 
-By default (a nil value) citations are styled with contrasting hues to
+By default (a ~nil~ value) citations are styled with contrasting hues to
 denote their depth.  Colors are easy to tell apart because they
 complement each other, but they otherwise are not very prominent.
 
@@ -1341,17 +1337,16 @@ Symbol: ~modus-themes-fringes~ (=choice= type)
 
 Possible values:
 
-1. ~nil~ (default)
+1. ~nil~
 2. ~subtle~
 3. ~intense~
 
-The default is to use the same color as that of the main background,
-meaning that the fringes are not obvious though they still occupy the
-space given to them by ~fringe-mode~.
+When the value is nil, do not apply a distinct background color.
 
-Options ~subtle~ and ~intense~ apply a gray background, making the fringes
-visible.  The difference between the two is one of degree, as their
-names imply.
+With a value of ~subtle~ use a gray background color that is
+visible yet close to the main background color.
+
+With ~intense~ use a more pronounced gray background color.
 
 ** Option for language checkers
 :properties:
@@ -1434,15 +1429,15 @@ Brief: Control the style of the current line of ~hl-line-mode~.
 
 Symbol: ~modus-themes-hl-line~ (=choice= type, list of properties)
 
-Possible values are expressed as a list of properties (default is ~nil~ or
-an empty list).  The list can include any of the following symbols:
+The value is a list of properties, each designated by a symbol.  With
+a ~nil~ value, or an empty list, the style is a subtle gray background
+color.
+
+Possible properties are the following symbols:
 
 + ~accented~
 + ~intense~
 + ~underline~
-
-The default (a ~nil~ value or an empty list) is a subtle gray background
-color.
 
 The property ~accented~ changes the background to a colored variant.
 
@@ -1470,11 +1465,15 @@ In user configuration files the form may look like this:
 (setq modus-themes-hl-line '(underline accented))
 #+end_src
 
-Set ~x-underline-at-descent-line~ to a non-nil value for better results
-with underlines.
+Set ~x-underline-at-descent-line~ to a non-~nil~ value so that the
+placement of the underline coincides with the lower boundary of the
+colored background.
 
 This style affects several packages that enable ~hl-line-mode~, such as
 =elfeed=, =notmuch=, and =mu4e=.
+
+[ Also check the =lin= package on GNU ELPA (by the author of the
+  modus-themes) for a stylistic enhancement to ~hl-line-mode~. ]
 
 ** Option for line numbers
 :properties:
@@ -1502,7 +1501,7 @@ Similarly, the faces for ~display-line-numbers-major-tick~ and its
 counterpart ~display-line-numbers-minor-tick~ use appropriate styles that
 involve a bespoke background and foreground combination.
 
-With a non-nil value (~t~), line numbers have no background of their own.
+With a non-~nil~ value (~t~), line numbers have no background of their own.
 Instead they retain the primary background of the theme, blending with
 the rest of the buffer.  Foreground values for all relevant faces are
 updated to accommodate this aesthetic.
@@ -1525,7 +1524,7 @@ Possible value:
 2. ~t~
 
 By default all mouseover effects apply a highlight with a subtle colored
-background.  When non-nil, these have a more pronounced effect.
+background.  When non-~nil~, these have a more pronounced effect.
 
 Note that this affects the generic ~highlight~ which, strictly speaking,
 is not limited to mouse usage.
@@ -1709,11 +1708,11 @@ Option ~desaturated~ follows the same principles as with the default
 (~nil~), though it tones down all relevant colors.
 
 Option ~bg-only~ applies a background but does not override the text's
-foreground.  This makes it suitable for a non-nil value passed to
+foreground.  This makes it suitable for a non-~nil~ value passed to
 ~diff-font-lock-syntax~ (note: Magit does not support syntax highlighting
 in diffs---last checked on 2021-12-02).
 
-When the user option ~modus-themes-deuteranopia~ is non-nil, all diffs
+When the user option ~modus-themes-deuteranopia~ is non-~nil~, all diffs
 will use a red/blue color-coding system instead of the standard
 red/green.  Other stylistic changes are made in the interest of
 optimizing for such a use-case.
@@ -1772,8 +1771,8 @@ of the block.  Disable the extension of such backgrounds by setting
 ~org-fontify-whole-block-delimiter-line~ to nil.
 
 Code blocks use their major mode's colors only when the variable
-~org-src-fontify-natively~ is non-nil.  While quote/verse blocks require
-setting ~org-fontify-quote-and-verse-blocks~ to a non-nil value.
+~org-src-fontify-natively~ is non-~nil~.  While quote/verse blocks require
+setting ~org-fontify-quote-and-verse-blocks~ to a non-~nil~ value.
 
 [[#h:f44cc6e3-b0f1-4a5e-8a90-9e48fa557b50][Update Org block delimiter fontification]].
 
@@ -1890,7 +1889,7 @@ An ~event~ key covers (i) headings with a plain time stamp that are
 shown on the agenda, also known as events, (ii) entries imported from
 the diary, and (iii) other items that derive from a symbolic expression
 or sexp (phases of the moon, holidays, etc.).  By default all those look
-the same and have a subtle foreground color (the default is a nil value
+the same and have a subtle foreground color (the default is a ~nil~ value
 or an empty list).  This key accepts a list of properties.  Those are:
 
 - ~accented~ applies an accent value to the event's foreground,
@@ -1921,7 +1920,7 @@ A ~scheduled~ key applies to tasks with a scheduled date.  By default (a
 ~nil~ value), those use varying shades of yellow to denote (i) a past or
 current date and (ii) a future date.  Valid values are symbols:
 
-- nil (default);
+- ~nil~ (default);
 - ~uniform~ to make all scheduled dates the same color;
 - ~rainbow~ to use contrasting colors for past, present, future
   scheduled dates.
@@ -1959,7 +1958,7 @@ passed as a symbol.  Those are:
   being too late.  The difference between ready and clear states is
   attenuated by painting both of them using shades of green.  This
   option thus highlights the alert and overdue states.
-- When ~modus-themes-deuteranopia~ is non-nil the exact style of the habit
+- When ~modus-themes-deuteranopia~ is non-~nil~ the exact style of the habit
   graph adapts to the needs of users with red-green color deficiency by
   substituting every instance of green with blue or cyan (depending on
   the specifics).
@@ -2000,16 +1999,21 @@ Putting it all together, the alist can look like this:
 :end:
 #+vindex: modus-themes-headings
 
-Brief: Control the style of headings.  This can be particularised for
-each level of heading (e.g. Org has eight levels).
+Brief: Heading styles with optional list of values for levels 0-8.
 
 Symbol: ~modus-themes-headings~ (=alist= type, multiple properties)
 
-This is an alist that accepts a =(key . list-of-values)= combination.  The
-key is either a number, representing the heading's level or ~t~, which
-pertains to the fallback style.  The list of values covers symbols that
-refer to properties, as described below.  Here is a sample, followed by
-a presentation of all available properties:
+This is an alist that accepts a =(key . list-of-values)= combination.
+The key is either a number, representing the heading's level (0-8) or t,
+which pertains to the fallback style.
+
+Level 0 is a special heading: it is used for what counts as a document
+title or equivalent, such as the =#+title= construct we find in Org
+files.  Levels 1-8 are regular headings.
+
+The list of values covers symbols that refer to properties, as described
+below.  Here is a complete sample, followed by a presentation of all
+available properties:
 
 #+begin_src emacs-lisp
 (setq modus-themes-headings
@@ -2099,7 +2103,7 @@ In user configuration files the form may look like this:
 #+end_src
 
 When defining the styles per heading level, it is possible to pass a
-non-nil value (~t~) instead of a list of properties.  This will retain the
+non-~nil~ value (~t~) instead of a list of properties.  This will retain the
 original aesthetic for that level.  For example:
 
 #+begin_src emacs-lisp
@@ -2144,7 +2148,7 @@ and tab line.
 The default is to use the same font as the rest of Emacs, which usually
 is a monospaced family.
 
-With a non-nil value (~t~) apply a proportionately spaced typeface.  This
+With a non-~nil~ value (~t~) apply a proportionately spaced typeface.  This
 is done by assigning the ~variable-pitch~ face to the relevant items.
 
 [[#h:defcf4fc-8fa8-4c29-b12e-7119582cc929][Font configurations for Org and others]].
@@ -2624,8 +2628,7 @@ contrast on an on-demand basis.
 
 One way to achieve this is to design a command that cycles through three
 distinct levels of intensity, though the following can be adapted to any
-kind of cyclic behavior, such as to switch between red, green, and
-blue.
+kind of cyclic behavior, such as to switch between red, green, and blue.
 
 In the following example, we employ the ~modus-themes-color~ function
 which reads a symbol that represents an entry in the active theme's
@@ -2848,7 +2851,6 @@ both themes and expands to some more assosiations in the palette:
               (bg-inactive . "#f6ece5")
               (bg-region . "#c6bab1")
               (bg-header . "#ede3e0")
-              (bg-tab-bar . "#dcd3d3")
               (bg-tab-active . "#fdf6eb")
               (bg-tab-inactive . "#c8bab8"))
             modus-themes-vivendi-color-overrides
@@ -2860,7 +2862,6 @@ both themes and expands to some more assosiations in the palette:
               (bg-inactive . "#1a1e39")
               (bg-region . "#393a53")
               (bg-header . "#202037")
-              (bg-tab-bar . "#262b41")
               (bg-tab-active . "#120f18")
               (bg-tab-inactive . "#3a3a5a")))
     (setq modus-themes-operandi-color-overrides nil
@@ -2879,7 +2880,6 @@ look like this:
   (bg-inactive . "#e6e6e6")
   (bg-region . "#b5b5b5")
   (bg-header . "#e4e4e4")
-  (bg-tab-bar . "#d1d1d4")
   (bg-tab-active . "#f5f5f5")
   (bg-tab-inactive . "#c0c0c0"))
 #+end_src
@@ -2896,6 +2896,9 @@ whatever color values they desire, even if the possible combinations
 fall below the minimum 7:1 contrast ratio that governs the design of the
 themes (the WCAG AAA legibility standard).  Alternatively, this can also
 be done programmatically ([[#h:4589acdc-2505-41fc-9f5e-699cfc45ab00][Override color saturation]]).
+
+The above are expanded into a fully fledged derivative elsewhere in this
+document ([[#h:736c0ff5-8c9c-4565-82cf-989e57d07d4a][Override colors completely]]).
 
 For manual interventions it is advised to inspect the source code of
 ~modus-themes-operandi-colors~ and ~modus-themes-vivendi-colors~ for the
@@ -3092,6 +3095,286 @@ Blend background colors with BG-BLEND and foreground colors with FG-BLEND."
 (modus-themes-tinted-mode 1)
 #+end_src
 
+** Override colors completely
+:PROPERTIES:
+:CUSTOM_ID: h:736c0ff5-8c9c-4565-82cf-989e57d07d4a
+:END:
+
+Based on the ideas we have already covered in these sections, the
+following code block provides a complete, bespoke pair of color palettes
+which override the defaults.  They are implemented as a minor mode, as
+explained before ([[#h:307d95dd-8dbd-4ece-a543-10ae86f155a6][Override colors]]).  We call them "Summertime" for
+convenience.
+
+#+begin_src emacs-lisp
+;; Read the relevant blog post:
+;; <https://protesilaos.com/codelog/2022-07-26-modus-themes-color-override-demo/>
+(define-minor-mode modus-themes-summertime
+  "Refashion the Modus themes by overriding their colors.
+
+This is a complete technology demonstration to show how to
+manually override the colors of the Modus themes.  I have taken
+good care of those overrides to make them work as a fully fledged
+color scheme that is compatible with all user options of the
+Modus themes.
+
+These overrides are usable by those who (i) like something more
+fancy than the comparatively austere looks of the Modus themes,
+and (ii) can cope with a lower contrast ratio.
+
+The overrides are set up as a minor mode, so that the user can
+activate the effect on demand.  Those who want to load the
+overrides at all times can either add them directly to their
+configuration or enable `modus-themes-summertime' BEFORE loading
+either of the Modus themes (if the overrides are evaluated after
+the theme, the theme must be reloaded).
+
+Remember that all changes to theme-related variables require a
+reload of the theme to take effect (the Modus themes have lots of
+user options, apart from those overrides).
+
+The `modus-themes-summertime' IS NOT an official extension to the
+Modus themes and DOES NOT comply with its lofty accessibility
+standards.  It is included in the official manual as guidance for
+those who want to make use of the color overriding facility we
+provide."
+  :init-value nil
+  :global t
+  (if modus-themes-summertime
+      (setq modus-themes-operandi-color-overrides
+            '((bg-main . "#fff0f2")
+              (bg-dim . "#fbe6ef")
+              (bg-alt . "#f5dae6")
+              (bg-hl-line . "#fad8e3")
+              (bg-active . "#efcadf")
+              (bg-inactive . "#f3ddef")
+              (bg-active-accent . "#ffbbef")
+              (bg-region . "#dfc5d1")
+              (bg-region-accent . "#efbfef")
+              (bg-region-accent-subtle . "#ffd6ef")
+              (bg-header . "#edd3e0")
+              (bg-tab-active . "#ffeff2")
+              (bg-tab-inactive . "#f8d3ef")
+              (bg-tab-inactive-accent . "#ffd9f5")
+              (bg-tab-inactive-alt . "#e5c0d5")
+              (bg-tab-inactive-alt-accent . "#f3cce0")
+              (fg-main . "#543f78")
+              (fg-dim . "#5f476f")
+              (fg-alt . "#7f6f99")
+              (fg-unfocused . "#8f6f9f")
+              (fg-active . "#563068")
+              (fg-inactive . "#8a5698")
+              (fg-docstring . "#5f5fa7")
+              (fg-comment-yellow . "#a9534f")
+              (fg-escape-char-construct . "#8b207f")
+              (fg-escape-char-backslash . "#a06d00")
+              (bg-special-cold . "#d3e0f4")
+              (bg-special-faint-cold . "#e0efff")
+              (bg-special-mild . "#c4ede0")
+              (bg-special-faint-mild . "#e0f0ea")
+              (bg-special-warm . "#efd0c4")
+              (bg-special-faint-warm . "#ffe4da")
+              (bg-special-calm . "#f0d3ea")
+              (bg-special-faint-calm . "#fadff9")
+              (fg-special-cold . "#405fb8")
+              (fg-special-mild . "#407f74")
+              (fg-special-warm . "#9d6f4f")
+              (fg-special-calm . "#af509f")
+              (bg-completion . "#ffc5e5")
+              (bg-completion-subtle . "#f7cfef")
+              (red . "#ed2f44")
+              (red-alt . "#e0403d")
+              (red-alt-other . "#e04059")
+              (red-faint . "#ed4f44")
+              (red-alt-faint . "#e0603d")
+              (red-alt-other-faint . "#e06059")
+              (green . "#217a3c")
+              (green-alt . "#417a1c")
+              (green-alt-other . "#006f3c")
+              (green-faint . "#318a4c")
+              (green-alt-faint . "#518a2c")
+              (green-alt-other-faint . "#20885c")
+              (yellow . "#b06202")
+              (yellow-alt . "#a95642")
+              (yellow-alt-other . "#a06f42")
+              (yellow-faint . "#b07232")
+              (yellow-alt-faint . "#a96642")
+              (yellow-alt-other-faint . "#a08042")
+              (blue . "#275ccf")
+              (blue-alt . "#475cc0")
+              (blue-alt-other . "#3340ef")
+              (blue-faint . "#476ce0")
+              (blue-alt-faint . "#575ccf")
+              (blue-alt-other-faint . "#3f60d7")
+              (magenta . "#bf317f")
+              (magenta-alt . "#d033c0")
+              (magenta-alt-other . "#844fe4")
+              (magenta-faint . "#bf517f")
+              (magenta-alt-faint . "#d053c0")
+              (magenta-alt-other-faint . "#846fe4")
+              (cyan . "#007a9f")
+              (cyan-alt . "#3f709f")
+              (cyan-alt-other . "#107f7f")
+              (cyan-faint . "#108aaf")
+              (cyan-alt-faint . "#3f80af")
+              (cyan-alt-other-faint . "#3088af")
+              (red-active . "#cd2f44")
+              (green-active . "#116a6c")
+              (yellow-active . "#993602")
+              (blue-active . "#475ccf")
+              (magenta-active . "#7f2ccf")
+              (cyan-active . "#007a8f")
+              (red-nuanced-bg . "#ffdbd0")
+              (red-nuanced-fg . "#ed6f74")
+              (green-nuanced-bg . "#dcf0dd")
+              (green-nuanced-fg . "#3f9a4c")
+              (yellow-nuanced-bg . "#fff3aa")
+              (yellow-nuanced-fg . "#b47232")
+              (blue-nuanced-bg . "#e3e3ff")
+              (blue-nuanced-fg . "#201f6f")
+              (magenta-nuanced-bg . "#fdd0ff")
+              (magenta-nuanced-fg . "#c0527f")
+              (cyan-nuanced-bg . "#dbefff")
+              (cyan-nuanced-fg . "#0f3f60")
+              (bg-diff-heading . "#b7cfe0")
+              (fg-diff-heading . "#041645")
+              (bg-diff-added . "#d6f0d6")
+              (fg-diff-added . "#004520")
+              (bg-diff-changed . "#fcefcf")
+              (fg-diff-changed . "#524200")
+              (bg-diff-removed . "#ffe0ef")
+              (fg-diff-removed . "#891626")
+              (bg-diff-refine-added . "#84cfa4")
+              (fg-diff-refine-added . "#002a00")
+              (bg-diff-refine-changed . "#cccf8f")
+              (fg-diff-refine-changed . "#302010")
+              (bg-diff-refine-removed . "#da92b0")
+              (fg-diff-refine-removed . "#500010")
+              (bg-diff-focus-added . "#a6e5c6")
+              (fg-diff-focus-added . "#002c00")
+              (bg-diff-focus-changed . "#ecdfbf")
+              (fg-diff-focus-changed . "#392900")
+              (bg-diff-focus-removed . "#efbbcf")
+              (fg-diff-focus-removed . "#5a0010"))
+            modus-themes-vivendi-color-overrides
+            '((bg-main . "#25152a")
+              (bg-dim . "#2a1930")
+              (bg-alt . "#382443")
+              (bg-hl-line . "#332650")
+              (bg-active . "#463358")
+              (bg-inactive . "#2d1f3a")
+              (bg-active-accent . "#50308f")
+              (bg-region . "#5d4a67")
+              (bg-region-accent . "#60509f")
+              (bg-region-accent-subtle . "#3f285f")
+              (bg-header . "#3a2543")
+              (bg-tab-active . "#26162f")
+              (bg-tab-inactive . "#362647")
+              (bg-tab-inactive-accent . "#36265a")
+              (bg-tab-inactive-alt . "#3e2f5a")
+              (bg-tab-inactive-alt-accent . "#3e2f6f")
+              (fg-main . "#debfe0")
+              (fg-dim . "#d0b0da")
+              (fg-alt . "#ae85af")
+              (fg-unfocused . "#8e7f9f")
+              (fg-active . "#cfbfef")
+              (fg-inactive . "#b0a0c0")
+              (fg-docstring . "#c8d9f7")
+              (fg-comment-yellow . "#cf9a70")
+              (fg-escape-char-construct . "#ff75aa")
+              (fg-escape-char-backslash . "#dbab40")
+              (bg-special-cold . "#2a3f58")
+              (bg-special-faint-cold . "#1e283f")
+              (bg-special-mild . "#0f3f31")
+              (bg-special-faint-mild . "#0f281f")
+              (bg-special-warm . "#44331f")
+              (bg-special-faint-warm . "#372213")
+              (bg-special-calm . "#4a314f")
+              (bg-special-faint-calm . "#3a223f")
+              (fg-special-cold . "#c0b0ff")
+              (fg-special-mild . "#bfe0cf")
+              (fg-special-warm . "#edc0a6")
+              (fg-special-calm . "#ff9fdf")
+              (bg-completion . "#502d70")
+              (bg-completion-subtle . "#451d65")
+              (red . "#ff5f6f")
+              (red-alt . "#ff8f6d")
+              (red-alt-other . "#ff6f9d")
+              (red-faint . "#ffa0a0")
+              (red-alt-faint . "#f5aa80")
+              (red-alt-other-faint . "#ff9fbf")
+              (green . "#51ca5c")
+              (green-alt . "#71ca3c")
+              (green-alt-other . "#51ca9c")
+              (green-faint . "#78bf78")
+              (green-alt-faint . "#99b56f")
+              (green-alt-other-faint . "#88bf99")
+              (yellow . "#f0b262")
+              (yellow-alt . "#f0e242")
+              (yellow-alt-other . "#d0a272")
+              (yellow-faint . "#d2b580")
+              (yellow-alt-faint . "#cabf77")
+              (yellow-alt-other-faint . "#d0ba95")
+              (blue . "#778cff")
+              (blue-alt . "#8f90ff")
+              (blue-alt-other . "#8380ff")
+              (blue-faint . "#82b0ec")
+              (blue-alt-faint . "#a0acef")
+              (blue-alt-other-faint . "#80b2f0")
+              (magenta . "#ff70cf")
+              (magenta-alt . "#ff77f0")
+              (magenta-alt-other . "#ca7fff")
+              (magenta-faint . "#e0b2d6")
+              (magenta-alt-faint . "#ef9fe4")
+              (magenta-alt-other-faint . "#cfa6ff")
+              (cyan . "#30cacf")
+              (cyan-alt . "#60caff")
+              (cyan-alt-other . "#40b79f")
+              (cyan-faint . "#90c4ed")
+              (cyan-alt-faint . "#a0bfdf")
+              (cyan-alt-other-faint . "#a4d0bb")
+              (red-active . "#ff6059")
+              (green-active . "#64dc64")
+              (yellow-active . "#ffac80")
+              (blue-active . "#4fafff")
+              (magenta-active . "#cf88ff")
+              (cyan-active . "#50d3d0")
+              (red-nuanced-bg . "#440a1f")
+              (red-nuanced-fg . "#ffcccc")
+              (green-nuanced-bg . "#002904")
+              (green-nuanced-fg . "#b8e2b8")
+              (yellow-nuanced-bg . "#422000")
+              (yellow-nuanced-fg . "#dfdfb0")
+              (blue-nuanced-bg . "#1f1f5f")
+              (blue-nuanced-fg . "#bfd9ff")
+              (magenta-nuanced-bg . "#431641")
+              (magenta-nuanced-fg . "#e5cfef")
+              (cyan-nuanced-bg . "#042f49")
+              (cyan-nuanced-fg . "#a8e5e5")
+              (bg-diff-heading . "#304466")
+              (fg-diff-heading . "#dae7ff")
+              (bg-diff-added . "#0a383a")
+              (fg-diff-added . "#94ba94")
+              (bg-diff-changed . "#2a2000")
+              (fg-diff-changed . "#b0ba9f")
+              (bg-diff-removed . "#50163f")
+              (fg-diff-removed . "#c6adaa")
+              (bg-diff-refine-added . "#006a46")
+              (fg-diff-refine-added . "#e0f6e0")
+              (bg-diff-refine-changed . "#585800")
+              (fg-diff-refine-changed . "#ffffcc")
+              (bg-diff-refine-removed . "#952838")
+              (fg-diff-refine-removed . "#ffd9eb")
+              (bg-diff-focus-added . "#1d4c3f")
+              (fg-diff-focus-added . "#b4dfb4")
+              (bg-diff-focus-changed . "#424200")
+              (fg-diff-focus-changed . "#d0daaf")
+              (bg-diff-focus-removed . "#6f0f39")
+              (fg-diff-focus-removed . "#eebdba")))
+    (setq modus-themes-operandi-color-overrides nil
+          modus-themes-vivendi-color-overrides nil)))
+#+end_src
+
 ** Font configurations for Org and others
 :properties:
 :custom_id: h:defcf4fc-8fa8-4c29-b12e-7119582cc929
@@ -3116,6 +3399,9 @@ To make everything use your desired font families, you need to configure
 the ~variable-pitch~ (proportional spacing) and ~fixed-pitch~ (monospaced)
 faces respectively.  It may also be convenient to set your main typeface
 by configuring the ~default~ face the same way.
+
+[ The =fontaine= package on GNU ELPA (by the author of the modus-themes)
+  is designed to handle this case. ]
 
 Put something like this in your initialization file (also consider
 reading the doc string of ~set-face-attribute~):
@@ -3611,6 +3897,7 @@ package:
 (use-package circadian                  ; you need to install this
   :ensure
   :after solar
+  :config
   (setq circadian-themes '((:sunrise . modus-operandi)
                            (:sunset  . modus-vivendi)))
   (circadian-setup))
@@ -4119,6 +4406,64 @@ Or include a ~let~ form, if needed:
 Normally, we do not touch user options, though this is an exception:
 otherwise the defaults are not always legible.
 
+** Add support for solaire-mode
+:PROPERTIES:
+:CUSTOM_ID: h:439c9e46-52e2-46be-b1dc-85841dd99671
+:END:
+
+The =solaire-mode= package dims the background of what it considers
+ancillary "UI" buffers, such as the minibuffer and Dired buffers.  The
+Modus themes used to support Solaire on the premise that the user was
+(i) opting in to it, (ii) understood why certain buffers were more gray,
+and (iii) knew what other adjustments had to be made to prevent broken
+visuals (e.g. the default style of the ~modus-themes-completions~ uses a
+subtle gray background for the selection, which with Solaire becomes
+practically invisible).
+
+However, the assumption that users opt in to this feature does not
+always hold true.  There are cases where it is enabled by defaultsuch as
+in the popular Doom Emacs configuration.  Thus, the unsuspecting user
+who loads ~modus-operandi~ or ~modus-vivendi~ without the requisite
+customizations is getting a sub-par experience; an experience that we
+did not intend and cannot genuinely fix.
+
+Because the Modus themes are meant to work everywhere, we cannot make an
+exception for Doom Emacs and/or Solaire users.  Furthermore, we shall
+not introduce hacks, such as by adding a check in all relevant faces to
+be adjusted based on Solaire or whatever other package.  Hacks of this
+sort are unsustainable and penalize the entire userbase.  Besides, the
+themes are built into Emacs and we must keep their standard high.
+
+The fundamental constraint with Solaire is that Emacs does not have a
+real distinction between "content" and "UI" buffers.  For themes to work
+with Solaire, they need to be designed around that package.  Such is an
+arrangement that compromises on our accessibility standards and/or
+hinders our efforts to provide the best possible experience while using
+the Modus themes.
+
+As such, =solaire-mode= is not---and will not be---supported by the
+Modus themes (or any other of my themes, for that matter).  Users who
+want it must style the faces manually.  Below is some sample code, based
+on what we cover at length elsewhere in this manual:
+
+[[#h:f4651d55-8c07-46aa-b52b-bed1e53463bb][Advanced customization]].
+
+[[#h:51ba3547-b8c8-40d6-ba5a-4586477fd4ae][Face specs at scale using the themes' palette]].
+
+#+begin_src emacs-lisp
+(defun my-modus-themes-custom-faces ()
+  (modus-themes-with-colors
+    (custom-set-faces
+     `(solaire-default-face ((,class :inherit default :background ,bg-alt :foreground ,fg-dim)))
+     `(solaire-line-number-face ((,class :inherit solaire-default-face :foreground ,fg-unfocused)))
+     `(solaire-hl-line-face ((,class :background ,bg-active)))
+     `(solaire-org-hide-face ((,class :background ,bg-alt :foreground ,bg-alt))))))
+
+(add-hook 'modus-themes-after-load-theme-hook #'my-modus-themes-custom-faces)
+#+end_src
+
+As always, re-load the theme for changes to take effect.
+
 * Face coverage
 :properties:
 :custom_id: h:a9c8f29d-7f72-4b54-b74b-ddefe15d6a19
@@ -4168,6 +4513,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + centaur-tabs
 + cfrs
 + change-log and log-view (such as ~vc-print-log~, ~vc-print-root-log~)
++ chart
 + cider
 + circe
 + citar
@@ -4184,16 +4530,16 @@ have lots of extensions, so the "full support" may not be 100% true…
 + counsel-css
 + cov
 + cperl-mode
++ crontab-mode
 + css-mode
 + csv-mode
 + ctrlf
-+ cursor-flash
 + custom (what you get with {{{kbd(M-x customize)}}})
 + dap-mode
-+ dashboard (emacs-dashboard)
 + deadgrep
 + debbugs
 + deft
++ denote
 + devdocs
 + dictionary
 + diff-hl
@@ -4210,7 +4556,6 @@ have lots of extensions, so the "full support" may not be 100% true…
 + diredp (dired+)
 + display-fill-column-indicator-mode
 + doom-modeline
-+ dynamic-ruler
 + easy-jekyll
 + ebdb
 + ediff
@@ -4251,7 +4596,6 @@ have lots of extensions, so the "full support" may not be 100% true…
 + flyspell
 + flx
 + freeze-it
-+ frog-menu
 + focus
 + fold-this
 + font-lock (generic syntax highlighting)
@@ -4289,6 +4633,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + imenu-list
 + indium
 + info
++ info+ (info-plus)
 + info-colors
 + interaction-log
 + ioccur
@@ -4303,6 +4648,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + kaocha-runner
 + keycast
 + ledger-mode
++ leerzeichen
 + line numbers (~display-line-numbers-mode~ and global variant)
 + lsp-mode
 + lsp-ui
@@ -4314,7 +4660,6 @@ have lots of extensions, so the "full support" may not be 100% true…
 + marginalia
 + markdown-mode
 + markup-faces (~adoc-mode~)
-+ mct
 + mentor
 + messages
 + mini-modeline
@@ -4331,6 +4676,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + notmuch
 + num3-mode
 + nxml-mode
++ olivetti
 + orderless
 + org*
 + org-journal
@@ -4341,14 +4687,12 @@ have lots of extensions, so the "full support" may not be 100% true…
 + org-superstar
 + org-table-sticky-header
 + org-tree-slide
-+ org-treescope
 + origami
 + outline-mode
 + outline-minor-faces
 + package (what you get with {{{kbd(M-x list-packages)}}})
 + page-break-lines
 + pandoc-mode
-+ paradox
 + paren-face
 + pass
 + pdf-tools
@@ -4360,6 +4704,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + powerline
 + powerline-evil
 + prism ([[#h:a94272e0-99da-4149-9e80-11a7e67a2cf2][Note for prism.el]])
++ prescient
 + proced
 + prodigy
 + pulse
@@ -4391,9 +4736,9 @@ have lots of extensions, so the "full support" may not be 100% true…
 + smart-mode-line
 + smartparens
 + smerge
-+ solaire
 + spaceline
 + speedbar
++ spell-fu
 + stripes
 + suggest
 + switch-window
@@ -4404,7 +4749,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + tab-bar-groups
 + tab-bar-mode
 + tab-line-mode
-+ table (built-in table.el)
++ table (built-in {{{file(table.el)}}})
 + telega
 + telephone-line
 + terraform-mode
@@ -4419,8 +4764,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + tuareg
 + typescript
 + undo-tree
-+ vc (vc-dir.el, vc-hooks.el)
-+ vc-annotate (the output of {{{kbd(C-x v g)}}})
++ vc ({{{file(vc-dir.el)}}}, {{{file(vc-hooks.el)}}})
 + vertico
 + vertico-quick
 + vimish-fold
@@ -4445,8 +4789,7 @@ have lots of extensions, so the "full support" may not be 100% true…
 + yasnippet
 + ztree
 
-Plus many other miscellaneous faces that are provided by the upstream
-GNU Emacs distribution.
+Plus many other miscellaneous faces that are provided by Emacs.
 
 ** Indirectly covered packages
 :properties:
@@ -4464,9 +4807,11 @@ supported by the themes.
 + bufler
 + counsel-notmuch
 + counsel-org-capture-string
++ dashboard (emacs-dashboard)
 + define-word
 + disk-usage
 + dtache
++ dynamic-ruler
 + easy-kill
 + edit-indirect
 + egerrit
@@ -4564,6 +4909,8 @@ length elsewhere in this manual:
 (add-hook 'modus-themes-after-load-theme-hook #'my-modus-themes-custom-faces)
 #+end_src
 
+As always, re-load the theme for changes to take effect.
+
 If the above does not work, try this instead:
 
 #+begin_src emacs-lisp
@@ -4598,6 +4945,8 @@ This seems to make all comments use the appropriate face:
 
 (add-hook 'php-mode-hook #'my-multine-comments)
 #+end_src
+
+As always, re-load the theme for changes to take effect.
 
 ** Note on underlines in compilation buffers
 :properties:
@@ -4838,6 +5187,8 @@ implementation:
 (add-hook 'modus-themes-after-load-theme-hook #'my-modus-themes-highlight-parentheses)
 #+end_src
 
+As always, re-load the theme for changes to take effect.
+
 ** Note on mmm-mode.el background colors
 :properties:
 :custom_id: h:99cf0d6c-e478-4e26-9932-3bf3427d13f6
@@ -5041,7 +5392,7 @@ https://github.com/tumashu/company-posframe/]
 :custom_id: h:98bdf319-1e32-4469-8a01-771200fba65c
 :end:
 
-The built-in IRC client ~erc~ has the ability to colorise any text using
+The built-in IRC client ~erc~ has the ability to colorize any text using
 escape sequences that start with =^C= (inserted with {{{kbd(C-q C-c)}}}) and are
 followed by a number for the foreground and background.[fn:: This page
 explains the basics, though it is not specific to Emacs:
@@ -5097,7 +5448,7 @@ Consult the doc string of ~shr-use-colors~.
 
 By default, packages that build on top of the Simple HTML Remember (=shr=)
 use proportionately spaced fonts.  This is controlled by the user option
-~shr-use-fonts~, which is set to non-nil by default.  To use the standard
+~shr-use-fonts~, which is set to non-~nil~ by default.  To use the standard
 font instead, set that variable to nil.
 
 [[#h:defcf4fc-8fa8-4c29-b12e-7119582cc929][Font configurations for Org and others]].
@@ -5181,33 +5532,15 @@ candidates.  That style still meets the contrast ratio target of >= 7:1
 ANSI color number 1 (red) from the already-supported array of
 ~ansi-color-names-vector~.
 
-** Note on vc-annotate-background-mode
-:properties:
-:custom_id: h:5095cbd1-e17a-419c-93e8-951c186362a3
-:end:
-
-Due to the unique way ~vc-annotate~ ({{{kbd(C-x v g)}}}) applies colors, support
-for its background mode (~vc-annotate-background-mode~) is disabled at the
-theme level.
-
-Normally, such a drastic measure should not belong in a theme: assuming
-the user's preferences is bad practice.  However, it has been deemed
-necessary in the interest of preserving color contrast accessibility
-while still supporting a useful built-in tool.
-
-If there actually is a way to avoid such a course of action, without
-prejudice to the accessibility standard of this project, then please
-report as much or send patches ([[#h:9c3cd842-14b7-44d7-84b2-a5c8bc3fc3b1][Contributing]]).
-
 ** Note on pdf-tools link hints
 :properties:
 :custom_id: h:2659d13e-b1a5-416c-9a89-7c3ce3a76574
 :end:
 
 Hints are drawn by [[https://imagemagick.org/][ImageMagick]], not Emacs, i.e., ImageMagick doesn't
-know about the hint face unless you tell ImageMagick about it. By
+know about the hint face unless you tell ImageMagick about it.  By
 default, only the foreground and background color attributes are
-passed. The below snippet adds to those the various font attributes.  As
+passed.  The below snippet adds to those the various font attributes.  As
 it queries various faces, specifically ~pdf-links-read-link~ and the faces
 it inherits, it needs to be added to your initialization file after
 you've customized any faces.
@@ -5262,6 +5595,32 @@ those buttons.  Disabling the logo fixes the problem:
 #+begin_src emacs-lisp
 (setq notmuch-show-logo nil)
 #+end_src
+
+** Note on goto-address-mode faces
+:PROPERTIES:
+:CUSTOM_ID: h:2d74236a-e41c-4616-8735-75f949a67334
+:END:
+
+The built-in ~goto-address-mode~ uses heuristics to identify URLs and
+email addresses in the current buffer.  It then applies a face to them
+to change their style.  Some packages, such as =notmuch=, use this
+minor-mode automatically.
+
+The faces are not declared with ~defface~, meaning that it is better
+that the theme does not modify them.  The user is thus encouraged to
+consider including (or equivalent) this in their setup:
+
+#+begin_src emacs-lisp
+(setq goto-address-url-face 'link
+      goto-address-url-mouse-face 'highlight
+      goto-address-mail-face 'link
+      goto-address-mail-mouse-face 'highlight)
+#+end_src
+
+My personal preference is to set ~goto-address-mail-face~ to nil, as
+it otherwise adds too much visual noise to the buffer (email addresses
+stand out more, due to the use of the uncommon =@= character but also
+because they are often enclosed in angled brackets).
 
 * Frequently Asked Questions
 :properties:
@@ -5452,9 +5811,9 @@ In general, an additional source of light other than that of the monitor
 can help reduce eye strain: the eyes are more relaxed when they do not
 have to focus on one point to gather light.
 
-The monitor's display settings must be accounted for. Gamma values, in
+The monitor's display settings must be accounted for.  Gamma values, in
 particular, need to be calibrated to neither amplify nor distort the
-perception of black. Same principle for sharpness, brightness, and
+perception of black.  Same principle for sharpness, brightness, and
 contrast as determined by the hardware, which all have an effect on how
 text is read on the screen.
 
@@ -5519,7 +5878,7 @@ interface virtually unusable.
 
 [[#h:5808be52-361a-4d18-88fd-90129d206f9b][Option for links]].
 
-Again, one must exercise judgment in order to avoid discrimination,
+Again, one must exercise judgement in order to avoid discrimination,
 where "discrimination" refers to:
 
 + The treatment of substantially different magnitudes as if they were of
@@ -5592,7 +5951,7 @@ the themes, which is partially fleshed out in this manual.
 
 With regard to the artistic aspect (where "art" qua skill may amount to
 an imprecise science), there is no hard-and-fast rule in effect as it
-requires one to exercise discretion and make decisions based on
+requires one to exercize discretion and make decisions based on
 context-dependent information or constraints.  As is true with most
 things in life, when in doubt, do not cling on to the letter of the law
 but try to understand its spirit.
@@ -5739,41 +6098,44 @@ The Modus themes are a collective effort.  Every bit of work matters.
 + Author/maintainer :: Protesilaos Stavrou.
 
 + Contributions to code or documentation :: Alex Griffin, Anders
-  Johansson, Basil L.{{{space()}}} Contovounesios, Björn Lindström,
-  Carlo Zancanaro, Christian Tietze, Daniel Mendler, Eli Zaretskii,
-  Fritz Grabo, Illia Ostapyshyn, Kévin Le Gouguec, Kostadin Ninev,
-  Madhavan Krishnan, Manuel Giraud, Markus Beppler, Matthew Stevenson,
-  Mauro Aranda, Nicolas De Jaeghere, Philip Kaludercic, Pierre
-  Téchoueyres, Rudolf Adamkovič, Stephen Gildea, Shreyas Ragavan, Stefan
-  Kangas, Utkarsh Singh, Vincent Murphy, Xinglu Chen, Yuanchen Xie.
+  Johansson, Antonio Ruiz, Basil L.{{{space()}}} Contovounesios, Björn
+  Lindström, Carlo Zancanaro, Christian Tietze, Daniel Mendler, Eli
+  Zaretskii, Fritz Grabo, Illia Ostapyshyn, Kévin Le Gouguec, Koen van
+  Greevenbroek, Kostadin Ninev, Madhavan Krishnan, Manuel Giraud,
+  Markus Beppler, Matthew Stevenson, Mauro Aranda, Nicolas De
+  Jaeghere, Paul David, Philip Kaludercic, Pierre Téchoueyres, Rudolf
+  Adamkovič, Stephen Gildea, Shreyas Ragavan, Stefan Kangas, Utkarsh
+  Singh, Vincent Murphy, Xinglu Chen, Yuanchen Xie, okamsn.
 
 + Ideas and user feedback :: Aaron Jensen, Adam Porter, Adam Spiers,
-  Adrian Manea, Alex Griffin, Alex Koen, Alex Peitsinis, Alexey Shmalko,
-  Alok Singh, Anders Johansson, André Alexandre Gomes, Andrew Tropin,
-  Antonio Hernández Blas, Arif Rezai, Augusto Stoffel, Basil
+  Adrian Manea, Alex Griffin, Alex Koen, Alex Peitsinis, Alexey
+  Shmalko, Alok Singh, Anders Johansson, André Alexandre Gomes, Andrew
+  Tropin, Antonio Hernández Blas, Arif Rezai, Augusto Stoffel, Basil
   L.{{{space()}}} Contovounesios, Burgess Chang, Christian Tietze,
-  Christopher Dimech, Christopher League, Damien Cassou, Daniel Mendler,
-  Dario Gjorgjevski, David Edmondson, Davor Rotim, Divan Santana, Eliraz
-  Kedmi, Emanuele Michele Alberto Monterosso, Farasha Euker, Feng Shu,
-  Gautier Ponsinet, Gerry Agbobada, Gianluca Recchia, Gonçalo Marrafa,
-  Guilherme Semente, Gustavo Barros, Hörmetjan Yiltiz, Ilja Kocken, Iris
-  Garcia, Ivan Popovych, Jeremy Friesen, Jerry Zhang, Johannes Grødem,
-  John Haman, Jorge Morais, Joshua O'Connor, Julio C. Villasante, Kenta
-  Usami, Kevin Fleming, Kévin Le Gouguec, Kostadin Ninev, Len Trigg,
-  Lennart C. Karssen, Magne Hov, Manuel Uberti, Mark Bestley, Mark
-  Burton, Markus Beppler, Mauro Aranda, Maxime Tréca, Michael
+  Christopher Dimech, Christopher League, Damien Cassou, Daniel
+  Mendler, Dario Gjorgjevski, David Edmondson, Davor Rotim, Divan
+  Santana, Eliraz Kedmi, Emanuele Michele Alberto Monterosso, Farasha
+  Euker, Feng Shu, Gautier Ponsinet, Gerry Agbobada, Gianluca Recchia,
+  Gonçalo Marrafa, Guilherme Semente, Gustavo Barros, Hörmetjan
+  Yiltiz, Ilja Kocken, Iris Garcia, Ivan Popovych, Jeremy Friesen,
+  Jerry Zhang, Johannes Grødem, John Haman, Jonas Collberg, Jorge
+  Morais, Joshua O'Connor, Julio C. Villasante, Kenta Usami, Kevin
+  Fleming, Kévin Le Gouguec, Kevin Kainan Li, Kostadin Ninev, Len
+  Trigg, Lennart C. Karssen, Luis Miguel Castañeda, Magne Hov, Manuel
+  Uberti, Mark Bestley, Mark Burton, Mark Simpson, Markus Beppler,
+  Matt Armstrong, Matthias Fuchs, Mauro Aranda, Maxime Tréca, Michael
   Goldenberg, Morgan Smith, Morgan Willcock, Murilo Pereira, Nicky van
-  Foreest, Nicolas De Jaeghere, Paul Poloskov, Pengji Zhang, Pete
-  Kazmier, Peter Wu, Philip Kaludercic, Pierre Téchoueyres, Przemysław
-  Kryger, Robert Hepple, Roman Rudakov, Ryan Phillips, Rytis Paškauskas,
-  Rudolf Adamkovič, Sam Kleinman, Samuel Culpepper, Saša Janiška,
-  Shreyas Ragavan, Simon Pugnet, Tassilo Horn, Thibaut Verron, Thomas
-  Heartman, Togan Muftuoglu, Tony Zorman, Trey Merkley, Tomasz
-  Hołubowicz, Toon Claes, Uri Sharf, Utkarsh Singh, Vincent Foley.  As
-  well as users: Ben, CsBigDataHub1, Emacs Contrib, Eugene, Fourchaux,
-  Fredrik, Moesasji, Nick, TheBlob42, Trey, bepolymathe, bit9tream,
-  derek-upham, doolio, fleimgruber, gitrj95, iSeeU, jixiuf, okamsn,
-  pRot0ta1p.
+  Foreest, Nicolas De Jaeghere, Pablo Stafforini, Paul Poloskov,
+  Pengji Zhang, Pete Kazmier, Peter Wu, Philip Kaludercic, Pierre
+  Téchoueyres, Przemysław Kryger, Robert Hepple, Roman Rudakov, Ryan
+  Phillips, Rytis Paškauskas, Rudolf Adamkovič, Sam Kleinman, Samuel
+  Culpepper, Saša Janiška, Shreyas Ragavan, Simon Pugnet, Tassilo
+  Horn, Thibaut Verron, Thomas Heartman, Togan Muftuoglu, Tony Zorman,
+  Trey Merkley, Tomasz Hołubowicz, Toon Claes, Uri Sharf, Utkarsh
+  Singh, Vincent Foley.  As well as users: Ben, CsBigDataHub1, Emacs
+  Contrib, Eugene, Fourchaux, Fredrik, Moesasji, Nick, Summer Emacs,
+  TheBlob42, Trey, bepolymathe, bit9tream, derek-upham, doolio,
+  fleimgruber, gitrj95, iSeeU, jixiuf, okamsn, pRot0ta1p.
 
 + Packaging :: Basil L.{{{space()}}} Contovounesios, Eli Zaretskii,
   Glenn Morris, Mauro Aranda, Richard Stallman, Stefan Kangas (core
@@ -5784,10 +6146,12 @@ The Modus themes are a collective effort.  Every bit of work matters.
 + Inspiration for certain features :: Bozhidar Batsov (zenburn-theme),
   Fabrice Niessen (leuven-theme).
 
-Special thanks (from A-Z) to Gustavo Barros, Manuel Uberti, Nicolas De
-Jaeghere, and Omar Antolín Camarena for their long time contributions
-and insightful commentary on key aspects of the themes' design and/or
-aspects of their functionality.
+Special thanks (from A-Z) to Daniel Mendler, Gustavo Barros, Manuel
+Uberti, Nicolas De Jaeghere, and Omar Antolín Camarena for their long
+time contributions and insightful commentary on key aspects of the
+themes' design and/or aspects of their functionality.
+
+All errors are my own.
 
 * Other notes about the project
 :properties:

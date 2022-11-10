@@ -275,11 +275,31 @@ Must called from within a `tar-mode' buffer."
 
     (let* ((pkg-el "multi-file-0.2.3.tar")
            (source-file (expand-file-name pkg-el (ert-resource-directory))))
-      (package-initialize)
       (should-not (package-installed-p 'multie-file))
       (package-install-file source-file)
       (should (package-installed-p 'multi-file))
-      (package-delete (cadr (assq 'multi-file package-alist))))
+      (package-delete (cadr (assq 'multi-file package-alist))))))
+
+(ert-deftest package-test-bug58367 ()
+  "Check variations in tarball formats."
+  (with-package-test (:basedir (ert-resource-directory))
+    (package-initialize)
+
+    ;; A package whose first entry is the main dir but without trailing /.
+    (let* ((pkg-el "ustar-withsub-0.1.tar")
+           (source-file (expand-file-name pkg-el (ert-resource-directory))))
+      (should-not (package-installed-p 'ustar-withsub))
+      (package-install-file source-file)
+      (should (package-installed-p 'ustar-withsub))
+      (package-delete (cadr (assq 'ustar-withsub package-alist))))
+
+    ;; A package whose first entry is a file in a subdir.
+    (let* ((pkg-el "v7-withsub-0.1.tar")
+           (source-file (expand-file-name pkg-el (ert-resource-directory))))
+      (should-not (package-installed-p 'v7-withsub))
+      (package-install-file source-file)
+      (should (package-installed-p 'v7-withsub))
+      (package-delete (cadr (assq 'v7-withsub package-alist))))
     ))
 
 (ert-deftest package-test-install-file-EOLs ()
@@ -637,6 +657,21 @@ but with a different end of line convention (bug#48137)."
       (package-initialize)
       (package-refresh-contents)
       (should (equal (length package-archive-contents) 2)))))
+
+(ert-deftest package-test-package-installed-p ()
+  "Test package-installed-p before and after package initialization."
+  (with-package-test ()
+    ;; Verify that `package-installed-p' evaluates true for a built-in
+    ;; package, in this case `project', before package initialization.
+    (should (not package--initialized))
+    (should (package-installed-p 'project nil))
+    (should (not (package-installed-p 'imaginary-package nil)))
+
+    ;; The results don't change after package initialization.
+    (package-initialize)
+    (should package--initialized)
+    (should (package-installed-p 'project nil))
+    (should (not (package-installed-p 'imaginary-package nil)))))
 
 (ert-deftest package-test-describe-package ()
   "Test displaying help for a package."

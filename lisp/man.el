@@ -168,13 +168,14 @@ pushy      -- make the manpage the current buffer in the current window
 bully      -- make the manpage the current buffer and only window (sf)
 aggressive -- make the manpage the current buffer in the other window (sf)
 friendly   -- display manpage in the other window but don't make current (sf)
+thrifty    -- reuse an existing manpage window if possible (sf)
 polite     -- don't display manpage, but prints message and beep when ready
 quiet      -- like `polite', but don't beep
 meek       -- make no indication that the manpage is ready
 
 Any other value of `Man-notify-method' is equivalent to `meek'."
   :type '(radio (const newframe) (const pushy) (const bully)
-		(const aggressive) (const friendly)
+		(const aggressive) (const friendly) (const thrifty)
 		(const polite) (const quiet) (const meek))
   :group 'man)
 
@@ -450,50 +451,45 @@ Otherwise, the value is whatever the function
     table)
   "Syntax table used in Man mode buffers.")
 
-(defvar Man-mode-map
-  (let ((map (make-sparse-keymap)))
-    (suppress-keymap map)
-    (set-keymap-parent map
-      (make-composed-keymap button-buffer-map special-mode-map))
+(defvar-keymap Man-mode-map
+  :doc "Keymap for Man mode."
+  :suppress t
+  :parent (make-composed-keymap button-buffer-map special-mode-map)
+  "n"   #'Man-next-section
+  "p"   #'Man-previous-section
+  "M-n" #'Man-next-manpage
+  "M-p" #'Man-previous-manpage
+  "."   #'beginning-of-buffer
+  "r"   #'Man-follow-manual-reference
+  "g"   #'Man-goto-section
+  "s"   #'Man-goto-see-also-section
+  "k"   #'Man-kill
+  "u"   #'Man-update-manpage
+  "m"   #'man
+  ;; Not all the man references get buttons currently.  The text in the
+  ;; manual page can contain references to other man pages
+  "RET" #'man-follow
 
-    (define-key map "n"    'Man-next-section)
-    (define-key map "p"    'Man-previous-section)
-    (define-key map "\en"  'Man-next-manpage)
-    (define-key map "\ep"  'Man-previous-manpage)
-    (define-key map "."    'beginning-of-buffer)
-    (define-key map "r"    'Man-follow-manual-reference)
-    (define-key map "g"    'Man-goto-section)
-    (define-key map "s"    'Man-goto-see-also-section)
-    (define-key map "k"    'Man-kill)
-    (define-key map "u"    'Man-update-manpage)
-    (define-key map "m"    'man)
-    ;; Not all the man references get buttons currently.  The text in the
-    ;; manual page can contain references to other man pages
-    (define-key map "\r"   'man-follow)
-
-    (easy-menu-define nil map
-      "`Man-mode' menu."
-      '("Man"
-        ["Next Section" Man-next-section t]
-        ["Previous Section" Man-previous-section t]
-        ["Go To Section..." Man-goto-section t]
-        ["Go To \"SEE ALSO\" Section" Man-goto-see-also-section
-         :active (cl-member Man-see-also-regexp Man--sections
-                            :test #'string-match-p)]
-        ["Follow Reference..." Man-follow-manual-reference
-         :active Man--refpages
-         :help "Go to a manpage referred to in the \"SEE ALSO\" section"]
-        "--"
-        ["Next Manpage" Man-next-manpage
-         :active (> (length Man-page-list) 1)]
-        ["Previous Manpage" Man-previous-manpage
-         :active (> (length Man-page-list) 1)]
-        "--"
-        ["Man..." man t]
-        ["Kill Buffer" Man-kill t]
-        ["Quit" quit-window t]))
-    map)
-  "Keymap for Man mode.")
+  :menu
+  '("Man"
+    ["Next Section" Man-next-section t]
+    ["Previous Section" Man-previous-section t]
+    ["Go To Section..." Man-goto-section t]
+    ["Go To \"SEE ALSO\" Section" Man-goto-see-also-section
+     :active (cl-member Man-see-also-regexp Man--sections
+                        :test #'string-match-p)]
+    ["Follow Reference..." Man-follow-manual-reference
+     :active Man--refpages
+     :help "Go to a manpage referred to in the \"SEE ALSO\" section"]
+    "--"
+    ["Next Manpage" Man-next-manpage
+     :active (> (length Man-page-list) 1)]
+    ["Previous Manpage" Man-previous-manpage
+     :active (> (length Man-page-list) 1)]
+    "--"
+    ["Man..." man t]
+    ["Kill Buffer" Man-kill t]
+    ["Quit" quit-window t]))
 
 ;; buttons
 (define-button-type 'Man-abstract-xref-man-page
@@ -1229,6 +1225,11 @@ See the variable `Man-notify-method' for the different notification behaviors."
        (and (frame-live-p saved-frame)
             (select-frame saved-frame))
        (display-buffer man-buffer 'not-this-window))
+      ('thrifty
+       (and (frame-live-p saved-frame)
+            (select-frame saved-frame))
+       (display-buffer man-buffer '(display-buffer-reuse-mode-window
+                                    (mode . Man-mode))))
       ('polite
        (beep)
        (message "Manual buffer %s is ready" (buffer-name man-buffer)))
@@ -1241,8 +1242,7 @@ See the variable `Man-notify-method' for the different notification behaviors."
 (defun Man-softhyphen-to-minus ()
   ;; \255 is SOFT HYPHEN in Latin-N.  Versions of Debian man, at
   ;; least, emit it even when not in a Latin-N locale.
-  (unless (eq t (compare-strings "latin-" 0 nil
-				 current-language-environment 0 6 t))
+  (unless (string-prefix-p "latin-" current-language-environment t)
     (goto-char (point-min))
     (while (search-forward "­" nil t) (replace-match "-"))))
 

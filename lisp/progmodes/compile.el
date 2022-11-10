@@ -175,7 +175,7 @@ and a string describing how the process finished.")
 (defvar compilation-num-warnings-found 0)
 (defvar compilation-num-infos-found 0)
 
-(defconst compilation-mode-line-errors
+(defvar compilation-mode-line-errors
   '(" [" (:propertize (:eval (int-to-string compilation-num-errors-found))
                       face compilation-error
                       help-echo "Number of errors so far")
@@ -860,7 +860,7 @@ You might also use mode hooks to specify it in certain modes, like this:
 
 It's often useful to leave a space at the end of the value."
   :type 'string)
-;;;###autoload(put 'compile-command 'safe-local-variable (lambda (a) (and (stringp a) (or (not (boundp 'compilation-read-command)) compilation-read-command))))
+;;;###autoload(put 'compile-command 'safe-local-variable (lambda (a) (and (stringp a) (if (boundp 'compilation-read-command) compilation-read-command t))))
 
 ;;;###autoload
 (defcustom compilation-disable-input nil
@@ -979,18 +979,18 @@ Faces `compilation-error-face', `compilation-warning-face',
 (defvar compilation-leave-directory-face 'font-lock-builtin-face
   "Face name to use for leaving directory messages.")
 
-;; Used for compatibility with the old compile.el.
-(defvar compilation-parse-errors-function nil)
-(make-obsolete-variable 'compilation-parse-errors-function
-			'compilation-error-regexp-alist "24.1")
-
 (defcustom compilation-auto-jump-to-first-error nil
-  "If non-nil, automatically jump to the first error during compilation."
+  "If non-nil, automatically jump to the first error during compilation.
+
+The value `if-location-known' means automatically jump to the first error
+if the error's file can be found.  The value `first-known' means jump to
+the first error whose file can be found.  Any other non-nil value means
+jump to the first error unconditionally."
   :type '(choice (const :tag "Never" nil)
                  (const :tag "Always" t)
                  (const :tag "If location known" if-location-known)
                  (const :tag "First known location" first-known))
-  :version "23.1")
+  :version "29.1")
 
 (defvar-local compilation-auto-jump-to-next nil
   "If non-nil, automatically jump to the next error encountered.")
@@ -1240,10 +1240,10 @@ POS and RES.")
         (if win (set-window-point win pos)))
       (when compilation-auto-jump-to-first-error
         (cl-case compilation-auto-jump-to-first-error
-          ('if-location-known
+          (if-location-known
            (when (compilation--file-known-p)
 	     (compile-goto-error)))
-          ('first-known
+          (first-known
            (let (match)
              (while (and (not (compilation--file-known-p))
                          (setq match (text-property-search-forward
@@ -1519,34 +1519,28 @@ RULE is the name (symbol) of the rule used or nil if anonymous.
             (and proc (memq (process-status proc) '(run open))))
       (setq end (line-beginning-position))))
   (compilation--remove-properties start end)
-  (if compilation-parse-errors-function
-      ;; An old package!  Try the compatibility code.
-      (progn
-        (goto-char start)
-        (compilation--compat-parse-errors end))
+  ;; compilation-directory-matcher is the only part that really needs to be
+  ;; parsed sequentially.  So we could split it out, handle directories
+  ;; like syntax-propertize, and the rest as font-lock-keywords.  But since
+  ;; we want to have it work even when font-lock is off, we'd then need to
+  ;; use our own compilation-parsed text-property to keep track of the parts
+  ;; that have already been parsed.
+  (goto-char start)
+  (while (re-search-forward (car compilation-directory-matcher)
+                            end t)
+    (compilation--flush-directory-cache (match-beginning 0) (match-end 0))
+    (when compilation-debug
+      (font-lock-append-text-property
+       (match-beginning 0) (match-end 0)
+       'compilation-debug
+       (vector 'directory compilation-directory-matcher)))
+    (dolist (elt (cdr compilation-directory-matcher))
+      (add-text-properties (match-beginning (car elt))
+                           (match-end (car elt))
+                           (compilation-directory-properties
+                            (car elt) (cdr elt)))))
 
-    ;; compilation-directory-matcher is the only part that really needs to be
-    ;; parsed sequentially.  So we could split it out, handle directories
-    ;; like syntax-propertize, and the rest as font-lock-keywords.  But since
-    ;; we want to have it work even when font-lock is off, we'd then need to
-    ;; use our own compilation-parsed text-property to keep track of the parts
-    ;; that have already been parsed.
-    (goto-char start)
-    (while (re-search-forward (car compilation-directory-matcher)
-                              end t)
-      (compilation--flush-directory-cache (match-beginning 0) (match-end 0))
-      (when compilation-debug
-        (font-lock-append-text-property
-         (match-beginning 0) (match-end 0)
-         'compilation-debug
-         (vector 'directory compilation-directory-matcher)))
-      (dolist (elt (cdr compilation-directory-matcher))
-        (add-text-properties (match-beginning (car elt))
-                             (match-end (car elt))
-                             (compilation-directory-properties
-                              (car elt) (cdr elt)))))
-
-    (compilation-parse-errors start end)))
+  (compilation-parse-errors start end))
 
 (defun compilation--note-type (type)
   "Note that a new message with severity TYPE was seen.
@@ -1803,6 +1797,7 @@ Otherwise, construct a buffer name from NAME-OF-MODE."
                #'compilation--default-buffer-name)
            name-of-mode))
 
+;;;###autoload
 (defun compilation--default-buffer-name (name-of-mode)
   (cond ((or (eq major-mode (intern-soft name-of-mode))
              (eq major-mode (intern-soft (concat name-of-mode "-mode"))))
@@ -2475,22 +2470,23 @@ commands of Compilation major mode are available.  See
 (defun compilation-sentinel (proc msg)
   "Sentinel for compilation buffers."
   (if (memq (process-status proc) '(exit signal))
-      (let ((buffer (process-buffer proc)))
-	(if (null (buffer-name buffer))
-	    ;; buffer killed
-	    (set-process-buffer proc nil)
-	  (with-current-buffer buffer
-	    ;; Write something in the compilation buffer
-	    ;; and hack its mode line.
-	    (compilation-handle-exit (process-status proc)
-				     (process-exit-status proc)
-				     msg)
-	    ;; Since the buffer and mode line will show that the
-	    ;; process is dead, we can delete it now.  Otherwise it
-	    ;; will stay around until M-x list-processes.
-	    (delete-process proc)))
+      (unwind-protect
+          (let ((buffer (process-buffer proc)))
+            (if (null (buffer-name buffer))
+                ;; buffer killed
+                (set-process-buffer proc nil)
+              (with-current-buffer buffer
+                ;; Write something in the compilation buffer
+                ;; and hack its mode line.
+                (compilation-handle-exit (process-status proc)
+                                         (process-exit-status proc)
+                                         msg))))
         (setq compilation-in-progress (delq proc compilation-in-progress))
-        (compilation--update-in-progress-mode-line))))
+        (compilation--update-in-progress-mode-line)
+        ;; Since the buffer and mode line will show that the
+        ;; process is dead, we can delete it now.  Otherwise it
+        ;; will stay around until M-x list-processes.
+        (delete-process proc))))
 
 (defun compilation-filter (proc string)
   "Process filter for compilation buffers.
@@ -3259,73 +3255,11 @@ TRUE-DIRNAME is the `file-truename' of DIRNAME, if given."
                (if (eq v fs) (remhash k compilation-locs)))
              compilation-locs)))
 
-;;; Compatibility with the old compile.el.
-
-(defvaralias 'compilation-last-buffer 'next-error-last-buffer)
-(defvar compilation-parsing-end (make-marker))
-(defvar compilation-error-list nil)
-(defvar compilation-old-error-list nil)
-
-(defun compilation--compat-parse-errors (limit)
-  (when compilation-parse-errors-function
-    ;; FIXME: We should remove the rest of the compilation keywords
-    ;; but we can't do that from here because font-lock is using
-    ;; the value right now.  --Stef
-    (save-excursion
-      (setq compilation-error-list nil)
-      ;; Reset compilation-parsing-end each time because font-lock
-      ;; might force us the re-parse many times (typically because
-      ;; some code adds some text-property to the output that we
-      ;; already parsed).  You might say "why reparse", well:
-      ;; because font-lock has just removed the `compilation-message' property
-      ;; so have to do it all over again.
-      (if compilation-parsing-end
-	  (set-marker compilation-parsing-end (point))
-	(setq compilation-parsing-end (point-marker)))
-      (condition-case nil
-	  ;; Ignore any error: we're calling this function earlier than
-	  ;; in the old compile.el so things might not all be setup yet.
-	  (funcall compilation-parse-errors-function limit nil)
-	(error nil))
-      (dolist (err (if (listp compilation-error-list) compilation-error-list))
-	(let* ((src (car err))
-	       (dst (cdr err))
-	       (loc (cond ((markerp dst)
-                           (cons nil
-                                 (compilation--make-cdrloc nil nil dst)))
-			  ((consp dst)
-                           (cons (nth 2 dst)
-                                 (compilation--make-cdrloc
-                                  (nth 1 dst)
-                                  (cons (cdar dst) (caar dst))
-                                  nil))))))
-	  (when loc
-	    (goto-char src)
-	    ;; (put-text-property src (line-end-position)
-            ;;                    'font-lock-face 'font-lock-warning-face)
-	    (put-text-property src (line-end-position)
-			       'compilation-message
-                               (compilation--make-message loc 2 nil nil)))))))
-  (goto-char limit)
-  nil)
-
-;; Beware! this is not only compatibility code.  New code also uses it.  --Stef
 (defun compilation-forget-errors ()
   ;; In case we hit the same file/line specs, we want to recompute a new
   ;; marker for them, so flush our cache.
   (clrhash compilation-locs)
   (setq compilation-gcpro nil)
-  ;; FIXME: the old code reset the directory-stack, so maybe we should
-  ;; put a `directory change' marker of some sort, but where?  -stef
-  ;;
-  ;; FIXME: The old code moved compilation-current-error (which was
-  ;; virtually represented by a mix of compilation-parsing-end and
-  ;; compilation-error-list) to point-min, but that was only meaningful for
-  ;; the internal uses of compilation-forget-errors: all calls from external
-  ;; packages seem to be followed by a move of compilation-parsing-end to
-  ;; something equivalent to point-max.  So we heuristically move
-  ;; compilation-current-error to point-max (since the external package
-  ;; won't know that it should do it).  --Stef
   (setq compilation-current-error nil)
   (let* ((proc (get-buffer-process (current-buffer)))
 	 (mark (if proc (process-mark proc)))
@@ -3343,6 +3277,10 @@ TRUE-DIRNAME is the `file-truename' of DIRNAME, if given."
   (setq-local compilation-auto-jump-to-next
               (or compilation-auto-jump-to-first-error
                   (eq compilation-scroll-output 'first-error))))
+
+(define-obsolete-variable-alias 'compilation-last-buffer
+  ;; Sadly, we forgot to declare this obsolete back then :-(
+  'next-error-last-buffer "29.1 (tho really since 22.1)")
 
 (provide 'compile)
 

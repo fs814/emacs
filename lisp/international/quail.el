@@ -249,11 +249,9 @@ This activates input method defined by PACKAGE-NAME by running
 		  (princ (car libraries))
 		  (princ (substitute-command-keys "\" is not in `load-path'.
 
-The most common case is that you have not yet installed appropriate
-libraries in LEIM (Libraries of Emacs Input Method) which is
-distributed separately from Emacs.
-
-LEIM is available from the same ftp directory as Emacs.")))
+This might indicate a problem with your Emacs installation, as
+LEIM (Libraries of Emacs Input Method) should normally always be
+installed together with Emacs.")))
 		(error "Can't use the Quail package `%s'" package-name))
 	    (setq libraries (cdr libraries))))))
   (quail-select-package package-name)
@@ -542,8 +540,6 @@ This function runs the normal hook `quail-deactivate-hook'."
   (interactive)
   (quail-activate -1))
 
-(define-obsolete-function-alias 'quail-inactivate 'quail-deactivate "24.3")
-
 (defun quail-activate (&optional arg)
   "Activate Quail input method.
 With ARG, activate Quail input method if and only if arg is positive.
@@ -584,10 +580,6 @@ While this input method is active, the variable
       (add-hook 'post-command-hook #'quail-show-guidance nil t))
     (run-hooks 'quail-activate-hook)
     (setq-local input-method-function #'quail-input-method)))
-
-(define-obsolete-variable-alias
-  'quail-inactivate-hook
-  'quail-deactivate-hook "24.3")
 
 (defun quail-exit-from-minibuffer ()
   (deactivate-input-method)

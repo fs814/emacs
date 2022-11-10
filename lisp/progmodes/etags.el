@@ -1,7 +1,6 @@
 ;;; etags.el --- etags facility for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1988-1989, 1992-1996, 1998, 2000-2022 Free
-;; Software Foundation, Inc.
+;; Copyright (C) 1985-2022 Free Software Foundation, Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -1144,7 +1143,7 @@ error message."
 	      ;; Naive match found.  Qualify the match.
 	      (and (funcall (car order) pattern)
 		   ;; Make sure it is not a previous qualified match.
-		   (not (member (set-marker match-marker (point-at-bol))
+                   (not (member (set-marker match-marker (line-beginning-position))
 				tag-lines-already-matched))
 		   (throw 'qualified-match-found nil))
 	      (if next-line-after-failure-p
@@ -1314,11 +1313,11 @@ buffer-local values of tags table format variables."
 
       ;; Find the end of the tag and record the whole tag text.
       (search-forward "\177")
-      (setq tag-text (buffer-substring (1- (point)) (point-at-bol)))
+      (setq tag-text (buffer-substring (1- (point)) (line-beginning-position)))
       ;; If use-explicit is non-nil and explicit tag is present, use it as part of
       ;; return value. Else just skip it.
       (setq explicit-start (point))
-      (when (and (search-forward "\001" (point-at-bol 2) t)
+      (when (and (search-forward "\001" (line-beginning-position 2) t)
 		 use-explicit)
 	(setq tag-text (buffer-substring explicit-start (1- (point)))))
 
@@ -1705,7 +1704,7 @@ Point should be just after a string that matches TAG."
 ;;;###autoload
 (defalias 'next-file 'tags-next-file)
 (make-obsolete 'next-file
-               "use tags-next-file or fileloop-initialize and fileloop-next-file instead" "27.1")
+               "use `tags-next-file' or `fileloop-initialize' and `fileloop-next-file' instead" "27.1")
 ;;;###autoload
 (defun tags-next-file (&optional initialize novisit)
   "Select next file among files in current tags table.
@@ -1784,10 +1783,10 @@ Bind `case-fold-search' during the evaluation, depending on the value of
 (defun tags--compat-initialize (initialize)
   (fileloop-initialize
    (tags--compat-files initialize)
+   (lambda () (tags-loop-eval tags-loop-scan))
    (if tags-loop-operate
        (lambda () (tags-loop-eval tags-loop-operate))
-     (lambda () (message "Scanning file %s...found" buffer-file-name) nil))
-   (lambda () (tags-loop-eval tags-loop-scan))))
+     (lambda () (message "Scanning file %s...found" buffer-file-name) nil))))
 
 ;;;###autoload
 (defun tags-loop-continue (&optional first-time)
@@ -2006,16 +2005,15 @@ see the doc of that variable if you want to add names to the list."
   (set-buffer-modified-p nil)
   (select-tags-table-mode))
 
-(defvar select-tags-table-mode-map ; Doc string?
-  (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map button-buffer-map)
-    (define-key map "t" 'push-button)
-    (define-key map " " 'next-line)
-    (define-key map "\^?" 'previous-line)
-    (define-key map "n" 'next-line)
-    (define-key map "p" 'previous-line)
-    (define-key map "q" 'select-tags-table-quit)
-    map))
+(defvar-keymap select-tags-table-mode-map
+  :doc "Keymap for `select-tags-table-mode'."
+  :parent button-buffer-map
+  "t"   #'push-button
+  "SPC" #'next-line
+  "DEL" #'previous-line
+  "n"   #'next-line
+  "p"   #'previous-line
+  "q"   #'select-tags-table-quit)
 
 (define-derived-mode select-tags-table-mode special-mode "Select Tags Table"
   "Major mode for choosing a current tags table among those already loaded."

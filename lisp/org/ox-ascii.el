@@ -456,7 +456,7 @@ Optional argument JUSTIFY can specify any type of justification
 among `left', `center', `right' or `full'.  A nil value is
 equivalent to `left'.  For a justification that doesn't also fill
 string, see `org-ascii--justify-lines' and
-`org-ascii--justify-block'.
+`org-ascii--justify-element'.
 
 Return nil if S isn't a string."
   (when (stringp s)
@@ -948,12 +948,18 @@ channel."
 	 (when description
 	   (let ((dest (if (equal type "fuzzy")
 			   (org-export-resolve-fuzzy-link link info)
-			 (org-export-resolve-id-link link info))))
-	     (concat
-	      (org-ascii--fill-string
-	       (format "[%s] %s" anchor (org-ascii--describe-datum dest info))
-	       width info)
-	      "\n\n"))))
+                         ;; Ignore broken links.  On broken link,
+                         ;; `org-export-resolve-id-link' will throw an
+                         ;; error and we will return nil.
+			 (condition-case nil
+                             (org-export-resolve-id-link link info)
+                           (org-link-broken nil)))))
+             (when dest
+	       (concat
+	        (org-ascii--fill-string
+	         (format "[%s] %s" anchor (org-ascii--describe-datum dest info))
+	         width info)
+	        "\n\n")))))
 	;; Do not add a link that cannot be resolved and doesn't have
 	;; any description: destination is already visible in the
 	;; paragraph.

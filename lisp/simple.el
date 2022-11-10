@@ -1402,15 +1402,17 @@ instead of deleted."
   :version "24.1")
 
 (setq region-extract-function
-  (lambda (method)
-    (when (region-beginning)
-      (cond
-       ((eq method 'bounds)
-        (list (cons (region-beginning) (region-end))))
-       ((eq method 'delete-only)
-        (delete-region (region-beginning) (region-end)))
-       (t
-        (filter-buffer-substring (region-beginning) (region-end) method))))))
+      (lambda (method)
+        ;; This call either signals an error (if there is no region)
+        ;; or returns a number.
+        (let ((beg (region-beginning)))
+          (cond
+           ((eq method 'bounds)
+            (list (cons beg (region-end))))
+           ((eq method 'delete-only)
+            (delete-region beg (region-end)))
+           (t
+            (filter-buffer-substring beg (region-end) method))))))
 
 (defvar region-insert-function
   (lambda (lines)
@@ -2229,9 +2231,20 @@ See `extended-command-versions'."
   "Alist of prompts and what the extended command predicate should be.
 This is used by the \\<minibuffer-local-must-match-map>\\[execute-extended-command-cycle] command when reading an extended command.")
 
+(defvar-keymap read-extended-command-mode-map
+  :doc "Local keymap added to the current map when reading an extended command."
+  "M-X" #'execute-extended-command-cycle)
+
+(define-minor-mode read-extended-command-mode
+  "Minor mode used for completion in `read-extended-command'.")
+
 (defun read-extended-command (&optional prompt)
-  "Read command name to invoke in `execute-extended-command'.
-This function uses the `read-extended-command-predicate' user option."
+  "Read command name to invoke via `execute-extended-command'.
+Use `read-extended-command-predicate' to determine which commands
+to include among completion candidates.
+
+This function activates the `read-extended-command-mode' minor
+mode when reading the command name."
   (let ((default-predicate read-extended-command-predicate)
         (read-extended-command-predicate read-extended-command-predicate)
         already-typed ret)
@@ -2270,6 +2283,8 @@ This function uses the `read-extended-command-predicate' user option."
                       (setq execute-extended-command--last-typed
                             (minibuffer-contents)))
                     nil 'local)
+          ;; This is so that we define the `M-X' toggling command.
+          (read-extended-command-mode)
           (setq-local minibuffer-default-add-function
 	              (lambda ()
 	                ;; Get a command name at point in the original buffer
@@ -2450,9 +2465,13 @@ Also see `suggest-key-bindings'."
 
 (defun execute-extended-command--shorter (name typed)
   (let ((candidates '())
+        commands
         (max (length typed))
         (len 1)
         binding)
+    ;; Precompute a list of commands once to avoid repeated `commandp' testing
+    ;; of symbols in the `completion-try-completion' call inside the loop below
+    (mapatoms (lambda (s) (when (commandp s) (push s commands))))
     (while (and (not binding)
                 (progn
                   (unless candidates
@@ -2465,8 +2484,8 @@ Also see `suggest-key-bindings'."
       (input-pending-p)    ;Dummy call to trigger input-processing, bug#23002.
       (let ((candidate (pop candidates)))
         (when (equal name
-                       (car-safe (completion-try-completion
-                                  candidate obarray 'commandp len)))
+                     (car-safe (completion-try-completion
+                                candidate commands nil len)))
           (setq binding candidate))))
     binding))
 
@@ -2628,15 +2647,15 @@ function as needed."
       ((or `(lambda ,_args . ,body) `(closure ,_env ,_args . ,body)
            `(autoload ,_file . ,body))
        (let ((doc (car body)))
-	 (when (and (funcall docstring-p doc)
-	            ;; Handle a doc reference--but these never come last
-	            ;; in the function body, so reject them if they are last.
-	            (or (cdr body) (eq 'autoload (car-safe function))))
+	 (when (funcall docstring-p doc)
            doc)))
       (_ (signal 'invalid-function (list function))))))
 
 (cl-defmethod function-documentation ((function accessor))
   (oclosure--accessor-docstring function)) ;; FIXME: η-reduce!
+
+(cl-defmethod function-documentation ((f cconv--interactive-helper))
+  (function-documentation (cconv--interactive-helper--fun f)))
 
 ;; This should be in `oclosure.el' but that file is loaded before `cl-generic'.
 (cl-defgeneric oclosure-interactive-form (_function)
@@ -2648,6 +2667,9 @@ Add your methods to this generic function, but always call `interactive-form'
 instead."
   ;; (interactive-form function)
   nil)
+
+(cl-defmethod oclosure-interactive-form ((f cconv--interactive-helper))
+  `(interactive (funcall ',(cconv--interactive-helper--if f))))
 
 (defun command-execute (cmd &optional record-flag keys special)
   ;; BEWARE: Called directly from the C code.
@@ -2701,12 +2723,15 @@ don't clear it."
          (t
           ;; Pass `cmd' rather than `final', for the backtrace's sake.
           (prog1 (call-interactively cmd record-flag keys)
-            (when (and (symbolp cmd)
-                       (get cmd 'byte-obsolete-info)
-                       (not (get cmd 'command-execute-obsolete-warned)))
+            (when-let ((info
+                        (and (symbolp cmd)
+                             (not (get cmd 'command-execute-obsolete-warned))
+                             (get cmd 'byte-obsolete-info))))
               (put cmd 'command-execute-obsolete-warned t)
               (message "%s" (macroexp--obsolete-warning
-                             cmd (get cmd 'byte-obsolete-info) "command"))))))))))
+                             cmd info "command"
+                             (help--key-description-fontified
+                              (where-is-internal (car info) nil t))))))))))))
 
 (defun command-execute--query (command)
   "Query the user whether to run COMMAND."
@@ -3502,8 +3527,6 @@ Return what remains of the list."
         ;; In a writable buffer, enable undoing read-only text that is
         ;; so because of text properties.
         (inhibit-read-only t)
-        ;; Don't let `intangible' properties interfere with undo.
-        (inhibit-point-motion-hooks t)
         ;; We use oldlist only to check for EQ.  ++kfs
         (oldlist buffer-undo-list)
         (did-apply nil)
@@ -3530,10 +3553,7 @@ Return what remains of the list."
                  (setq visited-file-time
                       (with-current-buffer (buffer-base-buffer)
                         (visited-file-modtime))))
-             (when (or (equal time visited-file-time)
-                       (and (consp time)
-                            (equal (list (car time) (cdr time))
-                                   visited-file-time)))
+	     (when (time-equal-p time visited-file-time)
                (unlock-buffer)
                (set-buffer-modified-p nil))))
           ;; Element (nil PROP VAL BEG . END) is property change.
@@ -4548,85 +4568,81 @@ impose the use of a shell (with its need to quote arguments)."
 			 (set-marker (mark-marker) (point)
 				     (current-buffer)))))
 	;; Output goes in a separate buffer.
-	;; Preserve the match data in case called from a program.
-        ;; FIXME: It'd be ridiculous for an Elisp function to call
-        ;; shell-command and assume that it won't mess the match-data!
-	(save-match-data
-	  (if (string-match "[ \t]*&[ \t]*\\'" command)
-	      ;; Command ending with ampersand means asynchronous.
-              (let* ((buffer (get-buffer-create
-                              (or output-buffer shell-command-buffer-name-async)))
-                     (bname (buffer-name buffer))
-                     (proc (get-buffer-process buffer))
-                     (directory default-directory))
-		;; Remove the ampersand.
-		(setq command (substring command 0 (match-beginning 0)))
-		;; Ask the user what to do with already running process.
-		(when proc
-		  (cond
-		   ((eq async-shell-command-buffer 'confirm-kill-process)
-		    ;; If will kill a process, query first.
-                    (shell-command--same-buffer-confirm "Kill it")
-		    (kill-process proc))
-		   ((eq async-shell-command-buffer 'confirm-new-buffer)
-		    ;; If will create a new buffer, query first.
-                    (shell-command--same-buffer-confirm "Use a new buffer")
-                    (setq buffer (generate-new-buffer bname)))
-		   ((eq async-shell-command-buffer 'new-buffer)
-		    ;; It will create a new buffer.
-                    (setq buffer (generate-new-buffer bname)))
-		   ((eq async-shell-command-buffer 'confirm-rename-buffer)
-		    ;; If will rename the buffer, query first.
-                    (shell-command--same-buffer-confirm "Rename it")
-		    (with-current-buffer buffer
-		      (rename-uniquely))
-                    (setq buffer (get-buffer-create bname)))
-		   ((eq async-shell-command-buffer 'rename-buffer)
-		    ;; It will rename the buffer.
-		    (with-current-buffer buffer
-		      (rename-uniquely))
-                    (setq buffer (get-buffer-create bname)))))
-		(with-current-buffer buffer
-                  (shell-command-save-pos-or-erase)
-		  (setq default-directory directory)
-                  (require 'shell)
-                  (let ((process-environment
-                         (append
-                          (and (natnump async-shell-command-width)
-                               (list
-                                (format "COLUMNS=%d"
-                                        async-shell-command-width)))
-                          (comint-term-environment)
-                          process-environment)))
-		    (setq proc
-			  (start-process-shell-command "Shell" buffer command)))
-		  (setq mode-line-process '(":%s"))
-                  (shell-mode)
-                  (setq-local revert-buffer-function
-                              (lambda (&rest _)
-                                (async-shell-command command buffer)))
-                  (set-process-sentinel proc #'shell-command-sentinel)
-		  ;; Use the comint filter for proper handling of
-		  ;; carriage motion (see comint-inhibit-carriage-motion).
-                  (set-process-filter proc #'comint-output-filter)
-                  (if async-shell-command-display-buffer
-                      ;; Display buffer immediately.
-                      (display-buffer buffer '(nil (allow-no-window . t)))
-                    ;; Defer displaying buffer until first process output.
-                    ;; Use disposable named advice so that the buffer is
-                    ;; displayed at most once per process lifetime.
-                    (let ((nonce (make-symbol "nonce")))
-                      (add-function :before (process-filter proc)
-                                    (lambda (proc _string)
-                                      (let ((buf (process-buffer proc)))
-                                        (when (buffer-live-p buf)
-                                          (remove-function (process-filter proc)
-                                                           nonce)
-                                          (display-buffer buf))))
-                                    `((name . ,nonce)))))))
-	    ;; Otherwise, command is executed synchronously.
-	    (shell-command-on-region (point) (point) command
-				     output-buffer nil error-buffer)))))))
+	(if (string-match "[ \t]*&[ \t]*\\'" command)
+	    ;; Command ending with ampersand means asynchronous.
+            (let* ((buffer (get-buffer-create
+                            (or output-buffer shell-command-buffer-name-async)))
+                   (bname (buffer-name buffer))
+                   (proc (get-buffer-process buffer))
+                   (directory default-directory))
+	      ;; Remove the ampersand.
+	      (setq command (substring command 0 (match-beginning 0)))
+	      ;; Ask the user what to do with already running process.
+	      (when proc
+		(cond
+		 ((eq async-shell-command-buffer 'confirm-kill-process)
+		  ;; If will kill a process, query first.
+                  (shell-command--same-buffer-confirm "Kill it")
+		  (kill-process proc))
+		 ((eq async-shell-command-buffer 'confirm-new-buffer)
+		  ;; If will create a new buffer, query first.
+                  (shell-command--same-buffer-confirm "Use a new buffer")
+                  (setq buffer (generate-new-buffer bname)))
+		 ((eq async-shell-command-buffer 'new-buffer)
+		  ;; It will create a new buffer.
+                  (setq buffer (generate-new-buffer bname)))
+		 ((eq async-shell-command-buffer 'confirm-rename-buffer)
+		  ;; If will rename the buffer, query first.
+                  (shell-command--same-buffer-confirm "Rename it")
+		  (with-current-buffer buffer
+		    (rename-uniquely))
+                  (setq buffer (get-buffer-create bname)))
+		 ((eq async-shell-command-buffer 'rename-buffer)
+		  ;; It will rename the buffer.
+		  (with-current-buffer buffer
+		    (rename-uniquely))
+                  (setq buffer (get-buffer-create bname)))))
+	      (with-current-buffer buffer
+                (shell-command-save-pos-or-erase)
+		(setq default-directory directory)
+                (require 'shell)
+                (let ((process-environment
+                       (append
+                        (and (natnump async-shell-command-width)
+                             (list
+                              (format "COLUMNS=%d"
+                                      async-shell-command-width)))
+                        (comint-term-environment)
+                        process-environment)))
+		  (setq proc
+			(start-process-shell-command "Shell" buffer command)))
+		(setq mode-line-process '(":%s"))
+                (shell-mode)
+                (setq-local revert-buffer-function
+                            (lambda (&rest _)
+                              (async-shell-command command buffer)))
+                (set-process-sentinel proc #'shell-command-sentinel)
+		;; Use the comint filter for proper handling of
+		;; carriage motion (see comint-inhibit-carriage-motion).
+                (set-process-filter proc #'comint-output-filter)
+                (if async-shell-command-display-buffer
+                    ;; Display buffer immediately.
+                    (display-buffer buffer '(nil (allow-no-window . t)))
+                  ;; Defer displaying buffer until first process output.
+                  ;; Use disposable named advice so that the buffer is
+                  ;; displayed at most once per process lifetime.
+                  (let ((nonce (make-symbol "nonce")))
+                    (add-function :before (process-filter proc)
+                                  (lambda (proc _string)
+                                    (let ((buf (process-buffer proc)))
+                                      (when (buffer-live-p buf)
+                                        (remove-function (process-filter proc)
+                                                         nonce)
+                                        (display-buffer buf))))
+                                  `((name . ,nonce)))))))
+	  ;; Otherwise, command is executed synchronously.
+	  (shell-command-on-region (point) (point) command
+				   output-buffer nil error-buffer))))))
 
 (defun shell-command--same-buffer-confirm (action)
   (let ((help-form
@@ -6721,7 +6737,8 @@ If Transient Mark mode is disabled, this function normally does
 nothing; but if FORCE is non-nil, it deactivates the mark anyway.
 
 Deactivating the mark sets `mark-active' to nil, updates the
-primary selection according to `select-active-regions', and runs
+primary selection according to `select-active-regions' (unless
+`deactivate-mark' is `dont-save'), and runs
 `deactivate-mark-hook'.
 
 If Transient Mark mode was temporarily enabled, reset the value
@@ -6732,6 +6749,7 @@ run `deactivate-mark-hook'."
     (when (and (if (eq select-active-regions 'only)
 		   (eq (car-safe transient-mark-mode) 'only)
 		 select-active-regions)
+               (not (eq deactivate-mark 'dont-save))
 	       (region-active-p)
 	       (display-selections-p))
       ;; The var `saved-region-selection', if non-nil, is the text in
@@ -6853,6 +6871,18 @@ point otherwise."
   :version "23.1"
   :group 'editing-basics)
 
+(defun use-region-beginning ()
+  "Return the start of the region if `use-region-p'."
+  (and (use-region-p) (region-beginning)))
+
+(defun use-region-end ()
+  "Return the end of the region if `use-region-p'."
+  (and (use-region-p) (region-end)))
+
+(defun use-region-noncontiguous-p ()
+  "Return non-nil for a non-contiguous region if `use-region-p'."
+  (and (use-region-p) (region-noncontiguous-p)))
+
 (defun use-region-p ()
   "Return t if the region is active and it is appropriate to act on it.
 This is used by commands that act specially on the region under
@@ -6862,11 +6892,22 @@ The return value is t if Transient Mark mode is enabled and the
 mark is active; furthermore, if `use-empty-active-region' is nil,
 the region must not be empty.  Otherwise, the return value is nil.
 
+If `use-empty-active-region' is non-nil, there is one further
+caveat: If the user has used `mouse-1' to set point, but used the
+mouse to move point to a different character yet, this function
+returns nil.
+
 For some commands, it may be appropriate to ignore the value of
-`use-empty-active-region'; in that case, use `region-active-p'."
+`use-empty-active-region'; in that case, use `region-active-p'.
+
+Also see the convenience functions `use-region-beginning' and
+`use-region-end', which may be handy when writing `interactive'
+specs."
   (and (region-active-p)
-       (or use-empty-active-region (> (region-end) (region-beginning)))
-       t))
+       (or (> (region-end) (region-beginning))
+           (and use-empty-active-region
+                (not (eq (car-safe last-input-event) 'down-mouse-1))
+                (not (mouse-movement-p last-input-event))))))
 
 (defun region-active-p ()
   "Return t if Transient Mark mode is enabled and the mark is active.
@@ -6893,7 +6934,7 @@ see `region-noncontiguous-p' and `extract-rectangle-bounds'."
   "Return non-nil if the region contains several pieces.
 An example is a rectangular region handled as a list of
 separate contiguous regions for each line."
-  (cdr (region-bounds)))
+  (let ((bounds (region-bounds))) (and (cdr bounds) bounds)))
 
 (defun redisplay--unhighlight-overlay-function (rol)
   "If ROL is an overlay, call `delete-overlay'."
@@ -6986,7 +7027,7 @@ which is the window that will be redisplayed.  When run, the `current-buffer'
 is set to the buffer displayed in that window.")
 
 (define-minor-mode cursor-face-highlight-mode
-  "When enabled, respect the cursor-face property."
+  "When enabled, highlight text that has `cursor-face' property near point."
   :global nil
   (if cursor-face-highlight-mode
       (add-hook 'pre-redisplay-functions
@@ -7270,7 +7311,7 @@ or \"mark.*active\" at the prompt."
 
 (define-minor-mode indent-tabs-mode
   "Toggle whether indentation can insert TAB characters."
-  :global t :group 'indent :variable indent-tabs-mode)
+  :group 'indent)
 
 (defvar widen-automatically t
   "Non-nil means it is ok for commands to call `widen' when they want to.
@@ -7668,11 +7709,23 @@ not vscroll."
 		 ;; But don't vscroll in a keyboard macro.
 		 (not defining-kbd-macro)
 		 (not executing-kbd-macro)
+                 ;; Lines are not truncated...
+                 (not
+                  (and
+                   (or truncate-lines (truncated-partial-width-window-p))
+                   ;; ...or if lines are truncated, this buffer
+                   ;; doesn't have very long lines.
+                   (long-line-optimizations-p)))
 		 (line-move-partial arg noerror))
       (set-window-vscroll nil 0 t)
       (if (and line-move-visual
 	       ;; Display-based column are incompatible with goal-column.
 	       (not goal-column)
+               ;; Lines aren't truncated.
+               (not
+                (and
+                 (or truncate-lines (truncated-partial-width-window-p))
+                 (long-line-optimizations-p)))
 	       ;; When the text in the window is scrolled to the left,
 	       ;; display-based motion doesn't make sense (because each
 	       ;; logical line occupies exactly one screen line).
@@ -7785,7 +7838,9 @@ If NOERROR, don't signal an error if we can't move that many lines."
 (defun line-move-1 (arg &optional noerror _to-end)
   ;; Don't run any point-motion hooks, and disregard intangibility,
   ;; for intermediate positions.
-  (let ((inhibit-point-motion-hooks t)
+  (with-suppressed-warnings ((obsolete inhibit-point-motion-hooks))
+  (let ((outer-ipmh inhibit-point-motion-hooks)
+	(inhibit-point-motion-hooks t)
 	(opoint (point))
 	(orig-arg arg))
     (if (consp temporary-goal-column)
@@ -7897,20 +7952,20 @@ If NOERROR, don't signal an error if we can't move that many lines."
 	     ;; point-left-hooks.
 	     (let* ((npoint (prog1 (line-end-position)
 			      (goto-char opoint)))
-		    (inhibit-point-motion-hooks nil))
+		    (inhibit-point-motion-hooks outer-ipmh))
 	       (goto-char npoint)))
 	    ((< arg 0)
 	     ;; If we did not move up as far as desired,
 	     ;; at least go to beginning of line.
 	     (let* ((npoint (prog1 (line-beginning-position)
 			      (goto-char opoint)))
-		    (inhibit-point-motion-hooks nil))
+		    (inhibit-point-motion-hooks outer-ipmh))
 	       (goto-char npoint)))
 	    (t
 	     (line-move-finish (or goal-column temporary-goal-column)
-			       opoint (> orig-arg 0)))))))
+			       opoint (> orig-arg 0) (not outer-ipmh))))))))
 
-(defun line-move-finish (column opoint forward)
+(defun line-move-finish (column opoint forward &optional not-ipmh)
   (let ((repeat t))
     (while repeat
       ;; Set REPEAT to t to repeat the whole thing.
@@ -7961,42 +8016,44 @@ If NOERROR, don't signal an error if we can't move that many lines."
 	;; unnecessarily.  Note that we move *forward* past intangible
 	;; text when the initial and final points are the same.
 	(goto-char new)
-	(let ((inhibit-point-motion-hooks nil))
-	  (goto-char new)
+	(with-suppressed-warnings ((obsolete inhibit-point-motion-hooks))
+	  (let ((inhibit-point-motion-hooks (not not-ipmh)))
+	    (goto-char new)
 
-	  ;; If intangibility moves us to a different (later) place
-	  ;; in the same line, use that as the destination.
-	  (if (<= (point) line-end)
-	      (setq new (point))
-	    ;; If that position is "too late",
-	    ;; try the previous allowable position.
-	    ;; See if it is ok.
-	    (backward-char)
-	    (if (if forward
-		    ;; If going forward, don't accept the previous
-		    ;; allowable position if it is before the target line.
-		    (< line-beg (point))
-		  ;; If going backward, don't accept the previous
-		  ;; allowable position if it is still after the target line.
-		  (<= (point) line-end))
-		(setq new (point))
-	      ;; As a last resort, use the end of the line.
-	      (setq new line-end))))
+	    ;; If intangibility moves us to a different (later) place
+	    ;; in the same line, use that as the destination.
+	    (if (<= (point) line-end)
+	        (setq new (point))
+	      ;; If that position is "too late",
+	      ;; try the previous allowable position.
+	      ;; See if it is ok.
+	      (backward-char)
+	      (if (if forward
+		      ;; If going forward, don't accept the previous
+		      ;; allowable position if it is before the target line.
+		      (< line-beg (point))
+		    ;; If going backward, don't accept the previous
+		    ;; allowable position if it is still after the target line.
+		    (<= (point) line-end))
+		  (setq new (point))
+		;; As a last resort, use the end of the line.
+		(setq new line-end)))))
 
 	;; Now move to the updated destination, processing fields
 	;; as well as intangibility.
 	(goto-char opoint)
-	(let ((inhibit-point-motion-hooks nil))
-	  (goto-char
-	   ;; Ignore field boundaries if the initial and final
-	   ;; positions have the same `field' property, even if the
-	   ;; fields are non-contiguous.  This seems to be "nicer"
-	   ;; behavior in many situations.
-	   (if (eq (get-char-property new 'field)
-	   	   (get-char-property opoint 'field))
-	       new
-	     (constrain-to-field new opoint t t
-				 'inhibit-line-move-field-capture))))
+	(with-suppressed-warnings ((obsolete inhibit-point-motion-hooks))
+	  (let ((inhibit-point-motion-hooks (not not-ipmh)))
+	    (goto-char
+	     ;; Ignore field boundaries if the initial and final
+	     ;; positions have the same `field' property, even if the
+	     ;; fields are non-contiguous.  This seems to be "nicer"
+	     ;; behavior in many situations.
+	     (if (eq (get-char-property new 'field)
+		     (get-char-property opoint 'field))
+		 new
+	       (constrain-to-field new opoint t t
+				   'inhibit-line-move-field-capture)))))
 
 	;; If all this moved us to a different line,
 	;; retry everything within that new line.
@@ -8109,10 +8166,11 @@ For motion by visual lines, see `beginning-of-visual-line'."
 	  (line-move (1- arg) t)))
 
     ;; Move to beginning-of-line, ignoring fields and invisible text.
-    (skip-chars-backward "^\n")
-    (while (and (not (bobp)) (invisible-p (1- (point))))
-      (goto-char (previous-char-property-change (point)))
-      (skip-chars-backward "^\n"))
+    (let ((inhibit-field-text-motion t))
+      (goto-char (line-beginning-position))
+      (while (and (not (bobp)) (invisible-p (1- (point))))
+        (goto-char (previous-char-property-change (point)))
+        (goto-char (line-beginning-position))))
 
     ;; Now find first visible char in the line.
     (while (and (< (point) orig) (invisible-p (point)))
@@ -10348,8 +10406,15 @@ command works by setting the variable `buffer-read-only', which
 does not affect read-only regions caused by text properties.  To
 ignore read-only status in a Lisp program (whether due to text
 properties or buffer state), bind `inhibit-read-only' temporarily
-to a non-nil value."
+to a non-nil value.
+
+Reverting a buffer will keep the read-only status set by using
+this command."
   :variable buffer-read-only
+  ;; We're saving this value here so that we can restore the
+  ;; readedness state after reverting the buffer to the value that's
+  ;; been explicitly set by the user.
+  (setq-local read-only-mode--state buffer-read-only)
   (cond
    ((and (not buffer-read-only) view-mode)
     (View-exit-and-edit)
@@ -10382,7 +10447,9 @@ and setting it to nil."
     map))
 
 (define-derived-mode messages-buffer-mode special-mode "Messages"
-  "Major mode used in the \"*Messages*\" buffer.")
+  "Major mode used in the \"*Messages*\" buffer."
+  ;; Make it easy to do like "tail -f".
+  (setq-local window-point-insertion-type t))
 
 (defun messages-buffer ()
   "Return the \"*Messages*\" buffer.

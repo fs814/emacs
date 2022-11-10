@@ -37,6 +37,10 @@ struct frame *haiku_dnd_frame;
 /* Whether or not to move the tip frame during drag-and-drop.  */
 bool haiku_dnd_follow_tooltip;
 
+/* Whether or not the current DND frame is able to receive drops from
+   the current drag-and-drop operation.  */
+bool haiku_dnd_allow_same_frame;
+
 static void haiku_lisp_to_message (Lisp_Object, void *);
 
 static enum haiku_clipboard
@@ -319,6 +323,15 @@ haiku_message_to_lisp (void *message)
 
 	    case 'FLOT':
 	      t1 = make_float (*(float *) buf);
+	      break;
+
+	    case 'CSTR':
+	      /* Is this even possible? */
+	      if (!buf_size)
+		buf_size = 1;
+
+	      t1 = make_uninit_string (buf_size - 1);
+	      memcpy (SDATA (t1), buf, buf_size - 1);
 	      break;
 
 	    default:
@@ -743,6 +756,21 @@ haiku_lisp_to_message (Lisp_Object obj, void *message)
 		signal_error ("Failed to add bool", data);
 	      break;
 
+	    case 'CSTR':
+	      /* C strings must be handled specially, since they
+		 include a trailing NULL byte.  */
+	      CHECK_STRING (data);
+
+	      block_input ();
+	      rc = be_add_message_data (message, SSDATA (name),
+					type_code, SDATA (data),
+					SBYTES (data) + 1);
+	      unblock_input ();
+
+	      if (rc)
+		signal_error ("Failed to add", data);
+	      break;
+
 	    default:
 	    decode_normally:
 	      CHECK_STRING (data);
@@ -773,6 +801,49 @@ haiku_unwind_drag_message (void *message)
 {
   haiku_dnd_frame = NULL;
   BMessage_delete (message);
+}
+
+static void
+haiku_report_system_error (status_t code, const char *format)
+{
+  switch (code)
+    {
+    case B_BAD_VALUE:
+      error (format, "Bad value");
+      break;
+
+    case B_ENTRY_NOT_FOUND:
+      error (format, "File not found");
+      break;
+
+    case B_PERMISSION_DENIED:
+      error (format, "Permission denied");
+      break;
+
+    case B_LINK_LIMIT:
+      error (format, "Link limit reached");
+      break;
+
+    case B_BUSY:
+      error (format, "Device busy");
+      break;
+
+    case B_NO_MORE_FDS:
+      error (format, "No more file descriptors");
+      break;
+
+    case B_FILE_ERROR:
+      error (format, "File error");
+      break;
+
+    case B_NO_MEMORY:
+      memory_full (SIZE_MAX);
+      break;
+
+    default:
+      error (format, "Unknown error");
+      break;
+    }
 }
 
 DEFUN ("haiku-drag-message", Fhaiku_drag_message, Shaiku_drag_message,
@@ -830,6 +901,8 @@ currently being displayed to move along with the mouse pointer.  */)
 
   haiku_dnd_frame = f;
   haiku_dnd_follow_tooltip = !NILP (follow_tooltip);
+  haiku_dnd_allow_same_frame = !NILP (allow_same_frame);
+
   be_message = be_create_simple_message ();
 
   record_unwind_protect_ptr (haiku_unwind_drag_message, be_message);
@@ -952,6 +1025,66 @@ after it starts.  */)
   return SAFE_FREE_UNBIND_TO (depth, Qnil);
 }
 
+DEFUN ("haiku-write-node-attribute", Fhaiku_write_node_attribute,
+       Shaiku_write_node_attribute, 3, 3, 0,
+       doc: /* Write a message as a file-system attribute of NODE.
+FILE should be a file name of a file on a Be File System volume, NAME
+should be a string describing the name of the attribute that will be
+written, and MESSAGE will be the attribute written to FILE, as a
+system message in the format accepted by `haiku-drag-message', which
+see.  */)
+  (Lisp_Object file, Lisp_Object name, Lisp_Object message)
+{
+  void *be_message;
+  status_t rc;
+  specpdl_ref count;
+
+  CHECK_STRING (file);
+  CHECK_STRING (name);
+
+  file = ENCODE_FILE (file);
+  name = ENCODE_SYSTEM (name);
+
+  be_message = be_create_simple_message ();
+  count = SPECPDL_INDEX ();
+
+  record_unwind_protect_ptr (BMessage_delete, be_message);
+  haiku_lisp_to_message (message, be_message);
+  rc = be_write_node_message (SSDATA (file), SSDATA (name),
+			      be_message);
+
+  if (rc < B_OK)
+    haiku_report_system_error (rc, "Failed to set attribute: %s");
+
+  return unbind_to (count, Qnil);
+}
+
+DEFUN ("haiku-send-message", Fhaiku_send_message, Shaiku_send_message,
+       2, 2, 0,
+       doc: /* Send a system message to PROGRAM.
+PROGRAM must be the name of the application to which the message will
+be sent.  MESSAGE is the system message, serialized in the format
+accepted by `haiku-drag-message', that will be sent to the application
+specified by PROGRAM.  There is no guarantee that the message will
+arrive after this function is called.  */)
+  (Lisp_Object program, Lisp_Object message)
+{
+  specpdl_ref count;
+  void *be_message;
+
+  CHECK_STRING (program);
+  program = ENCODE_SYSTEM (program);
+
+  be_message = be_create_simple_message ();
+  count = SPECPDL_INDEX ();
+
+  record_unwind_protect_ptr (BMessage_delete, be_message);
+  haiku_lisp_to_message (message, be_message);
+  be_send_message (SSDATA (program), be_message);
+
+  return unbind_to (count, Qnil);
+}
+
 static void
 haiku_dnd_compute_tip_xy (int *root_x, int *root_y)
 {
@@ -1030,6 +1163,37 @@ haiku_note_drag_motion (void)
 
   internal_catch_all (haiku_note_drag_motion_1, NULL,
 		      haiku_note_drag_motion_2);
+
+  /* Redisplay this way to preserve the echo area.  Otherwise, the
+     contents will abruptly disappear when the mouse moves over a
+     frame.  */
+  redisplay_preserve_echo_area (34);
+}
+
+void
+haiku_note_drag_wheel (struct input_event *ie)
+{
+  bool horizontal, up;
+
+  up = false;
+  horizontal = false;
+
+  if (ie->modifiers & up_modifier)
+    up = true;
+
+  if (ie->kind == HORIZ_WHEEL_EVENT)
+    horizontal = true;
+
+  ie->kind = NO_EVENT;
+
+  if (!NILP (Vhaiku_drag_wheel_function)
+      && (haiku_dnd_allow_same_frame
+	  || XFRAME (ie->frame_or_window) != haiku_dnd_frame))
+    safe_call (7, Vhaiku_drag_wheel_function, ie->frame_or_window,
+	       ie->x, ie->y, horizontal ? Qt : Qnil, up ? Qt : Qnil,
+	       make_int (ie->modifiers));
+
+  redisplay_preserve_echo_area (35);
 }
 
 void
@@ -1095,13 +1259,13 @@ void
 syms_of_haikuselect (void)
 {
   DEFVAR_BOOL ("haiku-signal-invalid-refs", haiku_signal_invalid_refs,
-     doc: /* If nil, silently ignore invalid file names in system messages.
+    doc: /* If nil, silently ignore invalid file names in system messages.
 Otherwise, an error will be signalled if adding a file reference to a
 system message failed.  */);
   haiku_signal_invalid_refs = true;
 
   DEFVAR_LISP ("haiku-drag-track-function", Vhaiku_drag_track_function,
-     doc: /* If non-nil, a function to call upon mouse movement while dragging a message.
+    doc: /* If non-nil, a function to call upon mouse movement while dragging a message.
 The function is called without any arguments.  `mouse-position' can be
 used to retrieve the current position of the mouse.  */);
   Vhaiku_drag_track_function = Qnil;
@@ -1110,6 +1274,16 @@ used to retrieve the current position of the mouse.  */);
     doc: /* A list of functions to be called when Emacs loses an X selection.
 These are only called if a connection to the Haiku display was opened.  */);
   Vhaiku_lost_selection_functions = Qnil;
+
+  DEFVAR_LISP ("haiku-drag-wheel-function", Vhaiku_drag_wheel_function,
+    doc: /* Function called upon wheel movement while dragging a message.
+If non-nil, it is called with 6 arguments when the mouse wheel moves
+while a drag-and-drop operation is in progress: the frame where the
+mouse moved, the frame-relative X and Y positions where the mouse
+moved, whether or not the wheel movement was horizontal, whether or
+not the wheel moved up (or left, if the movement was horizontal), and
+keyboard modifiers currently held down.  */);
+  Vhaiku_drag_wheel_function = Qnil;
 
   DEFSYM (QSECONDARY, "SECONDARY");
   DEFSYM (QCLIPBOARD, "CLIPBOARD");
@@ -1144,6 +1318,8 @@ These are only called if a connection to the Haiku display was opened.  */);
   defsubr (&Shaiku_selection_owner_p);
   defsubr (&Shaiku_drag_message);
   defsubr (&Shaiku_roster_launch);
+  defsubr (&Shaiku_write_node_attribute);
+  defsubr (&Shaiku_send_message);
 
   haiku_dnd_frame = NULL;
 }
