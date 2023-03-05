@@ -1,6 +1,7 @@
 ;;; pgtk-win.el --- parse relevant switches and set up for Pure-GTK  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1995, 2001-2020, 2022 Free Software Foundation, Inc.
+;; Copyright (C) 1995, 2001-2020, 2022-2023 Free Software Foundation,
+;; Inc.
 
 ;; Author: FSF
 ;; Keywords: terminals
@@ -184,7 +185,7 @@ DISPLAY is the name of the display Emacs should connect to."
 (defun pgtk-preedit-text (event)
   "An internal function to display preedit text from input method.
 
-EVENT is a `preedit-text-event'."
+EVENT is a `preedit-text' event."
   (interactive "e")
   (when pgtk-preedit-overlay
     (delete-overlay pgtk-preedit-overlay))

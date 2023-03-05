@@ -1,6 +1,6 @@
 ;;; semantic/symref/list.el --- Symref Output List UI  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2023 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -51,7 +51,7 @@ Display the references in `semantic-symref-results-mode'."
   (let ((ct (semantic-current-tag)))
     ;; Must have a tag...
     (when (not ct) (error "Place cursor inside tag to be searched for"))
-    ;; Check w/ user.
+    ;; Check with user.
     (when (not (y-or-n-p (format "Find references for %s? "
                                  (semantic-tag-name ct))))
       (error "Quit"))
@@ -378,7 +378,8 @@ BUTTON is the button that was clicked."
 
 (defun semantic-symref-list-on-hit-p ()
   "Return the line number if the cursor is on a buffer line with a hit.
-Hits are the line of code from the buffer, not the tag summar or file lines."
+Hits are the line of code from the buffer, not the tag summary or
+file lines."
   (save-excursion
     (end-of-line)
     (let* ((ol (car (overlays-at (1- (point)))))) ;; trust this for now

@@ -1,6 +1,6 @@
 ;;; mh-mime.el --- MH-E MIME support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 1995, 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
 ;; Keywords: mail
@@ -607,8 +607,9 @@ If no part is preferred then all the parts are displayed."
 
 (defun mh-mime-maybe-display-alternatives (alternatives)
   "Show buttons for ALTERNATIVES.
-If `mh-mime-display-alternatives-flag' is non-nil then display
-buttons for alternative parts that are usually suppressed."
+If `mh-display-buttons-for-alternatives-flag' is non-nil then
+display buttons for alternative parts that are usually
+suppressed."
   (when (and mh-display-buttons-for-alternatives-flag alternatives)
     (insert "\n----------------------------------------------------\n")
     (insert "Alternatives:\n")

@@ -8,7 +8,7 @@
 @syncodeindex pg cp
 
 @copying
-Copyright @copyright{} 1995--2022 Free Software Foundation, Inc.
+Copyright @copyright{} 1995--2023 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -402,21 +402,21 @@ This manual corresponds to Gnus v5.13
 @end iftex
 
 @menu
-* Don't Panic::              Your first 20 minutes with Gnus.
-* Starting Up::              Finding news can be a pain.
-* Group Buffer::             Selecting, subscribing and killing groups.
-* Summary Buffer::           Reading, saving and posting articles.
-* Article Buffer::           Displaying and handling articles.
-* Composing Messages::       Information on sending mail and news.
-* Select Methods::           Gnus reads all messages from various select methods.
-* Scoring::                  Assigning values to articles.
-* Searching::                Mail and News search engines.
-* Various::                  General purpose settings.
-* The End::                  Farewell and goodbye.
-* Appendices::               Terminology, Emacs intro, @acronym{FAQ}, History, Internals.
-* GNU Free Documentation License:: The license for this documentation.
-* Index::                    Variable, function and concept index.
-* Key Index::                Key Index.
+* Don't Panic::                 Your first 20 minutes with Gnus.
+* Starting Up::                 Finding news can be a pain.
+* Group Buffer::                Selecting, subscribing and killing groups.
+* Summary Buffer::              Reading, saving and posting articles.
+* Article Buffer::              Displaying and handling articles.
+* Composing Messages::          Information on sending mail and news.
+* Select Methods::              Gnus reads all messages from various select methods.
+* Scoring::                     Assigning values to articles.
+* Searching::                   Mail and News search engines.
+* Various::                     General purpose settings.
+* The End::                     Farewell and goodbye.
+* Appendices::                  Terminology, Emacs intro, @acronym{FAQ}, History, Internals.
+* GNU Free Documentation License::  The license for this documentation.
+* Index::                       Variable, function and concept index.
+* Key Index::                   Key Index.
 
 @c Doesn't work right in html.
 @c FIXME Do this in a more standard way.
@@ -589,14 +589,15 @@ Decoding Variables
 Article Treatment
 
 * Article Highlighting::        You want to make the article look like fruit salad.
-* Article Fontisizing::         Making emphasized text look nice.
+* Article Fontifying::          Making emphasized text look nice.
 * Article Hiding::              You also want to make certain info go away.
 * Article Washing::             Lots of way-neat functions to make life better.
 * Article Header::              Doing various header transformations.
 * Article Buttons::             Click on URLs, Message-IDs, addresses and the like.
 * Article Button Levels::       Controlling appearance of buttons.
 * Article Date::                Grumble, UT!
-* Article Display::             Display various stuff---X-Face, Picons, Smileys, Gravatars
+* Article Display::             Display various stuff:
+                                X-Face, Picons, Gravatars, Smileys.
 * Article Signature::           What is a signature?
 * Article Miscellanea::         Various other stuff.
 
@@ -641,7 +642,7 @@ Select Methods
 * Getting Mail::                Reading your personal mail with Gnus.
 * Browsing the Web::            Getting messages from a plethora of Web sources.
 * Other Sources::               Reading directories, files.
-* Virtual Groups::              Combining articles from multiple sources.
+* Virtual Groups::              Combining articles and groups together.
 * Email Based Diary::           Using mails to manage diary events in Gnus.
 * Gnus Unplugged::              Reading news and mail offline.
 
@@ -666,6 +667,13 @@ Getting News
 * Indirect Functions::          Connecting indirectly to the server.
 * Common Variables::            Understood by several connection functions.
 
+Using IMAP
+
+* Connecting to an IMAP Server::  Getting started with @acronym{IMAP}.
+* Customizing the IMAP Connection::  Variables for @acronym{IMAP} connection.
+* Client-Side IMAP Splitting::  Put mail in the correct mail box.
+* Support for IMAP Extensions::  Getting extensions and labels from servers.
+
 Getting Mail
 
 * Mail in a Newsreader::        Important introductory notes.
@@ -685,6 +693,7 @@ Getting Mail
 Mail Sources
 
 * Mail Source Specifiers::      How to specify what a mail source is.
+* Mail Source Functions::
 * Mail Source Customization::   Some variables that influence things.
 * Fetching Mail::               Using the mail source specifiers.
 
@@ -695,6 +704,10 @@ Choosing a Mail Back End
 * Mail Spool::                  Store your mail in a private spool?
 * MH Spool::                    An mhspool-like back end.
 * Maildir::                     Another one-file-per-message format.
+* nnmaildir Group Parameters::
+* Article Identification::
+* NOV Data::
+* Article Marks::
 * Mail Folders::                Having one file for each group.
 * Comparing Mail Back Ends::    An in-depth looks at pros and cons.
 
@@ -734,10 +747,10 @@ The NNDiary Back End
 
 The Gnus Diary Library
 
-* Diary Summary Line Format::           A nicer summary buffer line format.
-* Diary Articles Sorting::              A nicer way to sort messages.
-* Diary Headers Generation::            Not doing it manually.
-* Diary Group Parameters::              Not handling them manually.
+* Diary Summary Line Format::   A nicer summary buffer line format.
+* Diary Articles Sorting::      A nicer way to sort messages.
+* Diary Headers Generation::    Not doing it manually.
+* Diary Group Parameters::      Not handling them manually.
 
 Gnus Unplugged
 
@@ -796,9 +809,22 @@ Advanced Scoring
 Searching
 
 * Search Engines::              Selecting and configuring search engines.
-* Creating Search Groups::      Creating search groups.
+* Creating Search Groups::      How and where.
 * Search Queries::              Gnus' built-in search syntax.
 * nnmairix::                    Searching with Mairix.
+* nnir::
+
+nnmairix
+
+* About mairix::                About the mairix mail search engine
+* nnmairix requirements::       What you will need for using nnmairix
+* What nnmairix does::          What does nnmairix actually do?
+* Setting up mairix::           Set up your mairix installation
+* Configuring nnmairix::        Set up the nnmairix back end
+* nnmairix keyboard shortcuts::  List of available keyboard shortcuts
+* Propagating marks::           How to propagate marks from nnmairix groups
+* nnmairix tips and tricks::    Some tips, tricks and examples
+* nnmairix caveats::            Some more stuff you might want to know
 
 Various
 
@@ -839,8 +865,7 @@ Image Enhancements
 
 * X-Face::                      Display a funky, teensy black-and-white image.
 * Face::                        Display a funkier, teensier colored image.
-* Smileys::                     Show all those happy faces the way they were
-                                  meant to be shown.
+* Smileys::                     Show all those happy faces the way they were meant to be shown.
 * Picons::                      How to display pictures of what you're reading.
 * Gravatars::                   Display the avatar of people you read.
 
@@ -862,11 +887,38 @@ Spam Package
 * Extending the Spam package::
 * Spam Statistics Package::
 
+Spam Back Ends
+
+* Blacklists and Whitelists::
+* BBDB Whitelists::
+* Gmane Spam Reporting::
+* Anti-spam Hashcash Payments::
+* Blackholes::
+* Regular Expressions Header Matching::
+* Bogofilter::
+* SpamAssassin back end::
+* ifile spam filtering::
+* Spam Statistics Filtering::
+* SpamOracle::
+
 Spam Statistics Package
 
 * Creating a spam-stat dictionary::
 * Splitting mail using spam-stat::
 * Low-level interface to the spam-stat dictionary::
+
+The Gnus Registry
+
+* Gnus Registry Setup::
+* Registry Article Refer Method::
+* Fancy splitting to parent::
+* Store custom flags and keywords::
+* Store arbitrary data::
+
+The Gnus Cloud
+
+* Gnus Cloud Setup::
+* Gnus Cloud Usage::
 
 Appendices
 
@@ -895,7 +947,7 @@ New Features
 * Quassia Gnus::                Two times two is four, or Gnus 5.6/5.7.
 * Pterodactyl Gnus::            Pentad also starts with P, AKA Gnus 5.8/5.9.
 * Oort Gnus::                   It's big.  It's far out.  Gnus 5.10/5.11.
-* No Gnus::                     Very punny.  Gnus 5.12/5.13
+* No Gnus::                     Very punny.  Gnus 5.12/5.13.
 * Ma Gnus::                     Celebrating 25 years of Gnus.
 
 Customization
@@ -1002,7 +1054,7 @@ The fundamental building blocks of Gnus are @dfn{servers},
 Each server maintains a list of groups, and those groups contain
 articles.  Because Gnus presents a unified interface to a wide variety
 of servers, the vocabulary doesn't always quite line up (@pxref{FAQ
-- Glossary}, for a more complete glossary).  Thus a local maildir is
+- Glossary}, for a more complete glossary).  Thus a local Maildir is
 referred to as a ``server'' (@pxref{Finding the News}) the same as a
 Usenet or IMAP server is; ``groups'' (@pxref{Group Buffer}) might mean
 an NNTP group, IMAP folder, or local mail directory; and an
@@ -1039,7 +1091,7 @@ the News}, for details.
 
 New mail has to come from somewhere.  Some servers, such as NNTP or
 IMAP, are themselves responsible for fetching newly-arrived articles.
-Others, such as maildir or mbox servers, only store articles and don't
+Others, such as Maildir or mbox servers, only store articles and don't
 fetch them from anywhere.
 
 In the latter case, Gnus provides for @code{mail sources}: places
@@ -1099,15 +1151,15 @@ If you puzzle at any terms used in this manual, please refer to the
 terminology section (@pxref{Terminology}).
 
 @menu
-* Finding the News::      Choosing a method for getting news.
-* The Server is Down::    How can I read my mail then?
-* Child Gnusae::          You can have more than one Gnus active at a time.
-* New Groups::            What is Gnus supposed to do with new groups?
-* Changing Servers::      You may want to move from one server to another.
-* Startup Files::         Those pesky startup files---@file{.newsrc}.
-* Auto Save::             Recovering from a crash.
-* The Active File::       Reading the active file over a slow line Takes Time.
-* Startup Variables::     Other variables you might change.
+* Finding the News::            Choosing a method for getting news.
+* The Server is Down::          How can I read my mail then?
+* Child Gnusae::                You can have more than one Gnus active at a time.
+* New Groups::                  What is Gnus supposed to do with new groups?
+* Changing Servers::            You may want to move from one server to another.
+* Startup Files::               Those pesky startup files---@file{.newsrc}.
+* Auto Save::                   Recovering from a crash.
+* The Active File::             Reading the active file over a slow line Takes Time.
+* Startup Variables::           Other variables you might change.
 @end menu
 
 
@@ -2907,8 +2959,6 @@ sending the message if @code{gnus-add-to-list} is set to @code{t}.
 If this variable is set, @code{gnus-mailing-list-mode} is turned on when
 entering summary buffer.
 
-See also @code{gnus-parameter-to-list-alist}.
-
 @anchor{subscribed}
 @item subscribed
 @cindex subscribed
@@ -3802,15 +3852,6 @@ The dribble file will be saved, though (@pxref{Auto Save}).
 @code{gnus-exit-gnus-hook} is called when you quit Gnus, while
 @code{gnus-after-exiting-gnus-hook} is called as the final item when
 exiting Gnus.
-
-Note:
-
-@quotation
-Miss Lisa Cannifax, while sitting in English class, felt her feet go
-numbly heavy and herself fall into a hazy trance as the boy sitting
-behind her drew repeated lines with his pencil across the back of her
-plastic chair.
-@end quotation
 
 
 @node Group Topics
@@ -8718,7 +8759,7 @@ these articles easier.
 
 @menu
 * Article Highlighting::        You want to make the article look like fruit salad.
-* Article Fontisizing::         Making emphasized text look nice.
+* Article Fontifying::          Making emphasized text look nice.
 * Article Hiding::              You also want to make certain info go away.
 * Article Washing::             Lots of way-neat functions to make life better.
 * Article Header::              Doing various header transformations.
@@ -8840,8 +8881,8 @@ default.
 @xref{Customizing Articles}, for how to highlight articles automatically.
 
 
-@node Article Fontisizing
-@subsection Article Fontisizing
+@node Article Fontifying
+@subsection Article Fontifying
 @cindex emphasis
 @cindex article emphasis
 
@@ -12056,17 +12097,6 @@ if they were public groups, you can add the name of that group to the
 
 Also @pxref{Misc Article} for @code{gnus-inhibit-images}.
 
-@item gnus-html-cache-directory
-@vindex gnus-html-cache-directory
-Gnus will download and cache images according to how
-@code{gnus-blocked-images} is set.  These images will be stored in
-this directory.
-
-@item gnus-html-cache-size
-@vindex gnus-html-cache-size
-When @code{gnus-html-cache-size} bytes have been used in that
-directory, the oldest files will be deleted.  The default is 500MB.
-
 @item gnus-html-frame-width
 @vindex gnus-html-frame-width
 The width to use when rendering HTML@.  The default is 70.
@@ -14479,13 +14509,23 @@ Here's an example method that's more complex:
 @end example
 
 @table @code
+@vindex nnimap-address
 @item nnimap-address
 The address of the server, like @samp{imap.gmail.com}.
 
+@vindex nnimap-user
+@item nnimap-user
+Username to use for authentication to the @acronym{IMAP} server.  This
+corresponds to the value of the @samp{login} token in your
+@file{~/.authinfo} file.  Set this variable if you want to access
+multiple accounts from the same @acronym{IMAP} server.
+
+@vindex nnimap-server-port
 @item nnimap-server-port
 If the server uses a non-standard port, that can be specified here.  A
 typical port would be @code{"imap"} or @code{"imaps"}.
 
+@vindex nnimap-stream
 @item nnimap-stream
 How @code{nnimap} should connect to the server.  Possible values are:
 
@@ -14516,6 +14556,7 @@ Non-encrypted and unsafe straight socket connection.
 
 @end table
 
+@vindex nnimap-authenticator
 @item nnimap-authenticator
 Some @acronym{IMAP} servers allow anonymous logins.  In that case,
 this should be set to @code{anonymous}.  If this variable isn't set,
@@ -14525,6 +14566,7 @@ specific login method to be used, you can set this variable to either
 @code{plain}, @code{cram-md5} or @code{xoauth2}.  (The latter method
 requires using the @file{oauth2.el} library.)
 
+@vindex nnimap-expunge
 @item nnimap-expunge
 When to expunge deleted messages.  If @code{never}, deleted articles
 are marked with the IMAP @code{\\Delete} flag but not automatically
@@ -14540,27 +14582,32 @@ EXPUNGE nil is equivalent to @code{never}, while t will immediately
 expunge ALL articles that are currently flagged as deleted
 (i.e., potentially not only the article that was just deleted).
 
+@vindex nnimap-streaming
 @item nnimap-streaming
 Virtually all @acronym{IMAP} server support fast streaming of data.
 If you have problems connecting to the server, try setting this to
 @code{nil}.
 
+@vindex nnimap-fetch-partial-articles
 @item nnimap-fetch-partial-articles
 If non-@code{nil}, fetch partial articles from the server.  If set to
 a string, then it's interpreted as a regexp, and parts that have
 matching types will be fetched.  For instance, @samp{"text/"} will
 fetch all textual parts, while leaving the rest on the server.
 
+@vindex nnimap-record-commands
 @item nnimap-record-commands
 If non-@code{nil}, record all @acronym{IMAP} commands in the
 @samp{"*imap log*"} buffer.
 
+@vindex nnimap-use-namespaces
 @item nnimap-use-namespaces
 If non-@code{nil}, omit the IMAP namespace prefix in nnimap group
 names.  If your IMAP mailboxes are called something like @samp{INBOX}
 and @samp{INBOX.Lists.emacs}, but you'd like the nnimap group names to
 be @samp{INBOX} and @samp{Lists.emacs}, you should enable this option.
 
+@vindex nnimap-keepalive-intervals
 @item nnimap-keepalive-intervals
 By default, nnimap will send occasional @samp{NOOP} (keepalive)
 commands to the server, to keep the connection alive.  This option
@@ -16758,8 +16805,7 @@ value is @code{nil}.
 Do @emph{not} use the same maildir both in @code{mail-sources} and as
 an @code{nnmaildir} group.  The results might happen to be useful, but
 that would be by chance, not by design, and the results might be
-different in the future.  If your split rules create new groups,
-remember to supply a @code{create-directory} server parameter.
+different in the future.
 @end table
 
 @node nnmaildir Group Parameters
@@ -18399,10 +18445,10 @@ useful things for you.
 
 
 @menu
-* Diary Summary Line Format::           A nicer summary buffer line format.
-* Diary Articles Sorting::              A nicer way to sort messages.
-* Diary Headers Generation::            Not doing it manually.
-* Diary Group Parameters::              Not handling them manually.
+* Diary Summary Line Format::   A nicer summary buffer line format.
+* Diary Articles Sorting::      A nicer way to sort messages.
+* Diary Headers Generation::    Not doing it manually.
+* Diary Group Parameters::      Not handling them manually.
 @end menu
 
 @node Diary Summary Line Format
@@ -19779,10 +19825,11 @@ locally stored articles.
 @chapter Scoring
 @cindex scoring
 
-Other people use @dfn{kill files}, but we here at Gnus Towers like
-scoring better than killing, so we'd rather switch than fight.  They do
-something completely different as well, so sit up straight and pay
-attention!
+Other people use @dfn{kill files} (@pxref{Kill Files}, but we here at
+Gnus Towers like scoring better than killing, so we'd rather switch
+than fight.  Scoring and score files processing are more powerful and
+faster than processing of kill files.  Scoring also does something
+completely different as well, so sit up straight and pay attention!
 
 @vindex gnus-summary-mark-below
 All articles have a default score (@code{gnus-summary-default-score}),
@@ -20515,7 +20562,7 @@ returned value is required to be an integer.
 (score-fn (custom-scoring))
 @end example
 
-The user-defined function is called with an associative list with the
+The user-defined function is called with an association list with the
 keys @code{number subject from date id refs chars lines xref extra}
 followed by the article's score before the function is run.
 
@@ -21579,10 +21626,11 @@ relative date parsing and tie-ins into other Emacs packages.  For
 details on Gnus' query language, see @ref{Search Queries}.
 
 @menu
-* Search Engines::             Selecting and configuring search engines.
-* Creating Search Groups::     How and where.
-* Search Queries::             Gnus' built-in search syntax.
-* nnmairix::                   Searching with Mairix.
+* Search Engines::              Selecting and configuring search engines.
+* Creating Search Groups::      How and where.
+* Search Queries::              Gnus' built-in search syntax.
+* nnmairix::                    Searching with Mairix.
+* nnir::
 @end menu
 
 @node Search Engines
@@ -21592,11 +21640,10 @@ details on Gnus' query language, see @ref{Search Queries}.
 
 In order to search for messages from any given server, that server
 must have a search engine associated with it.  IMAP servers do their
-own searching (theoretically it is possible to use a different engine
-to search an IMAP store, but we don't recommend it), but in all other
-cases the user will have to manually specify an engine to use.  This
-can be done at two different levels: by server type, or on a
-per-server basis.
+own searching, and searching IMAP groups will work with no additional
+configuration, but in all other cases the user will have to manually
+specify an engine to use.  This can be done at two different levels:
+by server type, or on a per-server basis.
 
 @vindex gnus-search-default-engines
 The option @code{gnus-search-default-engines} assigns search engines
@@ -21879,7 +21926,7 @@ bound to mairix searches and are automatically updated.
 * What nnmairix does::          What does nnmairix actually do?
 * Setting up mairix::           Set up your mairix installation
 * Configuring nnmairix::        Set up the nnmairix back end
-* nnmairix keyboard shortcuts:: List of available keyboard shortcuts
+* nnmairix keyboard shortcuts::  List of available keyboard shortcuts
 * Propagating marks::           How to propagate marks from nnmairix groups
 * nnmairix tips and tricks::    Some tips, tricks and examples
 * nnmairix caveats::            Some more stuff you might want to know
@@ -21900,14 +21947,13 @@ be found at
 @uref{http://www.rpcurnow.force9.co.uk/mairix/index.html}
 
 Though mairix might not be as flexible as other search tools like
-swish++ or namazu, which you can use via the @code{nnir} back end, it
-has the prime advantage of being incredibly fast.  On current systems, it
-can easily search through headers and message bodies of thousands and
-thousands of mails in well under a second.  Building the database
-necessary for searching might take a minute or two, but only has to be
-done once fully.  Afterwards, the updates are done incrementally and
-therefore are really fast, too.  Additionally, mairix is very easy to set
-up.
+swish++ or namazu, it has the prime advantage of being incredibly
+fast.  On current systems, it can easily search through headers and
+message bodies of thousands and thousands of mails in well under a
+second.  Building the database necessary for searching might take a
+minute or two, but only has to be done once fully.  Afterwards, the
+updates are done incrementally and therefore are really fast, too.
+Additionally, mairix is very easy to set up.
 
 For maximum speed though, mairix should be used with mails stored in
 @code{Maildir} or @code{MH} format (this includes the @code{nnml} back
@@ -22544,6 +22590,21 @@ non-existing files.  In Gnus, these messages will usually appear with
 to you, using @kbd{G b u} and updating the group will usually fix this.
 
 @end itemize
+
+@node nnir
+@section Migrating from nnir
+
+@cindex nnir
+
+Gnus' previous search engine was called nnir, and is obsolete as of
+Emacs version 28.  If you've upgraded Emacs and are now getting
+obsolete-variable warnings about @code{nnir-*} variables, migration is
+fairly straightforward.  In addition to the variables raised by the
+warnings, all previous engine-specific variables can be updated by
+simply replacing the @code{nnir-} prefix with @code{gnus-search-}.
+For instance, @code{nnir-notmuch-program} is now
+@code{gnus-search-notmuch-program}.
+
 
 @iftex
 @iflatex
@@ -26475,7 +26536,7 @@ keyboard shortcuts like @kbd{M M i} for Important, using the first
 letter.
 @end defvar
 
-@defun gnus-registry-mark-article
+@defun gnus-registry-set-article-mark
 Call this function to mark an article with a custom registry mark.  It
 will offer the available marks for completion.
 @end defun

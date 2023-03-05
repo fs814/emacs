@@ -1,6 +1,6 @@
 ;;; tab-line.el --- window-local tabs with window buffers -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
 ;; Author: Juri Linkov <juri@linkov.net>
 ;; Keywords: windows tabs
@@ -504,7 +504,7 @@ which the tab will represent."
 (defun tab-line-format-template (tabs)
   "Template of the format for displaying tab line for selected window.
 This is used by `tab-line-format'."
-  (let* ((separator (or tab-line-separator (if window-system " " "|")))
+  (let* ((separator (or tab-line-separator (if (window-system) " " "|")))
          (hscroll (window-parameter nil 'tab-line-hscroll))
          (strings
           (mapcar
@@ -572,9 +572,14 @@ For use in `tab-line-tab-face-functions'."
 
 (defvar tab-line-auto-hscroll)
 
-(defun tab-line-cache-key-default (_tabs)
+(defun tab-line-cache-key-default (tabs)
   "Return default list of cache keys."
   (list
+   tabs
+   ;; handle buffer renames
+   (buffer-name (window-buffer))
+   ;; handle tab-line scrolling
+   (window-parameter nil 'tab-line-hscroll)
    ;; for setting face 'tab-line-tab-current'
    (mode-line-window-selected-p)
    ;; for `tab-line-tab-face-modified'
@@ -585,18 +590,13 @@ For use in `tab-line-tab-face-functions'."
 
 (defvar tab-line-cache-key-function #'tab-line-cache-key-default
   "Function that adds more cache keys.
-It has one argument with a list of tabs, and returns a list of cache keys.
-You can use `add-function' to add more cache keys.")
+It is called with one argument, a list of tabs, and should return a list
+of cache keys.  You can use `add-function' to add more cache keys.")
 
 (defun tab-line-format ()
   "Format for displaying the tab line of the selected window."
   (let* ((tabs (funcall tab-line-tabs-function))
-         (cache-key (append (list tabs
-                                  ;; handle buffer renames
-                                  (buffer-name (window-buffer))
-                                  ;; handle tab-line scrolling
-                                  (window-parameter nil 'tab-line-hscroll))
-                            (funcall tab-line-cache-key-function tabs)))
+         (cache-key (funcall tab-line-cache-key-function tabs))
          (cache (window-parameter nil 'tab-line-cache)))
     ;; Enable auto-hscroll again after it was disabled on manual scrolling.
     ;; The moment to enable it is when the window-buffer was updated.

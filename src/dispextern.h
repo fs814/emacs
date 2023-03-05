@@ -1,6 +1,6 @@
 /* Interface definitions for display code.
 
-Copyright (C) 1985, 1993-1994, 1997-2022 Free Software Foundation, Inc.
+Copyright (C) 1985, 1993-1994, 1997-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -107,7 +107,7 @@ typedef struct
 {
   int width, height;		/* size of image */
   char *data;			/* pointer to image data */
-  int bytes_per_line;		/* accelarator to next line */
+  int bytes_per_line;		/* accelerator to next line */
   int bits_per_pixel;		/* bits per pixel (ZPixmap) */
 } *Emacs_Pix_Container;
 typedef Emacs_Pix_Container Emacs_Pixmap;
@@ -1712,7 +1712,7 @@ struct face
 
   /* Non-zero means characters in this face have a box of that
      thickness around them. Vertical (left and right) and horizontal
-     (top and bottom) borders size can be set separatedly using an
+     (top and bottom) borders size can be set separately using an
      associated list of two ints in the form
      (vertical_size . horizontal_size). In case one of the value is
      negative, its absolute value indicates the thickness, and the
@@ -2341,6 +2341,14 @@ struct it
   /* Alternate end position of the buffer that may be used to
      optimize display.  */
   ptrdiff_t narrowed_zv;
+
+  /* Begin position of the buffer for the locked narrowing around
+     low-level hooks.  */
+  ptrdiff_t locked_narrowing_begv;
+
+  /* End position of the buffer for the locked narrowing around
+     low-level hooks.  */
+  ptrdiff_t locked_narrowing_zv;
 
   /* C string to iterate over.  Non-null means get characters from
      this string, otherwise characters are read from current_buffer
@@ -3405,6 +3413,8 @@ void init_iterator (struct it *, struct window *, ptrdiff_t,
 ptrdiff_t get_narrowed_begv (struct window *, ptrdiff_t);
 ptrdiff_t get_narrowed_zv (struct window *, ptrdiff_t);
 ptrdiff_t get_closer_narrowed_begv (struct window *, ptrdiff_t);
+ptrdiff_t get_locked_narrowing_begv (ptrdiff_t);
+ptrdiff_t get_locked_narrowing_zv (ptrdiff_t);
 void init_iterator_to_row_start (struct it *, struct window *,
                                  struct glyph_row *);
 void start_display (struct it *, struct window *, struct text_pos);
@@ -3495,7 +3505,8 @@ extern bool cursor_in_mouse_face_p (struct window *w);
 extern void tty_draw_row_with_mouse_face (struct window *, struct glyph_row *,
 					  int, int, enum draw_glyphs_face);
 extern void display_tty_menu_item (const char *, int, int, int, int, bool);
-
+extern struct glyph *x_y_to_hpos_vpos (struct window *, int, int, int *, int *,
+				       int *, int *, int *);
 /* Flags passed to try_window.  */
 #define TRY_WINDOW_CHECK_MARGINS	(1 << 0)
 #define TRY_WINDOW_IGNORE_FONTS_CHANGE	(1 << 1)

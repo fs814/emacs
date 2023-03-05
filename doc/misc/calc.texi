@@ -95,7 +95,7 @@ This file documents Calc, the GNU Emacs calculator, included with
 GNU Emacs @value{EMACSVER}.
 @end ifnotinfo
 
-Copyright @copyright{} 1990--1991, 2001--2022 Free Software Foundation,
+Copyright @copyright{} 1990--1991, 2001--2023 Free Software Foundation,
 Inc.
 
 @quotation
@@ -232,7 +232,8 @@ series of calculators, its many features include:
 
 @itemize @bullet
 @item
-Choice of algebraic or RPN (stack-based) entry of calculations.
+Choice of algebraic or Reverse Polish notation (RPN),
+i.e. stack-based, entry of calculations.
 
 @item
 Arbitrary precision integers and floating-point numbers.
@@ -421,8 +422,8 @@ difference between lower-case and upper-case letters.  Remember,
 @key{RET}, @key{TAB}, @key{DEL}, and @key{SPC} are the Return, Tab,
 Delete, and Space keys.
 
-@strong{RPN calculation.}  In RPN, you type the input number(s) first,
-then the command to operate on the numbers.
+@strong{RPN calculation.}  In Reverse Polish notation (RPN), you type
+the input number(s) first, then the command to operate on the numbers.
 
 @noindent
 Type @kbd{2 @key{RET} 3 + Q} to compute
@@ -1348,18 +1349,19 @@ to control various modes of the Calculator.
 @subsection RPN Calculations and the Stack
 
 @cindex RPN notation
+@cindex Reverse Polish notation
 @noindent
 @ifnottex
-Calc normally uses RPN notation.  You may be familiar with the RPN
-system from Hewlett-Packard calculators, FORTH, or PostScript.
-(Reverse Polish Notation, RPN, is named after the Polish mathematician
-Jan Lukasiewicz.)
+Calc normally uses Reverse Polish notation (RPN).  You may be familiar
+with the RPN system from Hewlett-Packard calculators, FORTH, or
+PostScript.  (Reverse Polish Notation is named after the Polish
+mathematician Jan Lukasiewicz.)
 @end ifnottex
 @tex
-Calc normally uses RPN notation.  You may be familiar with the RPN
-system from Hewlett-Packard calculators, FORTH, or PostScript.
-(Reverse Polish Notation, RPN, is named after the Polish mathematician
-Jan \L ukasiewicz.)
+Calc normally uses Reverse Polish notation (RPN).  You may be familiar
+with the RPN system from Hewlett-Packard calculators, FORTH, or
+PostScript.  (Reverse Polish Notation is named after the Polish
+mathematician Jan \L ukasiewicz.)
 @end tex
 
 The central component of an RPN calculator is the @dfn{stack}.  A
@@ -11040,7 +11042,8 @@ the year even for older dates.   The customizable variable
 have Calc's date forms switch from the Julian to Gregorian calendar at
 any specified date.
 
-Today's timekeepers introduce an occasional ``leap second''.
+A few platforms support leap seconds, such as the time stamp
+1972-06-30 23:59:60 UTC, an extra second appended to June 1972.
 These do not occur regularly and Calc does not take these minor
 effects into account.  (If it did, it would have to report a
 non-integer number of days between, say,
@@ -17340,8 +17343,12 @@ it can be a variable which is a time zone name in upper- or lower-case.
 For example @samp{tzone(PST) = tzone(8)} and @samp{tzone(pdt) = tzone(7)}
 (for Pacific standard and daylight saving times, respectively).
 
-North American and European time zone names are defined as follows;
-note that for each time zone there is one name for standard time,
+North American and European time zone names are defined as follows.
+These names are obsolescent and new code should not rely on them:
+the @samp{YST}-related names have disagreed with time in Yukon since 1973,
+and other names could well become confusing or wrong in the future
+as countries change their time zone rules.
+For each time zone there is one name for standard time,
 another for daylight saving time, and a third for ``generalized'' time
 in which the daylight saving adjustment is computed from context.
 
@@ -17363,7 +17370,7 @@ To define time zone names that do not appear in the above table,
 you must modify the Lisp variable @code{math-tzone-names}.  This
 is a list of lists describing the different time zone names; its
 structure is best explained by an example.  The three entries for
-Pacific Time look like this:
+circa-2022 US Pacific Time look like this:
 
 @smallexample
 @group

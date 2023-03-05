@@ -1,6 +1,6 @@
 ;;; diary-lib.el --- diary functions  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1989-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1989-2023 Free Software Foundation, Inc.
 
 ;; Author: Edward M. Reingold <reingold@cs.uiuc.edu>
 ;; Maintainer: emacs-devel@gnu.org
@@ -92,7 +92,7 @@ are holidays."
 This is used by `diary-pull-attrs' to fontify certain diary
 elements.  REGEXP is a regular expression to for, and SUBEXP is
 the numbered sub-expression to extract.  `diary-glob-file-regexp-prefix'
-is pre-pended to REGEXP for file-wide specifiers.  ATTRIBUTE
+is prepended to REGEXP for file-wide specifiers.  ATTRIBUTE
 specifies which face attribute (e.g. `:foreground') to modify, or
 that this is a face (`:face') to apply.  TYPE is the type of
 attribute being applied.  Available TYPES (see `diary-attrtype-convert')
@@ -109,7 +109,7 @@ are: `string', `symbol', `int', `tnil', `stringtnil'."
   :group 'diary)
 
 (defcustom diary-glob-file-regexp-prefix "^#"
-  "Regular expression pre-pended to `diary-face-attrs' for file-wide specifiers."
+  "Regular expression prepended to `diary-face-attrs' for file-wide specifiers."
   :type 'regexp
   :group 'diary)
 
@@ -339,7 +339,7 @@ Returns a string using match elements 1-5, where:
                     (t "\\1 \\2 \\3"))) ; MDY
             "\n \\4 %s, \\5")))
 ;; TODO Sometimes the time is in a different time-zone to the one you
-;; are in.  Eg in PST, you might still get an email referring to:
+;; are in.  E.g., in Los Angeles, you might still get an email referring to:
 ;; "7:00 PM-8:00 PM. Greenwich Standard Time".
 ;; Note that it doesn't use a standard abbreviation for the timezone,
 ;; or anything helpful like that.
@@ -880,7 +880,10 @@ LIST-ONLY is non-nil, in which case it just returns the list."
                                    (original-date original-date))
                     (run-hooks 'diary-hook))))))
         (and temp-buff (buffer-name temp-buff) (kill-buffer temp-buff)))
-      (or d-incp (message "Preparing diary...done"))
+      (or d-incp
+          ;; Don't clobber messages displayed while preparing the diary.
+          (not (equal (current-message) "Preparing diary..."))
+          (message "Preparing diary...done"))
       diary-entries-list)))
 
 (defun diary-unhide-everything ()
@@ -1769,7 +1772,7 @@ These functions give the date in alternative calendrical systems:
 `diary-islamic-date', `diary-julian-date', `diary-mayan-date',
 `diary-persian-date'
 
-Theses functions only produce output on certain dates:
+These functions only produce output on certain dates:
 
 `diary-lunar-phases'           - phases of moon (on the appropriate days)
 `diary-hebrew-omer'            - Omer count, within 50 days after Passover

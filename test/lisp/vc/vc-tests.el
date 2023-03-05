@@ -1,6 +1,6 @@
 ;;; vc-tests.el --- Tests of different backends of vc.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2014-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2023 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 
@@ -122,12 +122,12 @@
 Don't set it globally, the functions should be let-bound.")
 
 (defun vc-test--revision-granularity-function (backend)
-  "Run the `vc-revision-granularity' backend function."
+  "Run the `revision-granularity' backend function."
   (vc-call-backend backend 'revision-granularity))
 
 (defun vc-test--create-repo-function (backend)
   "Run the `vc-create-repo' backend function.
-For backends which dont support it, it is emulated."
+For backends which don't support it, it is emulated."
 
   (cond
    ((eq backend 'CVS)

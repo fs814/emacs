@@ -1,6 +1,6 @@
 ;;; comp-tests.el --- unit tests for src/comp.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2019-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
 ;; Author: Andrea Corallo <akrl@sdf.org>
 
@@ -298,9 +298,9 @@ Check that the resulting binaries do not differ."
 (comp-deftest non-locals ()
   "Test non locals."
   (should (string= (comp-tests-condition-case-0-f)
-                   "arith-error Arithmetic error catched"))
+                   "arith-error Arithmetic error caught"))
   (should (string= (comp-tests-condition-case-1-f)
-                   "error Foo catched"))
+                   "error Foo caught"))
   (should (= (comp-tests-catch-f
               (lambda () (throw 'foo 3)))
              3))

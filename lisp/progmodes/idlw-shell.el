@@ -1,6 +1,6 @@
 ;;; idlw-shell.el --- run IDL as an inferior process of Emacs.  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Authors: JD Smith <jd.smith@utoledo.edu>
 ;;          Carsten Dominik <dominik@astro.uva.nl>
@@ -448,7 +448,7 @@ a face highlighting may be better."
 We use a single character by default, since the main block of IDL procedures
 often has no indentation.  Where possible, IDLWAVE will use overlays to
 display the stop-lines.  The arrow is only used on character-based terminals.
-See also `idlwave-shell-use-overlay-arrow'."
+See also `idlwave-shell-mark-stop-line'."
   :group 'idlwave-shell-highlighting-and-faces
   :type 'string)
 

@@ -1,5 +1,5 @@
 /* Define frame-object for GNU Emacs.
-   Copyright (C) 1993-1994, 1999-2022 Free Software Foundation, Inc.
+   Copyright (C) 1993-1994, 1999-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1010,6 +1010,20 @@ default_pixels_per_inch_y (void)
 /* True if frame F is currently visible.  */
 #define FRAME_VISIBLE_P(f) (f)->visible
 
+/* True if frame F should be redisplayed.  This is normally the same
+   as FRAME_VISIBLE_P (f).  Under X, frames can continue to be
+   displayed to the user by the compositing manager even if they are
+   invisible, so this also checks whether or not the frame is reported
+   visible by the X server.  */
+
+#ifndef HAVE_X_WINDOWS
+#define FRAME_REDISPLAY_P(f) (FRAME_VISIBLE_P (f))
+#else
+#define FRAME_REDISPLAY_P(f) (FRAME_VISIBLE_P (f)		\
+			      || (FRAME_X_P (f)			\
+				  && FRAME_X_VISIBLE (f)))
+#endif
+
 /* True if frame F is currently visible but hidden.  */
 #define FRAME_OBSCURED_P(f) ((f)->visible > 1)
 
@@ -1670,6 +1684,7 @@ IMAGE_OPT_FROM_ID (struct frame *f, int id)
 /* The class of this X application.  */
 #define EMACS_CLASS "Emacs"
 
+extern void gui_set_frame_parameters_1 (struct frame *, Lisp_Object, bool);
 extern void gui_set_frame_parameters (struct frame *, Lisp_Object);
 extern void gui_set_fullscreen (struct frame *, Lisp_Object, Lisp_Object);
 extern void gui_set_line_spacing (struct frame *, Lisp_Object, Lisp_Object);
@@ -1717,7 +1732,6 @@ extern void x_wm_set_icon_position (struct frame *, int, int);
 #if !defined USE_X_TOOLKIT
 extern const char *x_get_resource_string (const char *, const char *);
 #endif
-extern void x_sync (struct frame *);
 #endif /* HAVE_X_WINDOWS */
 
 #if !defined (HAVE_NS) && !defined (HAVE_PGTK)

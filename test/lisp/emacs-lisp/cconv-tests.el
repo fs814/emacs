@@ -1,6 +1,6 @@
 ;;; cconv-tests.el --- Tests for cconv.el  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2018-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -60,7 +60,7 @@
                    "cl-defun documentation"))
   (should (eq (cconv-tests-cl-defun) 'cl-defun-result)))
 
-;; FIXME: The byte-complier croaks on this.  See Bug#28557.
+;; FIXME: The byte-compiler croaks on this.  See Bug#28557.
 ;; (defmacro cconv-tests-defmacro ()
 ;;   (:documentation (concat "defmacro" " documentation"))
 ;;   '(quote defmacro-result))
@@ -70,7 +70,7 @@
 ;;                    "defmacro documentation"))
 ;;   (should (eq (cconv-tests-defmacro) 'defmacro-result)))
 
-;; FIXME: The byte-complier croaks on this.  See Bug#28557.
+;; FIXME: The byte-compiler croaks on this.  See Bug#28557.
 ;; (cl-defmacro cconv-tests-cl-defmacro ()
 ;;   (:documentation (concat "cl-defmacro" " documentation"))
 ;;   '(quote cl-defmacro-result))
@@ -363,6 +363,19 @@
                            (funcall f 51695)
                            (call-interactively f))
                      '((t 51696) (nil 51695) (t 51697)))))))
+
+(ert-deftest cconv-safe-for-space ()
+  (let* ((magic-string "This-is-a-magic-string")
+         (safe-p (lambda (x) (not (string-match magic-string (format "%S" x))))))
+    (should (funcall safe-p (lambda (x) (+ x 1))))
+    (should (funcall safe-p (eval '(lambda (x) (+ x 1))
+                                  `((y . ,magic-string)))))
+    (should (funcall safe-p (eval '(lambda (x) :closure-dont-trim-context)
+                                  `((y . ,magic-string)))))
+    (should-not (funcall safe-p
+                         (eval '(lambda (x) :closure-dont-trim-context (+ x 1))
+                               `((y . ,magic-string)))))))
+
 
 (provide 'cconv-tests)
 ;;; cconv-tests.el ends here

@@ -1,6 +1,6 @@
 ;;; help.el --- help commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1993-1994, 1998-2022 Free Software
+;; Copyright (C) 1985-1986, 1993-1994, 1998-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -76,6 +76,7 @@ buffer.")
   "C-n"  #'view-emacs-news
   "C-o"  #'describe-distribution
   "C-p"  #'view-emacs-problems
+  "C-q"  #'help-quick-toggle
   "C-s"  #'search-forward-help-for-help
   "C-t"  #'view-emacs-todo
   "C-w"  #'describe-no-warranty
@@ -116,7 +117,7 @@ buffer.")
   "v"    #'describe-variable
   "w"    #'where-is
   "x"    #'describe-command
-  "q"    #'help-quit-or-quick)
+  "q"    #'help-quit)
 
 (define-key global-map (char-to-string help-char) 'help-command)
 (define-key global-map [help] 'help-command)
@@ -243,7 +244,17 @@ buffer.")
       ;; ... and shrink it immediately.
       (fit-window-to-buffer))
     (message
-     (substitute-command-keys "Toggle the quick help buffer using \\[help-quit-or-quick]."))))
+     (substitute-command-keys "Toggle the quick help buffer using \\[help-quick-toggle]."))))
+
+(defun help-quick-toggle ()
+  "Toggle the quick-help window."
+  (interactive)
+  (if (and-let* ((window (get-buffer-window "*Quick Help*")))
+        (quit-window t window))
+      ;; Clear the message we may have gotten from `C-h' and then
+      ;; waiting before hitting `q'.
+      (message "")
+    (help-quick)))
 
 (defalias 'cheat-sheet #'help-quick)
 
@@ -251,21 +262,6 @@ buffer.")
   "Just exit from the Help command's command loop."
   (interactive)
   nil)
-
-(defun help-quit-or-quick ()
-  "Call `help-quit' or  `help-quick' depending on the context."
-  (interactive)
-  (cond
-   (help-buffer-under-preparation
-    ;; FIXME: There should be a better way to detect if we are in the
-    ;;        help command loop.
-    (help-quit))
-   ((and-let* ((window (get-buffer-window "*Quick Help*")))
-      (quit-window t window)
-      ;; Clear the message we may have gotten from `C-h' and then
-      ;; waiting before hitting `q'.
-      (message "")))
-   ((help-quick))))
 
 (defvar help-return-method nil
   "What to do to \"exit\" the help buffer.
@@ -416,7 +412,7 @@ Do not call this in the scope of `with-help-window'."
        ("describe-package" "Describe a specific Emacs package")
        ""
        ("help-with-tutorial" "Start the Emacs tutorial")
-       ("help-quick-or-quit" "Display the quick help buffer.")
+       ("help-quick-toggle" "Display the quick help buffer.")
        ("view-echo-area-messages"
         "Show recent messages (from echo area)")
        ("view-lossage" ,(format "Show last %d input keystrokes (lossage)"
@@ -747,14 +743,15 @@ or a buffer name."
           (setq-local outline-level (lambda () 1))
           (setq-local outline-minor-mode-cycle t
                       outline-minor-mode-highlight t
-                      outline-minor-mode-use-buttons 'insert)
+                      outline-minor-mode-use-buttons 'insert
+                      ;; Hide the longest body.
+                      outline-default-state 1
+                      outline-default-rules
+                      '((match-regexp . "Key translations")))
           (outline-minor-mode 1)
           (save-excursion
             (goto-char (point-min))
             (let ((inhibit-read-only t))
-              ;; Hide the longest body.
-              (when (re-search-forward "Key translations" nil t)
-		(outline-hide-subtree))
               ;; Hide ^Ls.
               (while (search-forward "\n\f\n" nil t)
 		(put-text-property (1+ (match-beginning 0)) (1- (match-end 0))
@@ -860,11 +857,13 @@ in the selected window."
 	 (mouse-msg (if (or (memq 'click modifiers) (memq 'down modifiers)
 			    (memq 'drag modifiers))
                         " at that spot" ""))
+         (click-pos (event-end event))
          ;; Use `posn-set-point' to handle the case when a menu item
          ;; is selected from the context menu that should describe KEY
          ;; at the position of mouse click that opened the context menu.
-         ;; When no mouse was involved, don't use `posn-set-point'.
-         (defn (if buffer
+         ;; When no mouse was involved, or the event doesn't provide a
+         ;; valid position, don't use `posn-set-point'.
+         (defn (if (or buffer (not (consp click-pos)))
                    (key-binding key t)
                  (save-excursion (posn-set-point (event-end event))
                                  (key-binding key t)))))
@@ -1945,10 +1944,7 @@ of a horizontal combination, restrain its new size by
 `fit-window-to-buffer-horizontally' can inhibit resizing.
 
 If WINDOW is the root window of its frame, resize the frame
-provided `fit-frame-to-buffer' is non-nil.
-
-This function may call `preserve-window-size' to preserve the
-size of WINDOW."
+provided `fit-frame-to-buffer' is non-nil."
   (setq window (window-normalize-window window t))
   (let* ((buffer (window-buffer window))
          (height (if (functionp temp-buffer-max-height)

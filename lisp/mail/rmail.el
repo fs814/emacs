@@ -1,6 +1,6 @@
 ;;; rmail.el --- main code of "RMAIL" mail reader for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1988, 1993-1998, 2000-2022 Free Software
+;; Copyright (C) 1985-1988, 1993-1998, 2000-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -1751,6 +1751,7 @@ not be a new one).  It returns non-nil if it got any new messages."
 	    (spam-filter-p (and (featurep 'rmail-spam-filter)
 				rmail-use-spam-filter))
 	    (blurb "")
+            (mod-p (buffer-modified-p))
 	    result success suffix)
 	(narrow-to-region (point) (point))
 	;; Read in the contents of the inbox files, renaming them as
@@ -1766,10 +1767,11 @@ not be a new one).  It returns non-nil if it got any new messages."
 		  (rmail-insert-inbox-text files nil)
 		(setq delete-files (rmail-insert-inbox-text files t))))
 	  ;; If there was no new mail, or we aborted before actually
-	  ;; trying to get any, mark buffer unmodified.  Otherwise the
-	  ;; buffer is correctly marked modified and the file locked
-	  ;; until we save out the new mail.
-	  (if (= (point-min) (point-max))
+	  ;; trying to get any, mark buffer unmodified, unless it was
+	  ;; modified originally.  Otherwise the buffer is correctly
+	  ;; marked modified and the file locked until we save out the
+	  ;; new mail.
+	  (if (and (null mod-p) (= (point-min) (point-max)))
 	      (set-buffer-modified-p nil)))
 	;; Scan the new text and convert each message to
 	;; Rmail/mbox format.
@@ -2597,7 +2599,7 @@ is greater than zero; otherwise, show it in full."
   "Handle a \"Mail-Followup-To\" header field with an unknown mailing list.
 Ask the user whether to add that list name to `mail-mailing-lists'."
   ;; FIXME s-r not needed?  Use rmail-get-header?
-  ;; We have not narrowed to the headers at ths point?
+  ;; We have not narrowed to the headers at this point?
    (save-restriction
      (let ((mail-followup-to (mail-fetch-field "mail-followup-to" nil t)))
        (when mail-followup-to
@@ -4578,6 +4580,9 @@ Argument MIME is non-nil if this is a mime message."
 	     (current-buffer))))
       (error nil))
 
+    ;; Decode any base64-encoded material in what we just decrypted.
+    (rmail-epa-decode armor-start after-end)
+
     (list armor-start (- (point-max) after-end) mime
           armor-end-regexp
           (buffer-substring armor-start (- (point-max) after-end)))))
@@ -4619,9 +4624,6 @@ Argument MIME is non-nil if this is a mime message."
 				       armor-start)
 		     "> ")
 	      (push (rmail-epa-decrypt-1 mime) decrypts))))
-
-      ;; Decode any base64-encoded mime sections.
-      (rmail-epa-decode)
 
       (when (and decrypts (rmail-buffers-swapped-p))
 	(when (y-or-n-p "Replace the original message? ")
@@ -4687,12 +4689,14 @@ Argument MIME is non-nil if this is a mime message."
       (unless decrypts
 	(error "Nothing to decrypt")))))
 
-;; Decode all base64-encoded mime sections, so that this change
-;; is made in the Rmail file, not just in the viewing buffer.
-(defun rmail-epa-decode ()
+;; Decode all base64-encoded mime sections from BEG to (Z - BACK-FROM-END),
+;; so that we save the decoding permanently in the Rmail buffer
+;; if we permanently save the decryption.
+(defun rmail-epa-decode (beg back-from-end)
   (save-excursion
-    (goto-char (point-min))
-    (while (re-search-forward "--------------[0-9a-zA-Z]+\n" nil t)
+    (goto-char beg)
+    (while (re-search-forward "--------------[0-9a-zA-Z]+\n"
+                              (- (point-max) back-from-end) t)
       ;; The ending delimiter is a start delimiter if another section follows.
       ;; Otherwise it is an end delimiter, with -- affixed.
       (let ((delim (concat (substring (match-string 0) 0 -1) "\\(\\|--\\)\n")))

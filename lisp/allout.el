@@ -1,6 +1,6 @@
 ;;; allout.el --- extensive outline mode for use alone and with other modes  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1992-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2023 Free Software Foundation, Inc.
 
 ;; Author: Ken Manheimer <ken dot manheimer at gmail...>
 ;; Created: Dec 1991 -- first release to usenet
@@ -5356,9 +5356,6 @@ alternate presentation form:
 
  `flat' -- Present prefix as numeric section.subsection..., starting with
 	 section indicated by the START-NUM, innermost nesting first.
- X`flat-indented' -- Prefix is like `flat' for first topic at each
- X		   level, but subsequent topics have only leaf topic
- X		   number, padded with blanks to line up with first.
  `indent' (symbol) --  Convert header prefixes to all white space,
 		       except for distinctive bullets.
 

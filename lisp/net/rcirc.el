@@ -1,6 +1,6 @@
 ;;; rcirc.el --- default, simple IRC client          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
 ;; Author: Ryan Yeske <rcyeske@gmail.com>
 ;; Maintainers: Ryan Yeske <rcyeske@gmail.com>,
@@ -1353,10 +1353,10 @@ inserting the new one."
     (if (use-region-p)
         (let ((beg (region-beginning)))
           (goto-char (region-end))
-          (insert "")
+          (insert "\^O")
           (goto-char beg)
           (insert pre))
-      (insert pre "")))
+      (insert pre "\^O")))
   (when (or (not (region-active-p)) (< (point) (mark)))
     (forward-char (length pre))))
 
@@ -1364,11 +1364,11 @@ inserting the new one."
   "Remove the closes formatting found closes to the current point."
   (interactive)
   (save-excursion
-    (when (and (search-backward-regexp (rx (or "" "" "" "" ""))
+    (when (and (search-backward-regexp (rx (or "\^B" "\^]" "\^_" "\^^" "\^Q"))
                                        rcirc-prompt-end-marker t)
-               (looking-at (rx (group (or "" "" "" "" ""))
+               (looking-at (rx (group (or "\^B" "\^]" "\^_" "\^^" "\^Q"))
                                (*? nonl)
-                               (group ""))))
+                               (group "\^O"))))
       (replace-match "" nil nil nil 2)
       (replace-match "" nil nil nil 1))))
 
@@ -1378,7 +1378,7 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the bold formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^B" replace))
 
 (defun rcirc-format-italic (replace)
   "Insert italic formatting.
@@ -1386,7 +1386,7 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the italic formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^]" replace))
 
 (defun rcirc-format-underline (replace)
   "Insert underlining formatting.
@@ -1394,15 +1394,15 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the underline formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^_" replace))
 
-(defun rcirc-format-strike-trough (replace)
-  "Insert strike-trough formatting.
+(defun rcirc-format-strike-through (replace)
+  "Insert strike-through formatting.
 If REPLACE is non-nil or a prefix argument is given, any prior
-formatting will be replaced before the strike-trough formatting
+formatting will be replaced before the strike-through formatting
 is inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^^" replace))
 
 (defun rcirc-format-fixed-width (replace)
   "Insert fixed-width formatting.
@@ -1410,7 +1410,7 @@ If REPLACE is non-nil or a prefix argument is given, any prior
 formatting will be replaced before the fixed width formatting is
 inserted."
   (interactive "P")
-  (rcirc-format "" replace))
+  (rcirc-format "\^Q" replace))
 
 (defvar-keymap rcirc-mode-map
   :doc "Keymap for rcirc mode."
@@ -1421,7 +1421,7 @@ inserted."
   "C-c C-f C-b" #'rcirc-format-bold
   "C-c C-f C-i" #'rcirc-format-italic
   "C-c C-f C-u" #'rcirc-format-underline
-  "C-c C-f C-s" #'rcirc-format-strike-trough
+  "C-c C-f C-s" #'rcirc-format-strike-through
   "C-c C-f C-f" #'rcirc-format-fixed-width
   "C-c C-f C-t" #'rcirc-format-fixed-width ;as in AucTeX
   "C-c C-f C-d" #'rcirc-unformat
@@ -1807,7 +1807,7 @@ extracted."
   "C-c C-f C-b" #'rcirc-format-bold
   "C-c C-f C-i" #'rcirc-format-italic
   "C-c C-f C-u" #'rcirc-format-underline
-  "C-c C-f C-s" #'rcirc-format-strike-trough
+  "C-c C-f C-s" #'rcirc-format-strike-through
   "C-c C-f C-f" #'rcirc-format-fixed-width
   "C-c C-f C-t" #'rcirc-format-fixed-width ;as in AucTeX
   "C-c C-f C-d" #'rcirc-unformat
@@ -2062,12 +2062,11 @@ connection."
                 (next-single-property-change (point) 'hard)
                 (forward-char 1)
                 (throw 'exit nil))))
+          (goto-char (line-beginning-position))
           (set-marker-insertion-type rcirc-prompt-start-marker t)
           (set-marker-insertion-type rcirc-prompt-end-marker t)
 
           ;; run markup functions
-          (unless (bolp)
-            (newline))
           (save-excursion
             (save-restriction
               (narrow-to-region (point) (point))
@@ -2371,9 +2370,11 @@ This function does not alter the INPUT string."
   "C-c C-@"   #'rcirc-next-active-buffer
   "C-c C-SPC" #'rcirc-next-active-buffer)
 
-(defcustom rcirc-track-abbrevate-flag t
+(define-obsolete-variable-alias 'rcirc-track-abbrevate-flag
+  'rcirc-track-abbreviate-flag "30.1")
+(defcustom rcirc-track-abbreviate-flag t
   "Non-nil means `rcirc-track-minor-mode' should abbreviate names."
-  :version "28.1"
+  :version "30.1"
   :type 'boolean)
 
 ;;;###autoload
@@ -2559,7 +2560,7 @@ activity.  Only run if the buffer is not visible and
     (funcall rcirc-channel-filter
              (replace-regexp-in-string
               "@.*?\\'" ""
-              (or (and rcirc-track-abbrevate-flag
+              (or (and rcirc-track-abbreviate-flag
                        rcirc-short-buffer-name)
                   (buffer-name))))))
 
@@ -4001,6 +4002,9 @@ PROCESS is the process object for the current connection."
            when (and (= (length setting) 2)
                      (string-equal (downcase (car setting)) parameter))
            return (cadr setting)))
+
+(define-obsolete-function-alias 'rcirc-format-strike-trough
+  'rcirc-format-strike-through "30.1")
 
 (provide 'rcirc)
 

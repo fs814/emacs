@@ -1,6 +1,6 @@
 ;;; minibuffer.el --- Minibuffer and completion functions -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2023 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Package: emacs
@@ -850,7 +850,88 @@ via `set-message-function'."
         ;; was handled specially by this function.
         t))))
 
-(setq set-message-function 'set-minibuffer-message)
+(setq set-message-function 'set-message-functions)
+
+(defcustom set-message-functions '(set-minibuffer-message)
+  "List of functions to handle display of echo-area messages.
+Each function is called with one argument that is the text of a message.
+If a function returns nil, a previous message string is given to the
+next function in the list, and if the last function returns nil, the
+last message string is displayed in the echo area.
+If a function returns a string, the returned string is given to the
+next function in the list, and if the last function returns a string,
+it's displayed in the echo area.
+If a function returns any other non-nil value, no more functions are
+called from the list, and no message will be displayed in the echo area."
+  :type '(choice (const :tag "No special message handling" nil)
+                 (repeat
+                  (choice (function-item :tag "Inhibit some messages"
+                                         inhibit-message)
+                          (function-item :tag "Accumulate messages"
+                                         set-multi-message)
+                          (function-item :tag "Handle minibuffer"
+                                         set-minibuffer-message)
+                          (function :tag "Custom function"))))
+  :version "29.1")
+
+(defun set-message-functions (message)
+  (run-hook-wrapped 'set-message-functions
+                    (lambda (fun)
+                      (when (stringp message)
+                        (let ((ret (funcall fun message)))
+                          (when ret (setq message ret))))
+                      nil))
+  message)
+
+(defcustom inhibit-message-regexps nil
+  "List of regexps that inhibit messages by the function `inhibit-message'."
+  :type '(repeat regexp)
+  :version "29.1")
+
+(defun inhibit-message (message)
+  "Don't display MESSAGE when it matches the regexp `inhibit-message-regexps'.
+This function is intended to be added to `set-message-functions'."
+  (or (and (consp inhibit-message-regexps)
+           (string-match-p (mapconcat #'identity inhibit-message-regexps "\\|")
+                           message))
+      message))
+
+(defcustom multi-message-timeout 2
+  "Number of seconds between messages before clearing the accumulated list."
+  :type 'number
+  :version "29.1")
+
+(defcustom multi-message-max 8
+  "Max size of the list of accumulated messages."
+  :type 'number
+  :version "29.1")
+
+(defvar multi-message-separator "\n")
+
+(defvar multi-message-list nil)
+
+(defun set-multi-message (message)
+  "Return recent messages as one string to display in the echo area.
+Note that this feature works best only when `resize-mini-windows'
+is at its default value `grow-only'."
+  (let ((last-message (car multi-message-list)))
+    (unless (and last-message (equal message (aref last-message 1)))
+      (when last-message
+        (cond
+         ((> (float-time) (+ (aref last-message 0) multi-message-timeout))
+          (setq multi-message-list nil))
+         ((or
+           ;; `message-log-max' was nil, potential clutter.
+           (aref last-message 2)
+           ;; Remove old message that is substring of the new message
+           (string-prefix-p (aref last-message 1) message))
+          (setq multi-message-list (cdr multi-message-list)))))
+      (push (vector (float-time) message (not message-log-max)) multi-message-list)
+      (when (> (length multi-message-list) multi-message-max)
+        (setf (nthcdr multi-message-max multi-message-list) nil)))
+    (mapconcat (lambda (m) (aref m 1))
+               (reverse multi-message-list)
+               multi-message-separator)))
 
 (defun clear-minibuffer-message ()
   "Clear minibuffer message.
@@ -905,7 +986,7 @@ already visible.
 If the value is `visible', the *Completions* buffer is displayed
 whenever completion is requested but cannot be done for the first time,
 but remains visible thereafter, and the list of completions in it is
-updated for subsequent attempts to complete.."
+updated for subsequent attempts to complete."
   :type '(choice (const :tag "Don't show" nil)
                  (const :tag "Show only when cannot complete" t)
                  (const :tag "Show after second failed completion attempt" lazy)
@@ -1006,11 +1087,7 @@ and DOC describes the way this style of completion works.")
 The available styles are listed in `completion-styles-alist'.
 
 Note that `completion-category-overrides' may override these
-styles for specific categories, such as files, buffers, etc.
-
-Note that Tramp host name completion (e.g., \"/ssh:ho<TAB>\")
-currently doesn't work if this list doesn't contain at least one
-of `basic', `emacs22' or `emacs21'."
+styles for specific categories, such as files, buffers, etc."
   :type completion--styles-type
   :version "23.1")
 
@@ -1245,9 +1322,9 @@ pair of a group title string and a list of group candidate strings."
   :version "28.1")
 
 (defface completions-group-separator
-  '((t :inherit shadow :underline t))
+  '((t :inherit shadow :strike-through t))
   "Face used for the separator lines between the candidate groups."
-  :version "29.1")
+  :version "28.1")
 
 (defun completion--cycle-threshold (metadata)
   (let* ((cat (completion-metadata-get metadata 'category))
@@ -1393,7 +1470,10 @@ when the buffer's text is already an exact match."
               (if (and (eq this-command last-command) completion-auto-help)
                   (minibuffer-completion-help beg end))
               (completion--done completion 'exact
-                                (unless expect-exact
+                                (unless (or expect-exact
+                                            (and completion-auto-select
+                                                 (eq this-command last-command)
+                                                 completion-auto-help))
                                   "Complete, but not unique"))))
 
             (minibuffer--bitset completed t exact))))))))
@@ -1944,8 +2024,8 @@ Runs of equal candidate strings are eliminated.  GROUP-FUN is a
 	   (window (get-buffer-window (current-buffer) 0))
 	   (wwidth (if window (1- (window-width window)) 79))
 	   (columns (min
-		     ;; At least 2 columns; at least 2 spaces between columns.
-		     (max 2 (/ wwidth (+ 2 length)))
+		     ;; At least 2 spaces between columns.
+		     (max 1 (/ wwidth (+ 2 length)))
 		     ;; Don't allocate more columns than we can fill.
 		     ;; Windows can't show less than 3 lines anyway.
 		     (max 1 (/ (length strings) 2))))

@@ -1,6 +1,6 @@
 ;;; descr-text.el --- describe text mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1994-1996, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1994-1996, 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: Boris Goldowsky <boris@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -77,8 +77,9 @@ into help buttons that call `describe-text-category' or
 					    (prin1-to-string (nth 0 b) t)))))
     (let ((key (nth 0 elt))
 	  (value (nth 1 elt)))
-      (insert (propertize (format "  %-20s " key)
-			  'face 'help-argument-name))
+      (insert (format "  %-20s "
+                      (propertize (symbol-name key)
+                                  'face 'help-argument-name)))
       (cond ((eq key 'category)
 	     (insert-text-button
 	      (symbol-name value)
@@ -365,7 +366,7 @@ This function is semi-obsolete.  Use `get-char-code-property'."
 ;; description is added to the category name as a tooltip
 (defsubst describe-char-categories (category-set)
   (let ((mnemonics (category-set-mnemonics category-set)))
-    (unless (eq mnemonics "")
+    (unless (equal mnemonics "")
       (list (mapconcat
 	     (lambda (x)
 	       (let* ((c (category-docstring x))

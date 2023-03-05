@@ -1,6 +1,6 @@
 ;;; mule-conf.el --- configure multilingual environment  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
 ;; Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
 ;;   Registration Number H14PRO021
@@ -1268,7 +1268,7 @@
   :short-name  "CNS11643-15"
   :long-name "CNS11643-15 (Chinese traditional)"
   :code-space [33 126 33 126]
-  :code-offset #x27A000
+  :code-offset #x28083A                 ; Right after 'big5-hkscs.
   :unify-map "CNS-F")
 
 (unify-charset 'chinese-gb2312)
@@ -1732,6 +1732,20 @@ English.  Different case choices should not be assumed to be
 included; callers should bind `case-fold-search' to t."
   :type '(repeat string)
   :version "27.1"
+  :group 'processes)
+
+;; (describe-char-fold-equivalences ?:)
+;; The last entry is taken from history.
+(defcustom password-colon-equivalents
+  '(?\u003a ; ?\N{COLON}
+    ?\uff1a ; ?\N{FULLWIDTH COLON}
+    ?\ufe55 ; ?\N{SMALL COLON}
+    ?\ufe13 ; ?\N{PRESENTATION FORM FOR VERTICAL COLON}
+    ?\u17d6 ; ?\N{KHMER SIGN CAMNUC PII KUUH}
+    )
+  "List of characters equivalent to trailing colon in \"password\" prompts."
+  :type '(repeat character)
+  :version "30.1"
   :group 'processes)
 
 ;; The old code-pages library is obsoleted by coding systems based on

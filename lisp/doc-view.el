@@ -1,6 +1,6 @@
 ;;; doc-view.el --- Document viewer for Emacs -*- lexical-binding: t -*-
 
-;; Copyright (C) 2007-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2023 Free Software Foundation, Inc.
 ;;
 ;; Author: Tassilo Horn <tsdh@gnu.org>
 ;; Keywords: files, pdf, ps, dvi, djvu, epub, cbz, fb2, xps, openxps
@@ -212,7 +212,7 @@ are available (see Info node `(emacs)Document View')."
 (defcustom doc-view-mupdf-use-svg (image-type-available-p 'svg)
   "Whether to use svg images for PDF files."
   :type 'boolean
-  :version "29.1")
+  :version "30.1")
 
 (defcustom doc-view-imenu-enabled (and (executable-find "mutool") t)
   "Whether to generate an imenu outline when \"mutool\" is available."

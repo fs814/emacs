@@ -1,6 +1,6 @@
 ;;; gnus-start.el --- startup functions for Gnus -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -173,7 +173,7 @@ properly with all servers."
 
 Groups with levels less than `gnus-level-subscribed', which
 should be less than this variable, are subscribed.  Groups with
-levels from `gnus-level-subscribed' (exclusive) upto this
+levels from `gnus-level-subscribed' (exclusive) up to this
 variable (inclusive) are unsubscribed.  See also
 `gnus-level-zombie', `gnus-level-killed' and the Info node `(gnus)Group
 Levels' for details.")

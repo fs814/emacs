@@ -1,6 +1,6 @@
 ;;; supercite.el --- minor mode for citing mail and news replies  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1993-2023 Free Software Foundation, Inc.
 
 ;; Author: 1993 Barry A. Warsaw <bwarsaw@python.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -1350,7 +1350,7 @@ buffer."
      nesting)))
 
 (defun sc-add-citation-level ()
-  "Add a citation level for nested citation style w/ coercion."
+  "Add a citation level for nested citation style with coercion."
   (let* ((nesting (sc-guess-nesting))
 	 (citation (make-string (1+ (length nesting))
 				(string-to-char sc-citation-delimiter)))

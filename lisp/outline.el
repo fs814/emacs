@@ -1,6 +1,6 @@
 ;;; outline.el --- outline mode commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1986-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1986-2023 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: outlines
@@ -58,6 +58,18 @@ regexp is searched for.  The heading ends at the end of the match.
 The recommended way to set this is with a `Local Variables:' list
 in the file it applies to.")
 ;;;###autoload(put 'outline-heading-end-regexp 'safe-local-variable 'stringp)
+
+(defvar outline-search-function nil
+  "Function to search the next outline heading.
+The function is called with four optional arguments: BOUND, MOVE, BACKWARD,
+LOOKING-AT.  The first two arguments BOUND and MOVE are almost the same as
+the BOUND and NOERROR arguments of `re-search-forward', with the difference
+that MOVE accepts only a boolean, either nil or non-nil.  When the argument
+BACKWARD is non-nil, the search should search backward like
+`re-search-backward' does.  In case of a successful search, the
+function should return non-nil, move point, and set match-data
+appropriately.  When the argument LOOKING-AT is non-nil, it should
+imitate the function `looking-at'.")
 
 (defvar outline-mode-prefix-map
   (let ((map (make-sparse-keymap)))
@@ -197,8 +209,14 @@ This option is only in effect when `outline-minor-mode-cycle' is non-nil."
   :version "28.1")
 
 (defvar outline-minor-mode-cycle)
+(defvar outline-minor-mode-cycle-map)
 (defun outline-minor-mode-cycle--bind (map key binding &optional filter)
-  (define-key map key
+  "Define KEY as BINDING in MAP using FILTER.
+The key takes effect only on the following conditions:
+`outline-minor-mode-cycle' is non-nil, point is located on the heading line,
+FILTER or `outline-minor-mode-cycle-filter' is nil or returns non-nil.
+The argument MAP is optional and defaults to `outline-minor-mode-cycle-map'."
+  (define-key (or map outline-minor-mode-cycle-map) key
     `(menu-item
       "" ,binding
       ;; Filter out specific positions on the heading.
@@ -215,8 +233,16 @@ This option is only in effect when `outline-minor-mode-cycle' is non-nil."
   (let ((map (make-sparse-keymap)))
     (outline-minor-mode-cycle--bind map (kbd "TAB") #'outline-cycle)
     (outline-minor-mode-cycle--bind map (kbd "<backtab>") #'outline-cycle-buffer)
+    (keymap-set map "<left-margin> <mouse-1>" 'outline-cycle)
+    (keymap-set map "<right-margin> <mouse-1>" 'outline-cycle)
+    (keymap-set map "<left-margin> S-<mouse-1>" 'outline-cycle-buffer)
+    (keymap-set map "<right-margin> S-<mouse-1>" 'outline-cycle-buffer)
     map)
-  "Keymap used by `outline-minor-mode-cycle'.")
+  "Keymap used as a parent of the `outline-minor-mode' keymap.
+It contains key bindings that can be used to cycle visibility.
+The recommended way to bind keys is with `outline-minor-mode-cycle--bind'
+when the key should be enabled only when `outline-minor-mode-cycle' is
+non-nil and point is located on the heading line.")
 
 (defvar outline-mode-map
   (let ((map (make-sparse-keymap)))
@@ -233,7 +259,8 @@ This option is only in effect when `outline-minor-mode-cycle' is non-nil."
 (defvar outline-font-lock-keywords
   '(
     ;; Highlight headings according to the level.
-    (eval . (list (concat "^\\(?:" outline-regexp "\\).*")
+    (eval . (list (or outline-search-function
+                      (concat "^\\(?:" outline-regexp "\\).*"))
                   0 '(if outline-minor-mode
                          (if outline-minor-mode-highlight
                              (list 'face (outline-font-lock-face)))
@@ -305,6 +332,12 @@ don't modify the buffer."
 (defvar-local outline--use-rtl nil
   "Non-nil when direction of clickable buttons is right-to-left.")
 
+(defvar-local outline--margin-width nil
+  "Current margin width.")
+
+(defvar-local outline-margin-width nil
+  "Default margin width.")
+
 (define-icon outline-open nil
   '((image "outline-open.svg" "outline-open.pbm" :height (0.8 . em))
     (emoji "🔽")
@@ -331,24 +364,24 @@ don't modify the buffer."
   "Right-to-left icon used for buttons in closed outline sections."
   :version "29.1")
 
-(define-icon outline-open-in-margins outline-open
-  '((image "outline-open.svg" "outline-open.pbm" :height 10)
+(define-icon outline-open-in-margins nil
+  '((image "outline-open.svg" "outline-open.pbm" :width font)
     (emoji "🔽")
     (symbol "▼")
     (text "v"))
   "Icon used for buttons for opened sections in margins."
   :version "29.1")
 
-(define-icon outline-close-in-margins outline-close
-  '((image "outline-open.svg" "outline-open.pbm" :height 10 :rotation -90)
+(define-icon outline-close-in-margins nil
+  '((image "outline-open.svg" "outline-open.pbm" :width font :rotation -90)
     (emoji "▶️")
     (symbol "▶")
     (text ">"))
   "Icon used for buttons for closed sections in margins."
   :version "29.1")
 
-(define-icon outline-close-rtl-in-margins outline-close-rtl
-  '((image "outline-open.svg" "outline-open.pbm" :height 10 :rotation 90)
+(define-icon outline-close-rtl-in-margins nil
+  '((image "outline-open.svg" "outline-open.pbm" :width font :rotation 90)
     (emoji "◀️")
     (symbol "◀")
     (text "<"))
@@ -366,7 +399,9 @@ data reflects the `outline-regexp'.")
   "Return one of `outline-font-lock-faces' for current level."
   (save-excursion
     (goto-char (match-beginning 0))
-    (looking-at outline-regexp)
+    (if outline-search-function
+        (funcall outline-search-function nil nil nil t)
+      (looking-at outline-regexp))
     (aref outline-font-lock-faces
           (% (1- (funcall outline-level))
              (length outline-font-lock-faces)))))
@@ -454,7 +489,7 @@ bindings, per the current major mode."
 
 (defcustom outline-minor-mode-highlight nil
   "Whether to highlight headings in `outline-minor-mode' using font-lock keywords.
-This option controles whether `outline-minor-mode' will use its font-lock
+This option controls whether `outline-minor-mode' will use its font-lock
 keywords to highlight headings, which could potentially conflict with
 font-lock faces defined by the major mode.  Thus, a non-nil value will
 work well only when there's no such conflict.
@@ -474,8 +509,11 @@ outline font-lock faces to those of major mode."
   ;; Fallback to overlays when font-lock is unsupported.
   (save-excursion
     (goto-char (point-min))
-    (let ((regexp (concat "^\\(?:" outline-regexp "\\).*$")))
-      (while (re-search-forward regexp nil t)
+    (let ((regexp (unless outline-search-function
+                    (concat "^\\(?:" outline-regexp "\\).*$"))))
+      (while (if outline-search-function
+                 (funcall outline-search-function)
+               (re-search-forward regexp nil t))
         (let ((overlay (make-overlay (match-beginning 0) (match-end 0))))
           (overlay-put overlay 'outline-highlight t)
           ;; FIXME: Is it possible to override all underlying face attributes?
@@ -494,10 +532,6 @@ See the command `outline-mode' for more information on this mode."
   :keymap (define-keymap
             :parent outline-minor-mode-cycle-map
             "<menu-bar>" outline-minor-mode-menu-bar-map
-            "<left-margin> <mouse-1>" 'outline-cycle
-            "<right-margin> <mouse-1>" 'outline-cycle
-            "<left-margin> S-<mouse-1>" 'outline-cycle-buffer
-            "<right-margin> S-<mouse-1>" 'outline-cycle-buffer
             (key-description outline-minor-mode-prefix) outline-mode-prefix-map)
   (if outline-minor-mode
       (progn
@@ -510,9 +544,22 @@ See the command `outline-mode' for more information on this mode."
           (when (and (eq outline-minor-mode-use-buttons 'in-margins)
                      (> 1 (if outline--use-rtl right-margin-width
                             left-margin-width)))
+            (setq outline--margin-width
+                  (or outline-margin-width
+                      (ceiling
+                       (/ (seq-max
+                           (seq-map #'string-pixel-width
+                                    (seq-map #'icon-string
+                                             `(outline-open-in-margins
+                                               ,(if outline--use-rtl
+                                                    'outline-close-rtl-in-margins
+                                                  'outline-close-in-margins)))))
+                          (* (default-font-width) 1.0)))))
             (if outline--use-rtl
-                (setq-local right-margin-width (1+ right-margin-width))
-              (setq-local left-margin-width (1+ left-margin-width)))
+                (setq-local right-margin-width (+ right-margin-width
+                                                  outline--margin-width))
+              (setq-local left-margin-width (+ left-margin-width
+                                               outline--margin-width)))
             (setq-local fringes-outside-margins t)
             ;; Force display of margins
             (when (eq (current-buffer) (window-buffer))
@@ -548,8 +595,10 @@ See the command `outline-mode' for more information on this mode."
                  (< 0 (if outline--use-rtl right-margin-width
                         left-margin-width)))
         (if outline--use-rtl
-            (setq-local right-margin-width (1- right-margin-width))
-          (setq-local left-margin-width (1- left-margin-width)))
+            (setq-local right-margin-width (- right-margin-width
+                                              outline--margin-width))
+          (setq-local left-margin-width (- left-margin-width
+                                           outline--margin-width)))
         (setq-local fringes-outside-margins nil)
         ;; Force removal of margins
         (when (eq (current-buffer) (window-buffer))
@@ -592,26 +641,37 @@ or else the number of characters matched by `outline-regexp'."
   "Skip forward to just before the next heading line.
 If there's no following heading line, stop before the newline
 at the end of the buffer."
-  (if (re-search-forward (concat "\n\\(?:" outline-regexp "\\)")
-			 nil 'move)
-      (goto-char (match-beginning 0)))
-  (if (and (bolp) (or outline-blank-line (eobp)) (not (bobp)))
-      (forward-char -1)))
+  (when (if outline-search-function
+            (progn
+              ;; Emulate "\n" to force finding the next preface
+              (unless (eobp) (forward-char 1))
+              (funcall outline-search-function nil t))
+          (re-search-forward (concat "\n\\(?:" outline-regexp "\\)")
+			     nil 'move))
+    (goto-char (match-beginning 0))
+    ;; Compensate "\n" from the beginning of regexp
+    (when (and outline-search-function (not (bobp))) (forward-char -1)))
+  (when (and (bolp) (or outline-blank-line (eobp)) (not (bobp)))
+    (forward-char -1)))
 
 (defun outline-next-heading ()
   "Move to the next (possibly invisible) heading line."
   (interactive)
   ;; Make sure we don't match the heading we're at.
-  (if (and (bolp) (not (eobp))) (forward-char 1))
-  (if (re-search-forward (concat "^\\(?:" outline-regexp "\\)")
-			 nil 'move)
-      (goto-char (match-beginning 0))))
+  (when (and (bolp) (not (eobp))) (forward-char 1))
+  (when (if outline-search-function
+            (funcall outline-search-function nil t)
+          (re-search-forward (concat "^\\(?:" outline-regexp "\\)")
+			     nil 'move))
+    (goto-char (match-beginning 0))))
 
 (defun outline-previous-heading ()
   "Move to the previous (possibly invisible) heading line."
   (interactive)
-  (re-search-backward (concat "^\\(?:" outline-regexp "\\)")
-		      nil 'move))
+  (if outline-search-function
+      (funcall outline-search-function nil t t)
+    (re-search-backward (concat "^\\(?:" outline-regexp "\\)")
+		        nil 'move)))
 
 (defsubst outline-invisible-p (&optional pos)
   "Non-nil if the character after POS has outline invisible property.
@@ -628,8 +688,10 @@ Only visible heading lines are considered, unless INVISIBLE-OK is non-nil."
       (let (found)
 	(save-excursion
 	  (while (not found)
-	    (or (re-search-backward (concat "^\\(?:" outline-regexp "\\)")
-				    nil t)
+	    (or (if outline-search-function
+                    (funcall outline-search-function nil nil t)
+                  (re-search-backward (concat "^\\(?:" outline-regexp "\\)")
+				      nil t))
                 (signal 'outline-before-first-heading nil))
 	    (setq found (and (or invisible-ok (not (outline-invisible-p)))
 			     (point)))))
@@ -642,7 +704,9 @@ If INVISIBLE-OK is non-nil, an invisible heading line is ok too."
   (save-excursion
     (beginning-of-line)
     (and (bolp) (or invisible-ok (not (outline-invisible-p)))
-	 (looking-at outline-regexp))))
+	 (if outline-search-function
+             (funcall outline-search-function nil nil nil t)
+           (looking-at outline-regexp)))))
 
 (defun outline-insert-heading ()
   "Insert a new heading at same depth at point."
@@ -754,7 +818,9 @@ nil for WHICH, or do not pass any argument)."
 		      (while (and (progn (outline-next-heading) (not (eobp)))
 				  (<= (funcall outline-level) level))))
 		    (unless (eobp)
-		      (looking-at outline-regexp)
+		      (if outline-search-function
+                          (funcall outline-search-function nil nil nil t)
+                        (looking-at outline-regexp))
 		      (match-string-no-properties 0))))
                 ;; Bummer!! There is no higher-level heading in the buffer.
                 (outline-invent-heading head nil))))
@@ -805,7 +871,9 @@ the match data is set appropriately."
   (save-excursion
     (setq end (copy-marker end))
     (goto-char beg)
-    (when (re-search-forward (concat "^\\(?:" outline-regexp "\\)") end t)
+    (when (if outline-search-function
+              (funcall outline-search-function end)
+            (re-search-forward (concat "^\\(?:" outline-regexp "\\)") end t))
       (goto-char (match-beginning 0))
       (funcall fun)
       (while (and (progn
@@ -873,21 +941,23 @@ A heading line is one that starts with a `*' (or that
   (if (< arg 0)
       (beginning-of-line)
     (end-of-line))
-  (let (found-heading-p)
+  (let ((regexp (unless outline-search-function
+                  (concat "^\\(?:" outline-regexp "\\)")))
+        found-heading-p)
     (while (and (not (bobp)) (< arg 0))
       (while (and (not (bobp))
 		  (setq found-heading-p
-			(re-search-backward
-			 (concat "^\\(?:" outline-regexp "\\)")
-			 nil 'move))
+			(if outline-search-function
+                            (funcall outline-search-function nil t t)
+                          (re-search-backward regexp nil 'move)))
 		  (outline-invisible-p)))
       (setq arg (1+ arg)))
     (while (and (not (eobp)) (> arg 0))
       (while (and (not (eobp))
 		  (setq found-heading-p
-			(re-search-forward
-			 (concat "^\\(?:" outline-regexp "\\)")
-			 nil 'move))
+			(if outline-search-function
+                            (funcall outline-search-function nil t)
+                          (re-search-forward regexp nil 'move)))
 		  (outline-invisible-p (match-beginning 0))))
       (setq arg (1- arg)))
     (if found-heading-p (beginning-of-line))))
@@ -1026,6 +1096,8 @@ Note that this does not hide the lines preceding the first heading line."
   ;; Nullify the hook to avoid repeated calls to `outline-flag-region'
   ;; wasting lots of time running `lazy-lock-fontify-after-outline'
   ;; and run the hook finally.
+  ;; FIXME: The above comment seems outdated, as lazy-lock has been
+  ;;        removed from Emacs.
   (let (outline-view-change-hook)
     (save-excursion
       (save-restriction
@@ -1107,8 +1179,11 @@ of the current heading, or to 1 if the current line is not a heading."
   (interactive (list
 		(cond
 		 (current-prefix-arg (prefix-numeric-value current-prefix-arg))
-		 ((save-excursion (beginning-of-line)
-				  (looking-at outline-regexp))
+		 ((save-excursion
+                    (beginning-of-line)
+		    (if outline-search-function
+                        (funcall outline-search-function nil nil nil t)
+                      (looking-at outline-regexp)))
 		  (funcall outline-level))
 		 (t 1))))
   (if (< levels 1)
@@ -1255,7 +1330,9 @@ If INVISIBLE-OK is non-nil, also consider invisible lines."
 	  (setq level (funcall outline-level)))
 	(setq start-level level))
       (setq arg (- arg 1))))
-  (looking-at outline-regexp))
+  (if outline-search-function
+      (funcall outline-search-function nil nil nil t)
+    (looking-at outline-regexp)))
 
 (defun outline-forward-same-level (arg)
   "Move forward to the ARG'th subheading at same level as this one.
@@ -1313,6 +1390,60 @@ If there is no such heading, return nil."
       (if (< (funcall outline-level) level)
 	  nil
         (point)))))
+
+
+;;; Search text-property for outline headings
+
+;;;###autoload
+(defun outline-search-level (&optional bound move backward looking-at)
+  "Search for the next text property `outline-level'.
+The arguments are the same as in `outline-search-text-property',
+except the hard-coded property name `outline-level'.
+This function is intended to be used in `outline-search-function'."
+  (outline-search-text-property 'outline-level nil bound move backward looking-at))
+
+(autoload 'text-property-search-forward "text-property-search")
+(autoload 'text-property-search-backward "text-property-search")
+
+(defun outline-search-text-property (property &optional value bound move backward looking-at)
+  "Search for the next text property PROPERTY with VALUE.
+The rest of arguments are described in `outline-search-function'."
+  (if looking-at
+      (when (if value (eq (get-text-property (point) property) value)
+              (get-text-property (point) property))
+        (set-match-data (list (pos-bol) (pos-eol)))
+        t)
+    ;; Go to the end when in the middle of heading
+    (when (and (not backward)
+               (if value (eq (get-text-property (point) property) value)
+                 (get-text-property (point) property))
+               (not (or (bobp)
+                        (not (if value
+                                 (eq (get-text-property (1- (point)) property) value)
+                               (get-text-property (1- (point)) property))))))
+      (goto-char (1+ (pos-eol))))
+    (let ((prop-match (if backward
+                          (text-property-search-backward property value (and value t))
+                        (text-property-search-forward property value (and value t)))))
+      (if prop-match
+          (let ((beg (prop-match-beginning prop-match))
+                (end (prop-match-end prop-match)))
+            (if (or (null bound) (if backward (>= beg bound) (<= end bound)))
+                (cond (backward
+                       (goto-char beg)
+                       (goto-char (pos-bol))
+                       (set-match-data (list (point) end))
+                       t)
+                      (t
+                       (goto-char end)
+                       (goto-char (if (bolp) (1- (point)) (pos-eol)))
+                       (set-match-data (list beg (point)))
+                       t))
+              (when move (goto-char bound))
+              nil))
+        (when move (goto-char (or bound (if backward (point-min) (point-max)))))
+        nil))))
+
 
 (defun outline-headers-as-kill (beg end)
   "Save the visible outline headers between BEG and END to the kill ring.
@@ -1645,6 +1776,20 @@ With a prefix argument, show headings up to that LEVEL."
 
 ;;; Button/margin indicators
 
+(defvar-keymap outline-button-icon-map
+  "<mouse-2>" #'outline-cycle
+  ;; Need to override the global binding
+  ;; `mouse-appearance-menu' with <down->:
+  "S-<down-mouse-1>" #'ignore
+  "S-<mouse-1>" #'outline-cycle-buffer)
+
+(defvar-keymap outline-overlay-button-map
+  "RET" #'outline-cycle)
+
+(defvar-keymap outline-inserted-button-map
+  :parent (make-composed-keymap outline-button-icon-map
+                                outline-overlay-button-map))
+
 (defun outline--create-button-icons ()
   (pcase outline-minor-mode-use-buttons
     ('in-margins
@@ -1677,7 +1822,7 @@ With a prefix argument, show headings up to that LEVEL."
         (propertize (icon-string icon-name)
                     'mouse-face 'default
                     'follow-link 'mouse-face
-                    'keymap (define-keymap "<mouse-2>" #'outline-cycle)))
+                    'keymap outline-button-icon-map))
       (list 'outline-open
             (if outline--use-rtl 'outline-close-rtl 'outline-close))))))
 
@@ -1691,7 +1836,7 @@ With a prefix argument, show headings up to that LEVEL."
         (unless o
           (when (eq outline-minor-mode-use-buttons 'insert)
             (let ((inhibit-read-only t))
-              (insert "  ")
+              (insert (apply #'propertize "  " (text-properties-at (point))))
               (beginning-of-line)))
           (setq o (make-overlay (point) (1+ (point))))
           (overlay-put o 'outline-button t)
@@ -1703,18 +1848,13 @@ With a prefix argument, show headings up to that LEVEL."
            (overlay-put o 'face (plist-get icon 'face))
            (overlay-put o 'follow-link 'mouse-face)
            (overlay-put o 'mouse-face 'highlight)
-           (overlay-put o 'keymap (define-keymap
-                                    "RET" #'outline-cycle
-                                    "<mouse-2>" #'outline-cycle))
-           (overlay-put o 'help-echo (if (eq type 'close)
-                                         "Click to show"
-                                       "Click to hide")))
+           (overlay-put o 'keymap outline-inserted-button-map))
           ('in-margins
            (overlay-put o 'before-string icon)
-           (overlay-put o 'keymap (define-keymap "RET" #'outline-cycle)))
+           (overlay-put o 'keymap outline-overlay-button-map))
           (_
            (overlay-put o 'before-string icon)
-           (overlay-put o 'keymap (define-keymap "RET" #'outline-cycle))))))))
+           (overlay-put o 'keymap outline-overlay-button-map)))))))
 
 (defun outline--fix-up-all-buttons (&optional from to)
   (when outline-minor-mode-use-buttons
@@ -1741,6 +1881,7 @@ With a prefix argument, show headings up to that LEVEL."
 
 
 (defvar-keymap outline-navigation-repeat-map
+  :repeat t
   "C-b" #'outline-backward-same-level
   "b"   #'outline-backward-same-level
   "C-f" #'outline-forward-same-level
@@ -1752,14 +1893,8 @@ With a prefix argument, show headings up to that LEVEL."
   "C-u" #'outline-up-heading
   "u"   #'outline-up-heading)
 
-(dolist (command '(outline-backward-same-level
-                   outline-forward-same-level
-                   outline-next-visible-heading
-                   outline-previous-visible-heading
-                   outline-up-heading))
-  (put command 'repeat-map 'outline-navigation-repeat-map))
-
 (defvar-keymap outline-editing-repeat-map
+  :repeat t
   "C-v" #'outline-move-subtree-down
   "v"   #'outline-move-subtree-down
   "C-^" #'outline-move-subtree-up
@@ -1768,12 +1903,6 @@ With a prefix argument, show headings up to that LEVEL."
   ">"   #'outline-demote
   "C-<" #'outline-promote
   "<"   #'outline-promote)
-
-(dolist (command '(outline-move-subtree-down
-                   outline-move-subtree-up
-                   outline-demote
-                   outline-promote))
-  (put command 'repeat-map 'outline-editing-repeat-map))
 
 
 (provide 'outline)

@@ -1,3 +1,6 @@
+Copyright (C) 2006-2023 Free Software Foundation, Inc.
+See the end of the file for license conditions.
+
 * How developers contribute to GNU Emacs
 
 Here is how software developers can contribute to Emacs.  (Non-developers: see
@@ -15,7 +18,7 @@ To configure Git for Emacs development, you can run the following:
 
 The following shell commands then build and run Emacs from scratch:
 
-	git clone git://git.sv.gnu.org/emacs.git
+	git clone https://git.savannah.gnu.org/git/emacs.git
 	cd emacs
 	./autogen.sh
 	./configure
@@ -202,9 +205,10 @@ them right the first time, so here are guidelines for formatting them:
   you can put a paragraph (after the empty line and before the
   individual ChangeLog entries) that further describes the commit.
 
-- Limit lines in commit messages to 78 characters, unless they consist
-  of a single word of at most 140 characters; this is enforced by a
-  commit hook.
+- Lines in ChangeLog entries should preferably be not longer than 63
+  characters, and must not exceed 78 characters, unless they consist
+  of a single word of at most 140 characters; this 78/140 limit is
+  enforced by a commit hook.
 
 - If only a single file is changed, the summary line can be the normal
   file first line (starting with the asterisk).  Then there is no

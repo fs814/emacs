@@ -1,6 +1,6 @@
 ;;; font-tests.el --- Test suite for font-related functions. -*- lexical-binding: t -*-
 
-;; Copyright (C) 2011-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2023 Free Software Foundation, Inc.
 
 ;; Author: Chong Yidong <cyd@stupidchicken.com>
 ;; Keywords:       internal
@@ -115,7 +115,7 @@ expected font properties from parsing NAME.")
 (defun test-font-parse ()
   "Test font name parsing."
   (interactive)
-  (switch-to-buffer (generate-new-buffer "*Font Pase Test*"))
+  (switch-to-buffer (generate-new-buffer "*Font Parse Test*"))
   (setq show-trailing-whitespace nil)
   (let ((pass-face '((t :foreground "green")))
 	(fail-face '((t :foreground "red"))))

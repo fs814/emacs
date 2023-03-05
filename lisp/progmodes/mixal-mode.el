@@ -1,6 +1,6 @@
 ;;; mixal-mode.el --- Major mode for the mix asm language.  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2023 Free Software Foundation, Inc.
 
 ;; Author: Pieter E.J. Pareit <pieter.pareit@gmail.com>
 ;; Maintainer: Jose A Ortega Ruiz <jao@gnu.org>
@@ -32,9 +32,6 @@
 ;; and debugging needs mixvm and mixvm.el from GNU MDK.  You can get
 ;; GNU MDK from `https://savannah.gnu.org/projects/mdk/' and
 ;; `https://ftp.gnu.org/pub/gnu/mdk'.
-;;
-;; To use this mode, place the following in your init file:
-;; `(load-file "/PATH-TO-FILE/mixal-mode.el")'.
 ;;
 ;; When you load a file with the extension .mixal the mode will be started
 ;; automatically.  If you want to start the mode manually, use `M-x mixal-mode'.

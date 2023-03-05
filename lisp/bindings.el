@@ -1,6 +1,6 @@
 ;;; bindings.el --- define standard key bindings and some variables  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1985-2023 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -670,6 +670,8 @@ or not."
   "Return the value of symbol VAR if it is bound, else nil.
 Note that if `lexical-binding' is in effect, this function isn't
 meaningful if it refers to a lexically bound variable."
+  (unless (symbolp var)
+    (signal 'wrong-type-argument (list 'symbolp var)))
   `(and (boundp (quote ,var)) ,var))
 
 ;; Use mode-line-mode-menu for local minor-modes only.
@@ -1009,9 +1011,9 @@ if `inhibit-field-text-motion' is non-nil."
 ;; no idea whereas to bind it.  Any suggestion welcome.  -stef
 ;; (define-key ctl-x-map "U" 'undo-only)
 (defvar-keymap undo-repeat-map
-  :doc "Keymap to repeat undo key sequences \\`C-x u u'.  Used in `repeat-mode'."
+  :doc "Keymap to repeat `undo' commands.  Used in `repeat-mode'."
+  :repeat t
   "u" #'undo)
-(put 'undo 'repeat-map 'undo-repeat-map)
 
 (define-key global-map '[(control ??)] 'undo-redo)
 (define-key global-map [?\C-\M-_] 'undo-redo)
@@ -1031,11 +1033,9 @@ if `inhibit-field-text-motion' is non-nil."
 
 (defvar-keymap buffer-navigation-repeat-map
   :doc "Keymap to repeat `next-buffer' and `previous-buffer'.  Used in `repeat-mode'."
+  :repeat t
   "<right>" #'next-buffer
   "<left>"  #'previous-buffer)
-
-(put 'next-buffer 'repeat-map 'buffer-navigation-repeat-map)
-(put 'previous-buffer 'repeat-map 'buffer-navigation-repeat-map)
 
 (let ((map minibuffer-local-map))
   (define-key map "\en"   'next-history-element)
@@ -1108,13 +1108,12 @@ if `inhibit-field-text-motion' is non-nil."
 (define-key ctl-x-map "`" 'next-error)
 
 (defvar-keymap next-error-repeat-map
-  :doc "Keymap to repeat `next-error' key sequences.  Used in `repeat-mode'."
+  :doc "Keymap to repeat `next-error' and `previous-error'.  Used in `repeat-mode'."
+  :repeat t
   "n"   #'next-error
   "M-n" #'next-error
   "p"   #'previous-error
   "M-p" #'previous-error)
-(put 'next-error 'repeat-map 'next-error-repeat-map)
-(put 'previous-error 'repeat-map 'next-error-repeat-map)
 
 (defvar-keymap goto-map
   :doc "Keymap for navigation commands."
@@ -1471,12 +1470,10 @@ if `inhibit-field-text-motion' is non-nil."
 (define-key ctl-x-map "]" 'forward-page)
 
 (defvar-keymap page-navigation-repeat-map
-  :doc "Keymap to repeat page navigation key sequences.  Used in `repeat-mode'."
+  :doc "Keymap to repeat `forward-page' and `backward-page'.  Used in `repeat-mode'."
+  :repeat t
   "]" #'forward-page
   "[" #'backward-page)
-
-(put 'forward-page 'repeat-map 'page-navigation-repeat-map)
-(put 'backward-page 'repeat-map 'page-navigation-repeat-map)
 
 (define-key ctl-x-map "\C-p" 'mark-page)
 (define-key ctl-x-map "l" 'count-lines-page)

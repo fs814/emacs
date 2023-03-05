@@ -1,6 +1,6 @@
 ;;; srecode/fields-tests.el --- Tests for srecode/fields.el  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2023 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -66,7 +66,7 @@ It is filled with some text."
 
       (when (and (overlayp (oref f overlay))
 		 (not (overlay-get (oref f overlay) 'srecode-init-only)))
-	(error "Field creation overlay is not tagged w/ init flag"))
+        (error "Field creation overlay is not tagged with init flag"))
 
       (srecode-overlaid-activate f)
 

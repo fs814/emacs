@@ -1,6 +1,6 @@
 ;;; semantic/util-modes.el --- Semantic minor modes  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2000-2005, 2007-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2005, 2007-2023 Free Software Foundation, Inc.
 
 ;; Authors: Eric M. Ludlam <zappo@gnu.org>
 ;;          David Ponce <david@dponce.com>
@@ -133,7 +133,7 @@ symbol whose value is such a string."
                                        semantic-minor-mode-alist))))
   (semantic-mode-line-update)
 
-  ;; Semantic minor modes don't work w/ Desktop restore.
+  ;; Semantic minor modes don't work with Desktop restore.
   ;; This line will disable this minor mode from being restored
   ;; by Desktop.
   (when (boundp 'desktop-minor-mode-handlers)

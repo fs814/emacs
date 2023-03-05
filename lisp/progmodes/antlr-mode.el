@@ -1,6 +1,6 @@
 ;;; antlr-mode.el --- major mode for ANTLR grammar files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Author: Christoph Wedler <Christoph.Wedler@sap.com>
 ;; Keywords: languages, ANTLR, code generator
@@ -169,7 +169,7 @@ greater than this number."
 (defcustom antlr-indent-comment 'tab
   "Non-nil, if the indentation should touch lines in block comments.
 If nil, no continuation line of a block comment is changed.  If t, they
-are changed according to `c-indentation-line'.  When not nil and not t,
+are changed according to `c-indent-line'.  When not nil and not t,
 they are only changed by \\[antlr-indent-command]."
   :type '(radio (const :tag "No" nil)
 		(const :tag "Always" t)
@@ -1777,7 +1777,7 @@ For AREA and OLD, see `antlr-insert-option-do'."
 	(skip-chars-forward " \t")
 
 	(if (looking-at "$\\|//")
-	    ;; just comment after point => skip (+ lines w/ same col comment)
+            ;; just comment after point => skip (+ lines with same col comment)
 	    (let ((same (if (> (match-end 0) (match-beginning 0))
 			    (current-column))))
 	      (beginning-of-line 2)
@@ -2147,7 +2147,7 @@ command `antlr-show-makefile-rules' for detail."
 	    (antlr-makefile-insert-variable i " $(" ")"))
 	  (insert "\n" (car antlr-makefile-specification))))
     (if (string-equal (car antlr-makefile-specification) "\n")
-	(backward-delete-char 1))
+	(delete-char -1))
     (when with-error
       (goto-char (point-min))
       (insert antlr-help-unknown-file-text))

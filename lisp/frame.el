@@ -1,6 +1,6 @@
 ;;; frame.el --- multi-frame management independent of window systems  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1994, 1996-1997, 2000-2022 Free Software
+;; Copyright (C) 1993-1994, 1996-1997, 2000-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -1188,7 +1188,7 @@ e.g. (mapc \\='frame-set-background-mode (frame-list))."
 
 (defvar inhibit-frame-set-background-mode nil)
 
-(defun frame--current-backround-mode (frame)
+(defun frame--current-background-mode (frame)
   (let* ((frame-default-bg-mode (frame-terminal-default-bg-mode frame))
          (bg-color (frame-parameter frame 'background-color))
          (tty-type (tty-type frame))
@@ -1218,7 +1218,7 @@ If optional arg KEEP-FACE-SPECS is non-nil, don't recalculate
 face specs for the new background mode."
   (unless inhibit-frame-set-background-mode
     (let* ((bg-mode
-	    (frame--current-backround-mode frame))
+	    (frame--current-background-mode frame))
 	   (display-type
 	    (cond ((null (window-system frame))
 		   (if (tty-display-color-p frame) 'color 'mono))
@@ -1297,7 +1297,7 @@ the `background-mode' terminal parameter."
 ;;   :global t
 ;;   :group 'faces
 ;;   (when (eq dark-mode
-;;             (eq 'light (frame--current-backround-mode (selected-frame))))
+;;             (eq 'light (frame--current-background-mode (selected-frame))))
 ;;     ;; FIXME: Change the face's SPEC instead?
 ;;     (set-face-attribute 'default nil
 ;;                         :foreground (face-attribute 'default :background)
@@ -2120,8 +2120,9 @@ frame's display)."
 	  ;; a toggle.
 	  (featurep 't-mouse)
 	  ;; No way to check whether a w32 console has a mouse, assume
-	  ;; it always does.
-	  (boundp 'w32-use-full-screen-buffer))))))
+	  ;; it always does, except in batch invocations.
+          (and (not noninteractive)
+	       (boundp 'w32-use-full-screen-buffer)))))))
 
 (defun display-popup-menus-p (&optional display)
   "Return non-nil if popup menus are supported on DISPLAY.
@@ -2189,7 +2190,7 @@ frame's display)."
 This means that, for example, DISPLAY can differentiate between
 the keybinding RET and [return]."
   (let ((frame-type (framep-on-display display)))
-    (or (memq frame-type '(x w32 ns pc pgtk))
+    (or (memq frame-type '(x w32 ns pc pgtk haiku))
         ;; MS-DOS and MS-Windows terminals have built-in support for
         ;; function (symbol) keys
         (memq system-type '(ms-dos windows-nt)))))
@@ -3104,6 +3105,9 @@ If FRAME isn't maximized, show the title bar."
   (set-frame-parameter
    frame 'undecorated
    (eq (alist-get 'fullscreen (frame-parameters frame)) 'maximized)))
+
+(define-obsolete-function-alias 'frame--current-backround-mode
+  #'frame--current-background-mode "30.1")
 
 (provide 'frame)
 

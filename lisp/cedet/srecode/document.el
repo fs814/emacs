@@ -1,6 +1,6 @@
 ;;; srecode/document.el --- Documentation (comment) generation  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2023 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -29,7 +29,8 @@
 ;;
 ;;; Origins:
 ;;
-;; Document was first written w/ cparse, a custom regexp based c parser.
+;; Document was first written with cparse, a custom regexp based c
+;; parser.
 ;;
 ;; Document was then ported to cedet/semantic using sformat (super
 ;; format) as the templating engine.

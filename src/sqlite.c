@@ -1,6 +1,6 @@
 /* Support for accessing SQLite databases.
 
-Copyright (C) 2021-2022 Free Software Foundation, Inc.
+Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -55,6 +55,7 @@ DEF_DLL_FN (SQLITE_API const char*, sqlite3_errmsg, (sqlite3*));
 #if SQLITE_VERSION_NUMBER >= 3007015
 DEF_DLL_FN (SQLITE_API const char*, sqlite3_errstr, (int));
 #endif
+DEF_DLL_FN (SQLITE_API const char*, sqlite3_libversion, (void));
 DEF_DLL_FN (SQLITE_API int, sqlite3_step, (sqlite3_stmt*));
 DEF_DLL_FN (SQLITE_API int, sqlite3_changes, (sqlite3*));
 DEF_DLL_FN (SQLITE_API int, sqlite3_column_count, (sqlite3_stmt*));
@@ -96,6 +97,7 @@ DEF_DLL_FN (SQLITE_API int, sqlite3_load_extension,
 # if SQLITE_VERSION_NUMBER >= 3007015
 #  undef sqlite3_errstr
 # endif
+# undef sqlite3_libversion
 # undef sqlite3_step
 # undef sqlite3_changes
 # undef sqlite3_column_count
@@ -124,6 +126,7 @@ DEF_DLL_FN (SQLITE_API int, sqlite3_load_extension,
 # if SQLITE_VERSION_NUMBER >= 3007015
 #  define sqlite3_errstr fn_sqlite3_errstr
 # endif
+# define sqlite3_libversion fn_sqlite3_libversion
 # define sqlite3_step fn_sqlite3_step
 # define sqlite3_changes fn_sqlite3_changes
 # define sqlite3_column_count fn_sqlite3_column_count
@@ -155,6 +158,7 @@ load_dll_functions (HMODULE library)
 #if SQLITE_VERSION_NUMBER >= 3007015
   LOAD_DLL_FN (library, sqlite3_errstr);
 #endif
+  LOAD_DLL_FN (library, sqlite3_libversion);
   LOAD_DLL_FN (library, sqlite3_step);
   LOAD_DLL_FN (library, sqlite3_changes);
   LOAD_DLL_FN (library, sqlite3_column_count);
@@ -395,7 +399,7 @@ row_to_value (sqlite3_stmt *stmt)
   int len = sqlite3_column_count (stmt);
   Lisp_Object values = Qnil;
 
-  for (int i = 0; i < len; ++i)
+  for (int i = len - 1; i >= 0; i--)
     {
       Lisp_Object v = Qnil;
 
@@ -430,7 +434,7 @@ row_to_value (sqlite3_stmt *stmt)
       values = Fcons (v, values);
     }
 
-  return Fnreverse (values);
+  return values;
 }
 
 static Lisp_Object
@@ -714,10 +718,14 @@ Only modules on Emacs' list of allowed modules can be loaded.  */)
 #endif /* HAVE_SQLITE3_LOAD_EXTENSION */
 
 DEFUN ("sqlite-next", Fsqlite_next, Ssqlite_next, 1, 1, 0,
-       doc: /* Return the next result set from SET.  */)
+       doc: /* Return the next result set from SET.
+Return nil when the statement has finished executing successfully.  */)
   (Lisp_Object set)
 {
   check_sqlite (set, true);
+
+  if (XSQLITE (set)->eof)
+    return Qnil;
 
   int ret = sqlite3_step (XSQLITE (set)->stmt);
   if (ret != SQLITE_ROW && ret != SQLITE_OK && ret != SQLITE_DONE)
@@ -761,6 +769,16 @@ This will free the resources held by SET.  */)
   sqlite3_finalize (XSQLITE (set)->stmt);
   XSQLITE (set)->db = NULL;
   return Qt;
+}
+
+DEFUN ("sqlite-version", Fsqlite_version, Ssqlite_version, 0, 0, 0,
+       doc: /* Return the version string of the SQLite library.
+Signal an error if SQLite support is not available.  */)
+  (void)
+{
+  if (!init_sqlite_functions ())
+    error ("sqlite support is not available");
+  return build_string (sqlite3_libversion ());
 }
 
 #endif /* HAVE_SQLITE3 */
@@ -814,6 +832,7 @@ syms_of_sqlite (void)
   defsubr (&Ssqlite_columns);
   defsubr (&Ssqlite_more_p);
   defsubr (&Ssqlite_finalize);
+  defsubr (&Ssqlite_version);
   DEFSYM (Qset, "set");
   DEFSYM (Qfull, "full");
 #endif

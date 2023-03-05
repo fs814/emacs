@@ -1,6 +1,6 @@
 ;;; dnd.el --- drag and drop support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
 ;; Author: Jan Djärv <jan.h.d@swipnet.se>
 ;; Maintainer: emacs-devel@gnu.org
@@ -108,11 +108,11 @@ program."
 
 (defcustom dnd-direct-save-remote-files 'x
   "Whether or not to perform a direct save of remote files.
-This is compatible with less programs, but means dropped files
+This is compatible with fewer programs, but means dropped files
 will be saved with their actual file names, and not a temporary
 file name provided by TRAMP.
 
-This defaults to `x', which means only to drop that way on X
+This defaults to `x', which means to save that way only on X
 Windows."
   :type '(choice (const :tag "Only use direct save on X Windows" x)
                  (const :tag "Use direct save everywhere" t)
@@ -325,7 +325,7 @@ in that list instead."
 
 (defun dnd-begin-text-drag (text &optional frame action allow-same-frame)
   "Begin dragging TEXT from FRAME.
-Initate a drag-and-drop operation allowing the user to drag text
+Initiate a drag-and-drop operation allowing the user to drag text
 from Emacs to another program (the drop target), then block until
 the drop is completed or is canceled.
 
@@ -381,7 +381,7 @@ currently being held down.  It should only be called upon a
 
 (defun dnd-begin-file-drag (file &optional frame action allow-same-frame)
   "Begin dragging FILE from FRAME.
-Initate a drag-and-drop operation allowing the user to drag a file
+Initiate a drag-and-drop operation allowing the user to drag a file
 from Emacs to another program (the drop target), then block until
 the drop happens or is canceled.
 

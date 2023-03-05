@@ -1,5 +1,5 @@
 /* Haiku window system support.  Hey Emacs, this is -*- C++ -*-
-   Copyright (C) 2021-2022 Free Software Foundation, Inc.
+   Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -383,7 +383,7 @@ struct haiku_font_pattern
   /* The number of characters in `wanted_chars'.  */
   int want_chars_len;
 
-  /* List of characters.  The font must fullfill at least one of
+  /* List of characters.  The font must fulfill at least one of
      them for the match to succeed.  */
   int *need_one_of;
 

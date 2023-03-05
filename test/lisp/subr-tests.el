@@ -1,6 +1,6 @@
 ;;; subr-tests.el --- Tests for subr.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2015-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 ;; Author: Oleh Krehel <ohwoeowho@gmail.com>,
 ;;         Nicolas Petton <nicolas@petton.fr>
@@ -1058,10 +1058,12 @@ final or penultimate step during initialization."))
                  '(subr-tests--b subr-tests--c)))
 
   (defalias 'subr-tests--d 'subr-tests--e)
-  (defalias 'subr-tests--e 'subr-tests--d)
-  (should-error (function-alias-p 'subr-tests--d))
-  (should (equal (function-alias-p 'subr-tests--d t)
-                 '(subr-tests--e))))
+  (should (equal (function-alias-p 'subr-tests--d)
+                 '(subr-tests--e)))
+
+  (fset 'subr-tests--f 'subr-tests--a)
+  (should (equal (function-alias-p 'subr-tests--f)
+                 '(subr-tests--a subr-tests--b subr-tests--c))))
 
 (ert-deftest test-readablep ()
   (should (readablep "foo"))
@@ -1106,7 +1108,7 @@ final or penultimate step during initialization."))
 
 (ert-deftest test-keymap-parse-macros ()
   (should (equal (key-parse "C-x ( C-d C-x )") [24 40 4 24 41]))
-  (should (equal (kbd "C-x ( C-d C-x )") ""))
+  (should (equal (kbd "C-x ( C-d C-x )") "\^D"))
   (should (equal (kbd "C-x ( C-x )") "")))
 
 (defvar subr-test--global)
@@ -1168,6 +1170,40 @@ final or penultimate step during initialization."))
   (should-not (list-of-strings-p ["a" "b"]))
   (should-not (list-of-strings-p '("a" nil "b")))
   (should-not (list-of-strings-p '("a" "b" . "c"))))
+
+(ert-deftest subr--delete-dups ()
+  (should (equal (delete-dups nil) nil))
+  (let* ((a (list "a" "b" "c"))
+         (a-dedup (delete-dups a)))
+    (should (equal a-dedup '("a" "b" "c")))
+    (should (eq a a-dedup)))
+  (let* ((a (list "a" "a" "b" "b" "a" "c" "b" "c" "a"))
+         (a-b (cddr a))   ; link of first "b"
+         (a-dedup (delete-dups a)))
+    (should (equal a-dedup '("a" "b" "c")))
+    (should (eq a a-dedup))
+    (should (eq (cdr a-dedup) a-b))))
+
+(ert-deftest subr--delete-consecutive-dups ()
+  (should (equal (delete-consecutive-dups nil) nil))
+  (let* ((a (list "a" "b" "c"))
+         (a-dedup (delete-consecutive-dups a)))
+    (should (equal a-dedup '("a" "b" "c")))
+    (should (eq a a-dedup)))
+  (let* ((a (list "a" "a" "b" "a" "a" "b" "b" "b" "c" "c" "a" "a"))
+         (a-b (nthcdr 3 a))   ; link of third "a"
+         (a-dedup (delete-consecutive-dups a)))
+    (should (equal a-dedup '("a" "b" "a" "b" "c" "a")))
+    (should (eq a a-dedup))
+    (should (equal (nthcdr 2 a-dedup) a-b)))
+  (let* ((a (list "a" "b" "a"))
+         (a-dedup (delete-consecutive-dups a t)))
+    (should (equal a-dedup '("a" "b")))
+    (should (eq a a-dedup)))
+  (let* ((a (list "a" "a" "b" "a" "a" "b" "b" "b" "c" "c" "a" "a"))
+         (a-dedup (delete-consecutive-dups a t)))
+    (should (equal a-dedup '("a" "b" "a" "b" "c")))
+    (should (eq a a-dedup))))
 
 (provide 'subr-tests)
 ;;; subr-tests.el ends here

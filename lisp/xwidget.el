@@ -1,6 +1,6 @@
 ;;; xwidget.el --- api functions for xwidgets  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2011-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2023 Free Software Foundation, Inc.
 
 ;; Author: Joakim Verona <joakim@verona.se>
 
@@ -20,14 +20,16 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-;;
-;; See xwidget.c for more api functions.
+
+;; See the node "(emacs)Embedded WebKit Widgets" in the Emacs manual for
+;; help on user-facing features, and "(elisp)Embedded Native Widgets" in
+;; the Emacs Lisp reference manual for help on more API functions.
+
+;;; Code:
 
 ;; This breaks compilation when we don't have xwidgets.
 ;; And is pointless when we do, since it's in C and so preloaded.
 ;;(require 'xwidget-internal)
-
-;;; Code:
 
 (require 'cl-lib)
 (require 'bookmark)
@@ -923,7 +925,8 @@ Return the buffer."
   "Display the current xwidget webkit URL and place it on the `kill-ring'."
   (interactive nil xwidget-webkit-mode)
   (let ((url (xwidget-webkit-uri (xwidget-webkit-current-session))))
-    (message "URL: %s" (kill-new (or url "")))))
+    (when url (kill-new url))
+    (message "URL: %s" url)))
 
 (defun xwidget-webkit-browse-history ()
   "Display a buffer containing the history of page loads."

@@ -1,5 +1,5 @@
 /* Definitions and headers for communication with pure Gtk+3.
-   Copyright (C) 1989, 1993, 2005, 2008-2022 Free Software Foundation,
+   Copyright (C) 1989, 1993, 2005, 2008-2023 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -262,6 +262,13 @@ struct pgtk_output
   unsigned long background_color;
   void *toolbar;
 
+  /* The "time" of the last user interaction on this display.  Set
+     upon button and key press and release events.
+
+     Under the GDK Wayland backend, this is actually an event
+     serial.  */
+  guint32 last_user_time;
+
   /* Cursors */
   Emacs_Cursor current_cursor;
   Emacs_Cursor text_cursor;
@@ -357,8 +364,8 @@ struct pgtk_output
   /* The tool bar in this frame  */
   GtkWidget *toolbar_widget;
   /* True if tool bar is packed into the hbox widget (i.e. vertical).  */
-  bool_bf toolbar_in_hbox:1;
-  bool_bf toolbar_is_packed:1;
+  bool_bf toolbar_in_hbox : 1;
+  bool_bf toolbar_is_packed : 1;
 
   GtkTooltip *ttip_widget;
   GtkWidget *ttip_lbl;

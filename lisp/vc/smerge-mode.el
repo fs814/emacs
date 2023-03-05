@@ -1,6 +1,6 @@
 ;;; smerge-mode.el --- Minor mode to resolve diff3 conflicts -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: vc, tools, revision control, merge, diff3, cvs, conflict
@@ -23,11 +23,10 @@
 ;;; Commentary:
 
 ;; Provides a lightweight alternative to emerge/ediff.
-;; To use it, simply add to your .emacs the following lines:
 ;;
-;;   (autoload 'smerge-mode "smerge-mode" nil t)
+;; To use it, simply type `M-x smerge-mode'.
 ;;
-;; you can even have it turned on automatically with the following
+;; You can even have it turned on automatically with the following
 ;; piece of code in your .emacs:
 ;;
 ;;   (defun sm-try-smerge ()

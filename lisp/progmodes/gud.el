@@ -1,6 +1,6 @@
 ;;; gud.el --- Grand Unified Debugger mode for running GDB and other debuggers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-1996, 1998, 2000-2022 Free Software Foundation,
+;; Copyright (C) 1992-1996, 1998, 2000-2023 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Eric S. Raymond <esr@snark.thyrsus.com>
@@ -249,6 +249,9 @@ Used to gray out relevant toolbar icons.")
 		    '(gdbmi guiler dbx sdb xdb pdb))
      :button (:toggle . gud-tooltip-mode)]
     ["Info (debugger)" gud-goto-info]))
+
+(setf (alist-get 'gud-minor-mode minor-mode-map-alist)
+      gud-minor-mode-map)
 
 (defvar gud-tool-bar-map
   (let ((map (make-sparse-keymap)))
@@ -3558,8 +3561,9 @@ Treats actions as defuns."
 	(kill-local-variable 'gdb-define-alist)
 	(remove-hook 'after-save-hook #'gdb-create-define-alist t))))
 
-(defcustom gud-tooltip-modes '(gud-mode c-mode c++-mode fortran-mode
-					python-mode)
+(defcustom gud-tooltip-modes '( gud-mode c-mode c++-mode fortran-mode
+				python-mode c-ts-mode c++-ts-mode
+                                python-ts-mode)
   "List of modes for which to enable GUD tooltips."
   :type '(repeat (symbol :tag "Major mode"))
   :group 'tooltip)

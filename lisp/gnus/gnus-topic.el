@@ -1,6 +1,6 @@
 ;;; gnus-topic.el --- a folding minor mode for Gnus group buffers  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2023 Free Software Foundation, Inc.
 
 ;; Author: Ilja Weis <kult@uni-paderborn.de>
 ;;	Lars Magne Ingebrigtsen <larsi@gnus.org>
@@ -427,7 +427,7 @@ inheritance."
 (defun gnus-group-prepare-topics (level &optional predicate lowest
 					regexp list-topic topic-level)
   "List all newsgroups with unread articles of level LEVEL or lower.
-Use the `gnus-group-topics' to sort the groups.
+Use the `gnus-group-prepare-topics' to sort the groups.
 If PREDICATE is a function, list groups that the function returns non-nil;
 if it is t, list groups that have no unread articles.
 If LOWEST is non-nil, list all newsgroups of level LOWEST or higher."

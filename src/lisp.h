@@ -1,6 +1,6 @@
 /* Fundamental definitions for GNU Emacs Lisp interpreter. -*- coding: utf-8 -*-
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -22,7 +22,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <alloca.h>
 #include <setjmp.h>
-#include <stdalign.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <string.h>
@@ -273,7 +272,7 @@ DEFINE_GDB_SYMBOL_END (VALMASK)
    emacs_align_type union in alloc.c.
 
    Although these macros are reasonably portable, they are not
-   guaranteed on non-GCC platforms, as C11 does not require support
+   guaranteed on non-GCC platforms, as the C standard does not require support
    for alignment to GCALIGNMENT and older compilers may ignore
    alignment requests.  For any type T where garbage collection
    requires alignment, use verify (GCALIGNED (T)) to verify the
@@ -582,6 +581,8 @@ enum Lisp_Fwd_Type
    make a pointer to the function that frees the resources a slot in
    your object -- this way, the same object could be used to represent
    several disparate C structures.
+
+   In addition, you need to add switch branches in data.c for Ftype_of.
 
    You also need to add the new type to the constant
    `cl--typeof-types' in lisp/emacs-lisp/cl-preloaded.el.  */
@@ -1059,6 +1060,9 @@ enum pvec_type
   PVEC_CONDVAR,
   PVEC_MODULE_FUNCTION,
   PVEC_NATIVE_COMP_UNIT,
+  PVEC_TS_PARSER,
+  PVEC_TS_NODE,
+  PVEC_TS_COMPILED_QUERY,
   PVEC_SQLITE,
 
   /* These should be last, for internal_equal and sxhash_obj.  */
@@ -2958,9 +2962,10 @@ XFLOAT_DATA (Lisp_Object f)
 /* Most hosts nowadays use IEEE floating point, so they use IEC 60559
    representations, have infinities and NaNs, and do not trap on
    exceptions.  Define IEEE_FLOATING_POINT to 1 if this host is one of the
-   typical ones.  The C11 macro __STDC_IEC_559__ is close to what is
+   typical ones.  The C23 macro __STDC_IEC_60559_BFP__ (or its
+   obsolescent C11 counterpart __STDC_IEC_559__) is close to what is
    wanted here, but is not quite right because Emacs does not require
-   all the features of C11 Annex F (and does not require C11 at all,
+   all the features of C23 Annex F (and does not require C11 or later,
    for that matter).  */
 
 #define IEEE_FLOATING_POINT (FLT_RADIX == 2 && FLT_MANT_DIG == 24 \
@@ -4111,6 +4116,7 @@ extern void del_range_byte (ptrdiff_t, ptrdiff_t);
 extern void del_range_both (ptrdiff_t, ptrdiff_t, ptrdiff_t, ptrdiff_t, bool);
 extern Lisp_Object del_range_2 (ptrdiff_t, ptrdiff_t,
 				ptrdiff_t, ptrdiff_t, bool);
+extern int safe_del_range (ptrdiff_t, ptrdiff_t);
 extern void modify_text (ptrdiff_t, ptrdiff_t);
 extern void prepare_to_modify_buffer (ptrdiff_t, ptrdiff_t, ptrdiff_t *);
 extern void prepare_to_modify_buffer_1 (ptrdiff_t, ptrdiff_t, ptrdiff_t *);
@@ -4682,7 +4688,8 @@ extern void save_restriction_restore (Lisp_Object);
 extern Lisp_Object make_buffer_string (ptrdiff_t, ptrdiff_t, bool);
 extern Lisp_Object make_buffer_string_both (ptrdiff_t, ptrdiff_t, ptrdiff_t,
 					    ptrdiff_t, bool);
-extern Lisp_Object narrow_to_region_internal (Lisp_Object, Lisp_Object, bool);
+extern void narrow_to_region_locked (Lisp_Object, Lisp_Object, Lisp_Object);
+extern void reset_outermost_narrowings (void);
 extern void init_editfns (void);
 extern void syms_of_editfns (void);
 
@@ -4753,6 +4760,8 @@ extern void update_search_regs (ptrdiff_t oldstart,
 extern void record_unwind_save_match_data (void);
 extern ptrdiff_t fast_string_match_internal (Lisp_Object, Lisp_Object,
 					     Lisp_Object);
+extern ptrdiff_t fast_c_string_match_internal (Lisp_Object, const char *,
+					       ptrdiff_t, Lisp_Object);
 
 INLINE ptrdiff_t
 fast_string_match (Lisp_Object regexp, Lisp_Object string)
@@ -4766,8 +4775,21 @@ fast_string_match_ignore_case (Lisp_Object regexp, Lisp_Object string)
   return fast_string_match_internal (regexp, string, Vascii_canon_table);
 }
 
-extern ptrdiff_t fast_c_string_match_ignore_case (Lisp_Object, const char *,
-						  ptrdiff_t);
+INLINE ptrdiff_t
+fast_c_string_match (Lisp_Object regexp,
+		     const char *string, ptrdiff_t len)
+{
+  return fast_c_string_match_internal (regexp, string, len, Qnil);
+}
+
+INLINE ptrdiff_t
+fast_c_string_match_ignore_case (Lisp_Object regexp,
+				 const char *string, ptrdiff_t len)
+{
+  return fast_c_string_match_internal (regexp, string, len,
+				       Vascii_canon_table);
+}
+
 extern ptrdiff_t fast_looking_at (Lisp_Object, ptrdiff_t, ptrdiff_t,
                                   ptrdiff_t, ptrdiff_t, Lisp_Object);
 extern ptrdiff_t find_newline1 (ptrdiff_t, ptrdiff_t, ptrdiff_t, ptrdiff_t,
@@ -4781,6 +4803,9 @@ extern ptrdiff_t find_newline_no_quit (ptrdiff_t, ptrdiff_t,
 				       ptrdiff_t, ptrdiff_t *);
 extern ptrdiff_t find_before_next_newline (ptrdiff_t, ptrdiff_t,
 					   ptrdiff_t, ptrdiff_t *);
+extern EMACS_INT search_buffer (Lisp_Object, ptrdiff_t, ptrdiff_t,
+				ptrdiff_t, ptrdiff_t, EMACS_INT,
+				int, Lisp_Object, Lisp_Object, bool);
 extern void syms_of_search (void);
 extern void clear_regexp_cache (void);
 
@@ -5188,6 +5213,11 @@ extern void syms_of_profiler (void);
 extern char *emacs_root_dir (void);
 #endif /* DOS_NT */
 
+#ifdef HAVE_TEXT_CONVERSION
+/* Defined in textconv.c.  */
+extern void report_selected_window_change (struct frame *);
+#endif
+
 #ifdef HAVE_NATIVE_COMP
 INLINE bool
 SUBR_NATIVE_COMPILEDP (Lisp_Object a)
@@ -5273,6 +5303,26 @@ INLINE void
 __lsan_ignore_object (void const *p)
 {
 }
+#endif
+
+/* If built with USE_SANITIZER_UNALIGNED_LOAD defined, use compiler
+   provided ASan functions to perform unaligned loads, allowing ASan
+   to catch bugs which it might otherwise miss.  */
+#if defined HAVE_SANITIZER_COMMON_INTERFACE_DEFS_H \
+  && defined ADDRESS_SANITIZER                     \
+  && defined USE_SANITIZER_UNALIGNED_LOAD
+# include <sanitizer/common_interface_defs.h>
+# if (SIZE_MAX == UINT64_MAX)
+#  define UNALIGNED_LOAD_SIZE(a, i) \
+   (size_t) __sanitizer_unaligned_load64 ((void *) ((a) + (i)))
+# elif (SIZE_MAX == UINT32_MAX)
+#  define UNALIGNED_LOAD_SIZE(a, i) \
+   (size_t) __sanitizer_unaligned_load32 ((void *) ((a) + (i)))
+# else
+#  define UNALIGNED_LOAD_SIZE(a, i) *((a) + (i))
+# endif
+#else
+# define UNALIGNED_LOAD_SIZE(a, i) *((a) + (i))
 #endif
 
 extern void xputenv (const char *);
@@ -5566,6 +5616,11 @@ maybe_gc (void)
   if (consing_until_gc < 0)
     maybe_garbage_collect ();
 }
+
+/* Simplified version of 'define-error' that works with pure
+   objects.  */
+void
+define_error (Lisp_Object name, const char *message, Lisp_Object parent);
 
 INLINE_HEADER_END
 

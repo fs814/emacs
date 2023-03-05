@@ -1,6 +1,6 @@
 /* Lisp parsing and input streams.
 
-Copyright (C) 1985-1989, 1993-1995, 1997-2022 Free Software Foundation,
+Copyright (C) 1985-1989, 1993-1995, 1997-2023 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -1741,12 +1741,15 @@ maybe_swap_for_eln (bool no_native, Lisp_Object *filename, int *fd,
 					       Vload_path,
 					       Qnil, Qnil)))
 		return;
-	      call2 (intern_c_string ("display-warning"),
-		     Qcomp,
-		     CALLN (Fformat,
-			    build_string ("Cannot look up eln file as "
-					  "no source file was found for %s"),
-			    *filename));
+	      Vdelayed_warnings_list
+		= Fcons (list2
+			 (Qcomp,
+			  CALLN (Fformat,
+				 build_string ("Cannot look up eln "
+					       "file as no source file "
+					       "was found for %s"),
+				 *filename)),
+			 Vdelayed_warnings_list);
 	      return;
 	    }
 	}
@@ -3372,7 +3375,7 @@ read_bool_vector (Lisp_Object readcharfun)
 	  break;
 	}
       if (INT_MULTIPLY_WRAPV (length, 10, &length)
-	  | INT_ADD_WRAPV (length, c - '0', &length))
+	  || INT_ADD_WRAPV (length, c - '0', &length))
 	invalid_syntax ("#&", readcharfun);
     }
 
@@ -3418,7 +3421,7 @@ skip_lazy_string (Lisp_Object readcharfun)
 	  break;
 	}
       if (INT_MULTIPLY_WRAPV (nskip, 10, &nskip)
-	  | INT_ADD_WRAPV (nskip, c - '0', &nskip))
+	  || INT_ADD_WRAPV (nskip, c - '0', &nskip))
 	invalid_syntax ("#@", readcharfun);
       digits++;
       if (digits == 2 && nskip == 0)
@@ -5465,7 +5468,6 @@ to the specified file name if a suffix is allowed or required.  */);
   Vload_suffixes =
     Fcons (build_pure_c_string (MODULES_SECONDARY_SUFFIX), Vload_suffixes);
 #endif
-
 #endif
   DEFVAR_LISP ("module-file-suffix", Vmodule_file_suffix,
 	       doc: /* Suffix of loadable module file, or nil if modules are not supported.  */);
@@ -5474,6 +5476,20 @@ to the specified file name if a suffix is allowed or required.  */);
 #else
   Vmodule_file_suffix = Qnil;
 #endif
+
+  DEFVAR_LISP ("dynamic-library-suffixes", Vdynamic_library_suffixes,
+	       doc: /* A list of suffixes for loadable dynamic libraries.  */);
+
+#ifndef MSDOS
+  Vdynamic_library_suffixes
+    = Fcons (build_pure_c_string (DYNAMIC_LIB_SECONDARY_SUFFIX), Qnil);
+  Vdynamic_library_suffixes
+    = Fcons (build_pure_c_string (DYNAMIC_LIB_SUFFIX),
+	     Vdynamic_library_suffixes);
+#else
+  Vdynamic_library_suffixes = Qnil;
+#endif
+
   DEFVAR_LISP ("load-file-rep-suffixes", Vload_file_rep_suffixes,
 	       doc: /* List of suffixes that indicate representations of \
 the same file.
@@ -5620,7 +5636,8 @@ from the file, and matches them against this regular expression.
 When the regular expression matches, the file is considered to be safe
 to load.  */);
   Vbytecomp_version_regexp
-    = build_pure_c_string ("^;;;.\\(in Emacs version\\|bytecomp version FSF\\)");
+    = build_pure_c_string
+        ("^;;;.\\(?:in Emacs version\\|bytecomp version FSF\\)");
 
   DEFSYM (Qlexical_binding, "lexical-binding");
   DEFVAR_LISP ("lexical-binding", Vlexical_binding,

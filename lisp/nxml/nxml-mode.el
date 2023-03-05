@@ -1,6 +1,6 @@
 ;;; nxml-mode.el --- a new XML mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003-2004, 2007-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2004, 2007-2023 Free Software Foundation, Inc.
 
 ;; Author: James Clark
 ;; Keywords: wp, hypermedia, languages, XML
@@ -195,7 +195,7 @@ This is not used directly, but only via inheritance by other faces."
 (defface nxml-char-ref-number
   '((t (:inherit nxml-ref)))
   "Face used for the number in character references.
-This includes ths `x' in hex references."
+This includes the `x' in hex references."
   :group 'nxml-faces)
 
 (defface nxml-char-ref-delimiter

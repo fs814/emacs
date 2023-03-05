@@ -1,6 +1,6 @@
 ;;; loadup.el --- load up standardly loaded Lisp files for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994, 2001-2022 Free Software
+;; Copyright (C) 1985-1986, 1992, 1994, 2001-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -550,7 +550,7 @@ lost after dumping")))
                  (equal dump-mode "pdump"))
         ;; Don't enable this before bootstrap is completed, as the
         ;; compiler infrastructure may not be usable yet.
-        (setq comp-enable-subr-trampolines t))
+        (setq native-comp-enable-subr-trampolines t))
       (message "Dumping under the name %s" output)
       (condition-case ()
           (delete-file output)

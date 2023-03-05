@@ -1,6 +1,6 @@
 ;;; eww.el --- Emacs Web Wowser  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2023 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: html
@@ -488,14 +488,17 @@ For more information, see Info node `(eww) Top'."
 ;;;###autoload (defalias 'browse-web 'eww)
 
 ;;;###autoload
-(defun eww-open-file (file)
-  "Render FILE using EWW."
-  (interactive "fFile: ")
+(defun eww-open-file (file &optional new-buffer)
+  "Render FILE using EWW.
+If NEW-BUFFER is non-nil (interactively, the prefix arg), use a
+new buffer instead of reusing the default EWW buffer."
+  (interactive "fFile: \nP")
   (let ((url-allow-non-local-files t))
     (eww (concat "file://"
 	         (and (memq system-type '(windows-nt ms-dos))
 		      "/")
-	         (expand-file-name file)))))
+	         (expand-file-name file))
+         new-buffer)))
 
 (defun eww--file-buffer (file)
   (with-current-buffer (generate-new-buffer " *eww file*")
@@ -1596,7 +1599,8 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
 		       (list :eww-form eww-form
 			     :value value
 			     :type "textarea"
-			     :name (dom-attr dom 'name)))))
+			     :name (dom-attr dom 'name)))
+    (put-text-property start (1+ start) 'shr-tab-stop t)))
 
 (defun eww-tag-input (dom)
   (let ((type (downcase (or (dom-attr dom 'type) "text")))
@@ -1660,7 +1664,8 @@ See URL `https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Input'.")
       (add-face-text-property start (point) 'eww-form-select)
       (put-text-property start (point) 'keymap eww-select-map)
       (unless (= start (point))
-       (put-text-property start (1+ start) 'help-echo "select field"))
+       (put-text-property start (1+ start) 'help-echo "select field")
+       (put-text-property start (1+ start) 'shr-tab-stop t))
       (shr-ensure-paragraph))))
 
 (defun eww-select-display (select)
@@ -2496,10 +2501,10 @@ Otherwise, the restored buffer will contain a prompt to do so by using
       (when (plist-get eww-data :url)
 	(cl-case eww-restore-desktop
 	  ((t auto) (eww (plist-get eww-data :url)))
-	  ((zerop (buffer-size))
-	   (let ((inhibit-read-only t))
-	     (insert (substitute-command-keys
-		      eww-restore-reload-prompt)))))))
+	  ((nil) (when (zerop (buffer-size))
+	           (let ((inhibit-read-only t))
+	             (insert (substitute-command-keys
+		              eww-restore-reload-prompt))))))))
     ;; .
     (current-buffer)))
 

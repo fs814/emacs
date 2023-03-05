@@ -1,6 +1,6 @@
 ;;; semantic/complete.el --- Routines for performing tag completion  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2005, 2007-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2005, 2007-2023 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Keywords: syntax
@@ -667,7 +667,7 @@ Similar to `minibuffer-contents' when completing in the minibuffer."
 		)
 	    (delete-overlay semantic-complete-inline-overlay)
 	    (setq semantic-complete-inline-overlay nil)
-	    ;; DONT restore the window configuration if we just
+	    ;; DON'T restore the window configuration if we just
 	    ;; switched windows!
 	    (when (eq buf (current-buffer))
 	      (set-window-configuration wc))
@@ -1731,7 +1731,7 @@ Display mechanism using tooltip for a list of possible completions.")
       ;; Add any tail info.
       (setq msg (concat msg msg-tail))
       ;; Display tooltip.
-      (when (not (eq msg ""))
+      (when (not (equal msg ""))
 	(semantic-displayer-tooltip-show msg)))))
 
 ;;; Compatibility

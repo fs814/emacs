@@ -1,5 +1,5 @@
 /* Input event support for Emacs on the Microsoft Windows API.
-   Copyright (C) 1992-1993, 1995, 2001-2022 Free Software Foundation,
+   Copyright (C) 1992-1993, 1995, 2001-2023 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -648,7 +648,7 @@ handle_file_notifications (struct input_event *hold_quit)
       ns = NULL;
 
       /* Find out if there is a record available in the linked list of
-	 notifications sets.  If so, unlink te set from the linked list.
+	 notifications sets.  If so, unlink the set from the linked list.
 	 Use the critical section.  */
       enter_crit ();
       if (notifications_set_head->next != notifications_set_head)

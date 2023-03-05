@@ -1,6 +1,6 @@
 ;;; scroll-bar.el --- window system-independent scroll bar support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993-1995, 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1995, 1999-2023 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: hardware
@@ -390,7 +390,7 @@ EVENT should be a scroll bar click."
 	(setq point-before-scroll before-scroll)))))
 
 
-;;; Tookit scroll bars.
+;;; Toolkit scroll bars.
 
 (defun scroll-bar-toolkit-scroll (event)
   "Handle event EVENT on vertical scroll bar."

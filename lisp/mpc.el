@@ -1,6 +1,6 @@
 ;;; mpc.el --- A client for the Music Player Daemon   -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: multimedia
@@ -447,7 +447,7 @@ which will be concatenated with proper quoting before passing them to MPD."
 ;;; Support for regularly updated current status information ;;;;;;;;;;;;;;;
 
 ;; Exported elements:
-;; `mpc-status' holds the uptodate data.
+;; `mpc-status' holds the up-to-date data.
 ;; `mpc-status-callbacks' holds the registered callback functions.
 ;; `mpc-status-refresh' forces a refresh of the data.
 ;; `mpc-status-stop' stops the automatic updating.

@@ -1,6 +1,6 @@
 GNU Emacs NEWS -- history of user-visible changes.
 
-Copyright (C) 2019-2022 Free Software Foundation, Inc.
+Copyright (C) 2019-2023 Free Software Foundation, Inc.
 See the end of the file for license conditions.
 
 Please send Emacs bug reports to 'bug-gnu-emacs@gnu.org'.
@@ -2771,7 +2771,7 @@ If non-nil, it is a regexp that should match a valid cover image.
 *** 'shell-script-mode' now supports 'outline-minor-mode'.
 The outline headings have lines that start with "###".
 
-*** fileloop will now skip missing files instead of signalling an error.
+*** fileloop will now skip missing files instead of signaling an error.
 
 *** 'tabulated-list-mode' can now restore original display order.
 Many commands (like 'C-x C-b') are derived from 'tabulated-list-mode',

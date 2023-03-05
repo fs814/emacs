@@ -1,6 +1,6 @@
 ;;; subr-x.el --- extra Lisp functions  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2023 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: convenience
@@ -102,6 +102,7 @@ threading."
   "Join all STRINGS using SEPARATOR.
 Optional argument SEPARATOR must be a string, a vector, or a list of
 characters; nil stands for the empty string."
+  (declare (pure t) (side-effect-free t))
   (mapconcat #'identity strings separator))
 
 (define-obsolete-function-alias 'string-reverse 'reverse "25.1")
@@ -112,6 +113,7 @@ characters; nil stands for the empty string."
 When truncating, \"...\" is always prepended to the string, so
 the resulting string may be longer than the original if LENGTH is
 3 or smaller."
+  (declare (pure t) (side-effect-free t))
   (let ((strlen (length string)))
     (if (<= strlen length)
 	string
@@ -124,16 +126,19 @@ the resulting string may be longer than the original if LENGTH is
   "Check whether STRING is either empty or only whitespace.
 The following characters count as whitespace here: space, tab, newline and
 carriage return."
+  (declare (pure t) (side-effect-free t))
   (string-match-p "\\`[ \t\n\r]*\\'" string))
 
 (defsubst string-remove-prefix (prefix string)
   "Remove PREFIX from STRING if present."
+  (declare (pure t) (side-effect-free t))
   (if (string-prefix-p prefix string)
       (substring string (length prefix))
     string))
 
 (defsubst string-remove-suffix (suffix string)
   "Remove SUFFIX from STRING if present."
+  (declare (pure t) (side-effect-free t))
   (if (string-suffix-p suffix string)
       (substring string 0 (- (length string) (length suffix)))
     string))
@@ -252,6 +257,7 @@ is done.
 If START is nil (or not present), the padding is done to the end
 of the string, and if non-nil, padding is done to the start of
 the string."
+  (declare (pure t) (side-effect-free t))
   (unless (natnump length)
     (signal 'wrong-type-argument (list 'natnump length)))
   (let ((pad-length (- length (length string))))
@@ -261,6 +267,7 @@ the string."
 
 (defun string-chop-newline (string)
   "Remove the final newline (if any) from STRING."
+  (declare (pure t) (side-effect-free t))
   (string-remove-suffix "\n" string))
 
 (defun replace-region-contents (beg end replace-fn
@@ -322,6 +329,10 @@ as the new values of the bound variables in the recursive invocation."
     ;; Keeping a work buffer around is more efficient than creating a
     ;; new temporary buffer.
     (with-current-buffer (get-buffer-create " *string-pixel-width*")
+      ;; `display-line-numbers-mode' is enabled in internal buffers
+      ;; that breaks width calculation, so need to disable (bug#59311)
+      (when (bound-and-true-p display-line-numbers-mode)
+        (display-line-numbers-mode -1))
       (delete-region (point-min) (point-max))
       (insert string)
       (car (buffer-text-pixel-size nil nil t)))))
@@ -329,7 +340,10 @@ as the new values of the bound variables in the recursive invocation."
 ;;;###autoload
 (defun string-glyph-split (string)
   "Split STRING into a list of strings representing separate glyphs.
-This takes into account combining characters and grapheme clusters."
+This takes into account combining characters and grapheme clusters:
+if compositions are enabled, each sequence of characters composed
+on display into a single grapheme cluster is treated as a single
+indivisible unit."
   (let ((result nil)
         (start 0)
         comp)
@@ -366,7 +380,8 @@ this defaults to the current buffer."
                                                    (min end (point-max)))))
       (if (not (setq disp (get-text-property sub-start 'display object)))
           ;; No old properties in this range.
-          (put-text-property sub-start sub-end 'display (list prop value))
+          (put-text-property sub-start sub-end 'display (list prop value)
+                             object)
         ;; We have old properties.
         (let ((vector nil))
           ;; Make disp into a list.
@@ -386,7 +401,7 @@ this defaults to the current buffer."
           (when vector
             (setq disp (seq-into disp 'vector)))
           ;; Finally update the range.
-          (put-text-property sub-start sub-end 'display disp)))
+          (put-text-property sub-start sub-end 'display disp object)))
       (setq sub-start sub-end))))
 
 ;;;###autoload
@@ -394,7 +409,7 @@ this defaults to the current buffer."
   "Query the user for a process and return the process object."
   ;; Currently supports only the PROCESS argument.
   ;; Must either return a list containing a process, or signal an error.
-  ;; (Returning `nil' would mean the current buffer's process.)
+  ;; (Returning nil would mean the current buffer's process.)
   (unless (fboundp 'process-list)
     (error "Asynchronous subprocesses are not supported on this system"))
   ;; Local function to return cons of a complete-able name, and the

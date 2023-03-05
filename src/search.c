@@ -1,6 +1,6 @@
 /* String search routines for GNU Emacs.
 
-Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2022 Free Software
+Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2023 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -68,9 +68,6 @@ static EMACS_INT simple_search (EMACS_INT, unsigned char *, ptrdiff_t,
 static EMACS_INT boyer_moore (EMACS_INT, unsigned char *, ptrdiff_t,
                               Lisp_Object, Lisp_Object, ptrdiff_t,
                               ptrdiff_t, int);
-static EMACS_INT search_buffer (Lisp_Object, ptrdiff_t, ptrdiff_t,
-                                ptrdiff_t, ptrdiff_t, EMACS_INT, int,
-                                Lisp_Object, Lisp_Object, bool);
 
 Lisp_Object re_match_object;
 
@@ -496,19 +493,27 @@ fast_string_match_internal (Lisp_Object regexp, Lisp_Object string,
   return val;
 }
 
-/* Match REGEXP against STRING, searching all of STRING ignoring case,
-   and return the index of the match, or negative on failure.
-   This does not clobber the match data.
+/* Match REGEXP against STRING, searching all of STRING and return the
+   index of the match, or negative on failure.  This does not clobber
+   the match data.  Table is a canonicalize table for ignoring case,
+   or nil for none.
+
    We assume that STRING contains single-byte characters.  */
 
 ptrdiff_t
-fast_c_string_match_ignore_case (Lisp_Object regexp,
-				 const char *string, ptrdiff_t len)
+fast_c_string_match_internal (Lisp_Object regexp,
+			      const char *string, ptrdiff_t len,
+			      Lisp_Object table)
 {
+  /* FIXME: This is expensive and not obviously correct when it makes
+     a difference. I.e., no longer "fast", and may hide bugs.
+     Something should be done about this.  */
   regexp = string_make_unibyte (regexp);
+  /* Record specpdl index because freeze_pattern pushes an
+     unwind-protect on the specpdl.  */
   specpdl_ref count = SPECPDL_INDEX ();
   struct regexp_cache *cache_entry
-    = compile_pattern (regexp, 0, Vascii_canon_table, 0, 0);
+    = compile_pattern (regexp, 0, table, 0, 0);
   freeze_pattern (cache_entry);
   re_match_object = Qt;
   ptrdiff_t val = re_search (&cache_entry->buf, string, len, 0, len, 0);
@@ -1502,7 +1507,7 @@ search_buffer_non_re (Lisp_Object string, ptrdiff_t pos,
   return result;
 }
 
-static EMACS_INT
+EMACS_INT
 search_buffer (Lisp_Object string, ptrdiff_t pos, ptrdiff_t pos_byte,
 	       ptrdiff_t lim, ptrdiff_t lim_byte, EMACS_INT n,
 	       int RE, Lisp_Object trt, Lisp_Object inverse_trt, bool posix)

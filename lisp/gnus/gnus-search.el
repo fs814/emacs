@@ -1,6 +1,6 @@
 ;;; gnus-search.el --- Search facilities for Gnus    -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2023 Free Software Foundation, Inc.
 
 ;; Author: Eric Abrahamsen <eric@ericabrahamsen.net>
 
@@ -48,7 +48,7 @@
 ;; The general flow is:
 
 ;; 1. The user calls one of `gnus-group-make-search-group' or
-;; `gnus-group-make-permanent-search-group' (or a few other entry
+;; `gnus-group-read-ephemeral-search-group' (or a few other entry
 ;; points).  These functions prompt for a search query, and collect
 ;; the groups to search, then create an nnselect group, setting an
 ;; 'nnselect-specs group parameter where 'nnselect-function is
@@ -1330,9 +1330,10 @@ elements are present."
 		      (1- nyear)
 		    nyear))
 	  (setq dmonth 1))))
-    (format-time-string
-     "%e-%b-%Y"
-     (encode-time 0 0 0 dday dmonth dyear))))
+    (with-locale-environment "C"
+     (format-time-string
+      "%e-%b-%Y"
+      (encode-time 0 0 0 dday dmonth dyear)))))
 
 (cl-defmethod gnus-search-imap-handle-string ((engine gnus-search-imap)
 					      (str string))
@@ -1943,7 +1944,7 @@ Assume \"size\" key is equal to \"larger\"."
 	(thread (alist-get 'thread query)))
     (with-slots (switches config-directory) engine
       `("find" 			; command must come first
-	"--nocolor"		; mu will always give coloured output otherwise
+	"--nocolor"		; mu will always give colored output otherwise
 	,(format "--muhome=%s" config-directory)
 	,@switches
 	,(if thread "-r" "")

@@ -1,6 +1,6 @@
 ;;; mh-scan.el --- MH-E scan line constants and utilities  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 1997, 2000-2022 Free Software Foundation,
+;; Copyright (C) 1993, 1995, 1997, 2000-2023 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
@@ -279,9 +279,9 @@ as in the default of
   ^ *[0-9]+.\\\\([bct]\\\\).....[ ]*\\\\(..................\\\\)
 
 If this regular expression is not correct, the notation hints
-will not be highlighted with the face
-`mh-mh-folder-sent-to-me-hint' and the sender will not be
-highlighted with the face `mh-folder-sent-to-me-sender'.")
+will not be highlighted with the face `mh-folder-sent-to-me-hint'
+and the sender will not be highlighted with the face
+`mh-folder-sent-to-me-sender'.")
 
 (defvar mh-scan-subject-regexp
   "^ *[0-9]+........[ ]*...................\\([Rr][Ee]\\(\\[[0-9]+\\]\\)?:\\s-*\\)*\\([^<\n]*\\)"

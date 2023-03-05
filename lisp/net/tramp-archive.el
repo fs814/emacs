@@ -1,6 +1,6 @@
 ;;; tramp-archive.el --- Tramp archive manager  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2017-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2023 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -110,12 +110,7 @@
 ;;; Code:
 
 (eval-when-compile (require 'cl-lib))
-;; Sometimes, compilation fails with "Variable binding depth exceeds
-;; max-specpdl-size".  Shall be fixed in Emacs 27.
-(with-no-warnings ;; max-specpdl-size
-  (eval-and-compile
-    (let ((max-specpdl-size (* 2 max-specpdl-size)))
-      (require 'tramp-gvfs))))
+(require 'tramp-gvfs)
 
 (autoload 'dired-uncache "dired")
 (autoload 'url-tramp-convert-url-to-tramp "url-tramp")
@@ -192,21 +187,20 @@ It must be supported by libarchive(3).")
     (group
      (+ nonl)
      ;; Default suffixes ...
-     "." ,(cons '| tramp-archive-suffixes)
+     "." (| ,@tramp-archive-suffixes)
      ;; ... with compression.
-     (? "." ,(cons '| tramp-archive-compression-suffixes)))
+     (? "." (| ,@tramp-archive-compression-suffixes)))
     ;; This group is used in `tramp-archive-file-name-localname'.
     (group "/" (* nonl))
     eos)))
 
 (put #'tramp-archive-autoload-file-name-regexp 'tramp-autoload t)
 
-;; In older Emacs (prior 27.1), `tramp-archive-autoload-file-name-regexp'
-;; is not autoloaded.  So we cannot expect it to be known in
-;; tramp-loaddefs.el.  But it exists, when tramp-archive.el is loaded.
+;; We must wrap it into `eval-when-compile'.  Otherwise, there could
+;; be an "Eager macro-expansion failure" when unloading/reloading Tramp.
 ;;;###tramp-autoload
 (defconst tramp-archive-file-name-regexp
-  (ignore-errors (tramp-archive-autoload-file-name-regexp))
+  (eval-when-compile (ignore-errors (tramp-archive-autoload-file-name-regexp)))
   "Regular expression matching archive file names.")
 
 ;;;###tramp-autoload
@@ -271,6 +265,7 @@ It must be supported by libarchive(3).")
     (file-symlink-p . tramp-handle-file-symlink-p)
     (file-system-info . tramp-archive-handle-file-system-info)
     (file-truename . tramp-archive-handle-file-truename)
+    (file-user-uid . tramp-archive-handle-file-user-uid)
     (file-writable-p . ignore)
     (find-backup-file-name . ignore)
     ;; `get-file-buffer' performed by default handler.
@@ -281,11 +276,12 @@ It must be supported by libarchive(3).")
     (lock-file . ignore)
     (make-auto-save-file-name . ignore)
     (make-directory . tramp-archive-handle-not-implemented)
-    (make-directory-internal . tramp-archive-handle-not-implemented)
+    (make-directory-internal . ignore)
     (make-lock-file-name . ignore)
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . ignore)
     (make-symbolic-link . tramp-archive-handle-not-implemented)
+    (memory-info . ignore)
     (process-attributes . ignore)
     (process-file . ignore)
     (rename-file . tramp-archive-handle-not-implemented)
@@ -330,10 +326,6 @@ arguments to pass to the OPERATION."
 	 (inhibit-file-name-operation operation))
     (apply operation args))))
 
-;; Starting with Emacs 29, `tramp-archive-file-name-handler' is
-;; autoloaded.  But it must still be in tramp-loaddefs.el for older
-;; versions of Emacs.
-;;;###autoload(autoload 'tramp-archive-file-name-handler "tramp-archive")
 ;;;###tramp-autoload
 (defun tramp-archive-file-name-handler (operation &rest args)
   "Invoke the file archive related OPERATION.
@@ -345,13 +337,9 @@ arguments to pass to the OPERATION."
           (tramp-register-file-name-handlers)
           (tramp-archive-run-real-handler operation args))
 
-      (with-no-warnings ;; max-specpdl-size
       (let* ((filename (apply #'tramp-archive-file-name-for-operation
 			      operation args))
-	     (archive (tramp-archive-file-name-archive filename))
-	     ;; Sometimes, it fails with "Variable binding depth exceeds
-	     ;; max-specpdl-size".  Shall be fixed in Emacs 27.
-	     (max-specpdl-size (* 2 max-specpdl-size)))
+	     (archive (tramp-archive-file-name-archive filename)))
 
         ;; `filename' could be a quoted file name.  Or the file
         ;; archive could be a directory, see Bug#30293.
@@ -379,7 +367,7 @@ arguments to pass to the OPERATION."
 	      (setq args (cons operation args)))
 	    (if fn
 	        (save-match-data (apply (cdr fn) args))
-	      (tramp-archive-run-real-handler operation args))))))))
+	      (tramp-archive-run-real-handler operation args)))))))
 
 ;;;###autoload
 (progn (defun tramp-archive-autoload-file-name-handler (operation &rest args)
@@ -396,30 +384,26 @@ arguments to pass to the OPERATION."
 (put #'tramp-archive-autoload-file-name-handler 'tramp-autoload t)
 
 ;;;###autoload
-(progn (defun tramp-register-archive-file-name-handler ()
+(progn (defun tramp-register-archive-autoload-file-name-handler ()
   "Add archive file name handler to `file-name-handler-alist'."
   (when (and tramp-archive-enabled
              (not
-              (rassq #'tramp-archive-file-name-handler file-name-handler-alist)))
+              (rassq 'tramp-archive-file-name-handler file-name-handler-alist)))
     (add-to-list 'file-name-handler-alist
 	         (cons (tramp-archive-autoload-file-name-regexp)
 		       #'tramp-archive-autoload-file-name-handler))
     (put #'tramp-archive-autoload-file-name-handler 'safe-magic t))))
 
-(put #'tramp-register-archive-file-name-handler 'tramp-autoload t)
+(put #'tramp-register-archive-autoload-file-name-handler 'tramp-autoload t)
 
 ;;;###autoload
 (progn
-  (add-hook 'after-init-hook #'tramp-register-archive-file-name-handler)
+  (add-hook 'after-init-hook #'tramp-register-archive-autoload-file-name-handler)
   (add-hook
    'tramp-archive-unload-hook
    (lambda ()
      (remove-hook
-      'after-init-hook #'tramp-register-archive-file-name-handler))))
-
-;; In older Emacsen (prior 27.1), the autoload above does not exist.
-;; So we call it again; it doesn't hurt.
-(tramp-register-archive-file-name-handler)
+      'after-init-hook #'tramp-register-archive-autoload-file-name-handler))))
 
 ;; Mark `operations' the handler is responsible for.
 (put #'tramp-archive-file-name-handler 'operations
@@ -443,7 +427,7 @@ arguments to pass to the OPERATION."
   "Return t if NAME is a string with archive file name syntax."
   (and (stringp name)
        ;; `tramp-archive-file-name-regexp' does not suppress quoted file names.
-       (not (tramp-compat-file-name-quoted-p name t))
+       (not (file-name-quoted-p name t))
        ;; We cannot use `string-match-p', the matches are used.
        (string-match tramp-archive-file-name-regexp name)
        t))
@@ -496,7 +480,6 @@ name is kept in slot `hop'"
 
        ;; http://...
        ((and url-handler-mode
-	     tramp-compat-use-url-tramp-p
              (string-match-p url-handler-regexp archive)
 	     (string-match-p
 	      "https?" (url-type (url-generic-parse-url archive))))
@@ -616,7 +599,7 @@ offered."
 (defun tramp-archive-handle-directory-file-name (directory)
   "Like `directory-file-name' for file archives."
   (with-parsed-tramp-archive-file-name directory nil
-    (if (and (not (zerop (length localname)))
+    (if (and (tramp-compat-length> localname 0)
 	     (eq (aref localname (1- (length localname))) ?/)
 	     (not (string= localname "/")))
 	(substring directory 0 -1)
@@ -628,23 +611,22 @@ offered."
 (defun tramp-archive-handle-directory-files
     (directory &optional full match nosort count)
   "Like `directory-files' for Tramp files."
-  (unless (file-exists-p directory)
-    (tramp-error (tramp-dissect-file-name directory) 'file-missing directory))
-  (when (file-directory-p directory)
-    (setq directory (file-name-as-directory (expand-file-name directory)))
-    (let ((temp (nreverse (file-name-all-completions "" directory)))
-	  result item)
+  (tramp-barf-if-file-missing (tramp-dissect-file-name directory) directory
+    (when (file-directory-p directory)
+      (setq directory (file-name-as-directory (expand-file-name directory)))
+      (let ((temp (nreverse (file-name-all-completions "" directory)))
+	    result item)
 
-      (while temp
-	(setq item (directory-file-name (pop temp)))
-	(when (or (null match) (string-match-p match item))
-	  (push (if full (concat directory item) item)
-		result)))
-      (unless nosort
-        (setq result (sort result #'string<)))
-      (when (and (natnump count) (> count 0))
-	(setq result (tramp-compat-ntake count result)))
-      result)))
+	(while temp
+	  (setq item (directory-file-name (pop temp)))
+	  (when (or (null match) (string-match-p match item))
+	    (push (if full (concat directory item) item)
+		  result)))
+	(unless nosort
+          (setq result (sort result #'string<)))
+	(when (and (natnump count) (> count 0))
+	  (setq result (tramp-compat-ntake count result)))
+	result))))
 
 (defun tramp-archive-handle-dired-uncache (dir)
   "Like `dired-uncache' for file archives."
@@ -686,6 +668,13 @@ offered."
       (unless (file-name-absolute-p local)
 	(setq local (expand-file-name local (file-name-directory localname))))
       (concat (file-truename archive) local))))
+
+(defun tramp-archive-handle-file-user-uid ()
+  "Like `user-uid' for file archives."
+  (with-parsed-tramp-archive-file-name default-directory nil
+    (let ((default-directory (file-name-directory archive)))
+      ;; `file-user-uid' exists since Emacs 30.1.
+      (tramp-compat-funcall 'file-user-uid))))
 
 (defun tramp-archive-handle-insert-directory
   (filename switches &optional wildcard full-directory-p)

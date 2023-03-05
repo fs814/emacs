@@ -1,6 +1,6 @@
 ;;; cl-macs-tests.el --- tests for emacs-lisp/cl-macs.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2017-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2023 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -802,5 +802,11 @@ See Bug#57915."
           (ert-with-message-capture messages
             (macroexpand form)
             (should (string-empty-p messages))))))))
+
+(ert-deftest cl-&key-arguments ()
+  (cl-flet ((fn (&key x) x))
+    (should-error (fn :x))
+    (should (eq (fn :x :a) :a))))
+
 
 ;;; cl-macs-tests.el ends here

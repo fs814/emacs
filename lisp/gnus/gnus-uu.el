@@ -1,6 +1,6 @@
 ;;; gnus-uu.el --- extract (uu)encoded files in Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1987, 1993-1998, 2000-2022 Free Software
+;; Copyright (C) 1985-1987, 1993-1998, 2000-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
@@ -1622,7 +1622,7 @@ Gnus might fail to display all of it.")
     state))
 
 ;; `gnus-uu-choose-action' chooses what action to perform given the name
-;; and `gnus-uu-file-action-list'.  Returns either nil if no action is
+;; and FILE-ACTION-LIST.  Return either nil if no action is
 ;; found, or the name of the command to run if such a rule is found.
 (defun gnus-uu-choose-action (file-name file-action-list &optional no-ignore)
   (let ((action-list (copy-sequence file-action-list))

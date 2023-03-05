@@ -1,22 +1,23 @@
 ;;; erc-scenarios-misc.el --- Misc scenarios for ERC -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
-;;
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+
 ;; This file is part of GNU Emacs.
-;;
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see
-;; <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Code:
 
 (require 'ert-x)
 (eval-and-compile
@@ -97,11 +98,10 @@
                                 :nick "tester"
                                 :full-name "tester")
         (should (string= (buffer-name) (format "127.0.0.1:%d" port)))
-        (let ((err (should-error (sleep-for 1))))
-          (should (string-match-p "Failed to determine" (cadr err))))
         (funcall expect 1 "Failed to determine")
         (funcall expect 1 "Failed to determine")
-        (should-not erc-network)
+        (funcall expect 1 "Connection failed")
+        (should (string-prefix-p "Unknown" (erc-network-name)))
         (should (string= erc-server-announced-name "irc.foonet.org"))))))
 
 ;; Targets that are host/server masks like $*, $$*, and #* are routed
@@ -176,5 +176,33 @@
       (with-current-buffer "DCC-CHAT-dummy"
         (erc-scenarios-common-say "Hi")
         (funcall expect 10 "Hola")))))
+
+(defvar url-irc-function)
+
+(ert-deftest erc-scenarios-handle-irc-url ()
+  :tags '(:expensive-test)
+  (erc-scenarios-common-with-cleanup
+      ((erc-scenarios-common-dialog "join/legacy")
+       (dumb-server (erc-d-run "localhost" t 'foonet))
+       (port (process-contact dumb-server :service))
+       (expect (erc-d-t-make-expecter))
+       (url-irc-function 'url-irc-erc)
+       (erc-url-connect-function
+        (lambda (scheme &rest r)
+          (ert-info ("Connect to foonet")
+            (should (equal scheme "irc"))
+            (with-current-buffer (apply #'erc `(:full-name "tester" ,@r))
+              (should (string= (buffer-name)
+                               (format "127.0.0.1:%d" port)))
+              (current-buffer))))))
+
+    (with-temp-buffer
+      (insert (format ";; irc://tester:changeme@127.0.0.1:%d/#chan" port))
+      (goto-char 10)
+      (browse-url-at-point))
+
+    (ert-info ("Connected")
+      (with-current-buffer (erc-d-t-wait-for 10 (get-buffer "#chan"))
+        (funcall expect 10 "welcome")))))
 
 ;;; erc-scenarios-misc.el ends here

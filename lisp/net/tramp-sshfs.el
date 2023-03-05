@@ -1,6 +1,6 @@
 ;;; tramp-sshfs.el --- Tramp access functions via sshfs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2021-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -124,6 +124,7 @@
     (file-symlink-p . tramp-handle-file-symlink-p)
     (file-system-info . tramp-sshfs-handle-file-system-info)
     (file-truename . tramp-handle-file-truename)
+    (file-user-uid . tramp-handle-file-user-uid)
     (file-writable-p . tramp-sshfs-handle-file-writable-p)
     (find-backup-file-name . tramp-handle-find-backup-file-name)
     ;; `get-file-buffer' performed by default handler.
@@ -139,6 +140,7 @@
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . tramp-handle-make-process)
     (make-symbolic-link . tramp-handle-make-symbolic-link)
+    (memory-info . tramp-handle-memory-info)
     (process-attributes . tramp-handle-process-attributes)
     (process-file . tramp-sshfs-handle-process-file)
     (rename-file . tramp-sshfs-handle-rename-file)
@@ -214,7 +216,8 @@ arguments to pass to the OPERATION."
    (with-parsed-tramp-file-name default-directory nil
      (with-tramp-connection-property (tramp-get-process v) "remote-path"
        (with-temp-buffer
-	 (process-file "getconf" nil t nil "PATH")
+         (let (process-file-side-effects)
+	   (process-file "getconf" nil t nil "PATH"))
 	 (split-string
 	  (progn
 	    ;; Read the expression.
@@ -226,8 +229,7 @@ arguments to pass to the OPERATION."
 
 (defun tramp-sshfs-handle-file-system-info (filename)
   "Like `file-system-info' for Tramp files."
-  ;;`file-system-info' exists since Emacs 27.1.
-  (tramp-compat-funcall 'file-system-info (tramp-fuse-local-file-name filename)))
+  (file-system-info (tramp-fuse-local-file-name filename)))
 
 (defun tramp-sshfs-handle-file-writable-p (filename)
   "Like `file-writable-p' for Tramp files."
@@ -264,7 +266,7 @@ arguments to pass to the OPERATION."
       ;; Determine input.
       (if (null infile)
 	  (setq input (tramp-get-remote-null-device v))
-	(setq infile (tramp-compat-file-name-unquote (expand-file-name infile)))
+	(setq infile (file-name-unquote (expand-file-name infile)))
 	(if (tramp-equal-remote default-directory infile)
 	    ;; INFILE is on the same remote host.
 	    (setq input (tramp-unquote-file-local-name infile))

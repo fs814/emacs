@@ -1,6 +1,6 @@
 ;;; man.el --- browse UNIX manual pages -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1994, 1996-1997, 2001-2022 Free Software
+;; Copyright (C) 1993-1994, 1996-1997, 2001-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Barry A. Warsaw <bwarsaw@cen.com>
@@ -96,6 +96,14 @@
   :prefix "Man-"
   :group 'external
   :group 'help)
+
+(defcustom Man-prefer-synchronous-call nil
+  "Whether to call the Un*x \"man\" program synchronously.
+When this is non-nil, call the \"man\" program synchronously
+(rather than asynchronously, which is the default behavior)."
+  :type 'boolean
+  :group 'man
+  :version "30.1")
 
 (defcustom Man-filter-list nil
   "Manpage cleaning filter command phrases.
@@ -331,7 +339,7 @@ This regexp should not start with a `^' character.")
 ;; This used to have leading space [ \t]*, but was removed because it
 ;; causes false page splits on an occasional NAME with leading space
 ;; inside a manpage.  And `Man-heading-regexp' doesn't have [ \t]* anyway.
-(defvar Man-first-heading-regexp "^NAME$\\|^[ \t]*No manual entry fo.*$"
+(defvar Man-first-heading-regexp "^NAME$\\|^[ \t]*No manual entry for.*$"
   "Regular expression describing first heading on a manpage.
 This regular expression should start with a `^' character.")
 
@@ -1077,13 +1085,13 @@ to auto-complete your input based on the installed manual pages."
     ;; unless COLUMNS or MANWIDTH is set.  This isn't a problem on
     ;; a tty.  man(1) says:
     ;;        MANWIDTH
-    ;;               If $MANWIDTH is set, its value is used as the  line
-    ;;               length  for which manual pages should be formatted.
-    ;;               If it is not set, manual pages  will  be  formatted
-    ;;               with  a line length appropriate to the current ter-
-    ;;               minal (using an ioctl(2) if available, the value of
-    ;;               $COLUMNS,  or falling back to 80 characters if nei-
-    ;;               ther is available).
+    ;;               If $MANWIDTH is set, its value is used as the line
+    ;;               length for which manual pages should be formatted.
+    ;;               If it is not set, manual pages will be formatted
+    ;;               with a line length appropriate to the current
+    ;;               terminal (using an ioctl(2) if available, the value
+    ;;               of $COLUMNS, or falling back to 80 characters if
+    ;;               neither is available).
     (when (or window-system
 	      (not (or (getenv "MANWIDTH") (getenv "COLUMNS"))))
       ;; Since the page buffer is displayed beforehand,
@@ -1118,7 +1126,8 @@ Return the buffer in which the manpage will appear."
 					"[cleaning...]")
 				      'face 'mode-line-emphasis)))
 	(Man-start-calling
-	 (if (fboundp 'make-process)
+	 (if (and (fboundp 'make-process)
+                  (not Man-prefer-synchronous-call))
 	     (let ((proc (start-process
 			  manual-program buffer
 			  (if (memq system-type '(cygwin windows-nt))
@@ -1262,21 +1271,21 @@ Same for the ANSI bold and normal escape sequences."
 	(progn
 	  (goto-char (point-min))
 	  (while (and (search-forward "__\b\b" nil t) (not (eobp)))
-	    (backward-delete-char 4)
+	    (delete-char -4)
             (put-text-property (point) (1+ (point))
                                'font-lock-face 'Man-underline))
 	  (goto-char (point-min))
 	  (while (search-forward "\b\b__" nil t)
-	    (backward-delete-char 4)
+	    (delete-char -4)
             (put-text-property (1- (point)) (point)
                                'font-lock-face 'Man-underline))))
     (goto-char (point-min))
     (while (and (search-forward "_\b" nil t) (not (eobp)))
-      (backward-delete-char 2)
+      (delete-char -2)
       (put-text-property (point) (1+ (point)) 'font-lock-face 'Man-underline))
     (goto-char (point-min))
     (while (search-forward "\b_" nil t)
-      (backward-delete-char 2)
+      (delete-char -2)
       (put-text-property (1- (point)) (point) 'font-lock-face 'Man-underline))
     (goto-char (point-min))
     (while (re-search-forward "\\(.\\)\\(\b+\\1\\)+" nil t)
@@ -1294,7 +1303,7 @@ Same for the ANSI bold and normal escape sequences."
     ;; condense it to a shorter line interspersed with ^H.  Remove ^H with
     ;; their preceding chars (but don't put Man-overstrike).  (Bug#5566)
     (goto-char (point-min))
-    (while (re-search-forward ".\b" nil t) (backward-delete-char 2))
+    (while (re-search-forward ".\b" nil t) (delete-char -2))
     (goto-char (point-min))
     ;; Try to recognize common forms of cross references.
     (Man-highlight-references)
@@ -1375,9 +1384,9 @@ script would have done them."
   (if (or interactive (not Man-sed-script))
       (progn
 	(goto-char (point-min))
-	(while (search-forward "_\b" nil t) (backward-delete-char 2))
+	(while (search-forward "_\b" nil t) (delete-char -2))
 	(goto-char (point-min))
-	(while (search-forward "\b_" nil t) (backward-delete-char 2))
+	(while (search-forward "\b_" nil t) (delete-char -2))
 	(goto-char (point-min))
 	(while (re-search-forward "\\(.\\)\\(\b\\1\\)+" nil t)
 	  (replace-match "\\1"))
@@ -1392,7 +1401,7 @@ script would have done them."
   ;; condense it to a shorter line interspersed with ^H.  Remove ^H with
   ;; their preceding chars (but don't put Man-overstrike).  (Bug#5566)
   (goto-char (point-min))
-  (while (re-search-forward ".\b" nil t) (backward-delete-char 2))
+  (while (re-search-forward ".\b" nil t) (delete-char -2))
   (Man-softhyphen-to-minus))
 
 (defun Man-bgproc-filter (process string)

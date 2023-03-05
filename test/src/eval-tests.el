@@ -1,6 +1,6 @@
 ;;; eval-tests.el --- unit tests for src/eval.c      -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2023 Free Software Foundation, Inc.
 
 ;; Author: Philipp Stephani <phst@google.com>
 
@@ -222,7 +222,7 @@ expressions works for identifiers starting with period."
 
 (ert-deftest eval-tests/funcall-with-delayed-message ()
   ;; Check that `funcall-with-delayed-message' displays its message before
-  ;; its function terminates iff the timeout is short enough.
+  ;; its function terminates if the timeout is short enough.
 
   ;; This also serves as regression test for bug#55628 where a short
   ;; timeout was rounded up to the next whole second.

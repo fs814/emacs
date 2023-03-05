@@ -1,5 +1,5 @@
 /* Haiku window system selection support.
-   Copyright (C) 2021-2022 Free Software Foundation, Inc.
+   Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1260,7 +1260,7 @@ syms_of_haikuselect (void)
 {
   DEFVAR_BOOL ("haiku-signal-invalid-refs", haiku_signal_invalid_refs,
     doc: /* If nil, silently ignore invalid file names in system messages.
-Otherwise, an error will be signalled if adding a file reference to a
+Otherwise, an error will be signaled if adding a file reference to a
 system message failed.  */);
   haiku_signal_invalid_refs = true;
 

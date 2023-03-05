@@ -1,6 +1,6 @@
 /* JSON parsing and serialization.
 
-Copyright (C) 2017-2022 Free Software Foundation, Inc.
+Copyright (C) 2017-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -555,6 +555,40 @@ json_parse_args (ptrdiff_t nargs,
   }
 }
 
+static bool
+json_available_p (void)
+{
+#ifdef WINDOWSNT
+  if (!json_initialized)
+    {
+      Lisp_Object status;
+      json_initialized = init_json_functions ();
+      status = json_initialized ? Qt : Qnil;
+      Vlibrary_cache = Fcons (Fcons (Qjson, status), Vlibrary_cache);
+    }
+  return json_initialized;
+#else  /* !WINDOWSNT */
+  return true;
+#endif
+}
+
+#ifdef WINDOWSNT
+static void
+ensure_json_available (void)
+{
+  if (!json_available_p ())
+    Fsignal (Qjson_unavailable,
+	     list1 (build_unibyte_string ("jansson library not found")));
+}
+#endif
+
+DEFUN ("json--available-p", Fjson__available_p, Sjson__available_p, 0, 0, NULL,
+       doc: /* Return non-nil if libjansson is available (internal use only).  */)
+  (void)
+{
+  return json_available_p () ? Qt : Qnil;
+}
+
 DEFUN ("json-serialize", Fjson_serialize, Sjson_serialize, 1, MANY,
        NULL,
        doc: /* Return the JSON representation of OBJECT as a string.
@@ -587,16 +621,7 @@ usage: (json-serialize OBJECT &rest ARGS)  */)
   specpdl_ref count = SPECPDL_INDEX ();
 
 #ifdef WINDOWSNT
-  if (!json_initialized)
-    {
-      Lisp_Object status;
-      json_initialized = init_json_functions ();
-      status = json_initialized ? Qt : Qnil;
-      Vlibrary_cache = Fcons (Fcons (Qjson, status), Vlibrary_cache);
-    }
-  if (!json_initialized)
-    Fsignal (Qjson_unavailable,
-	     list1 (build_unibyte_string ("jansson library not found")));
+  ensure_json_available ();
 #endif
 
   struct json_configuration conf =
@@ -696,16 +721,7 @@ usage: (json-insert OBJECT &rest ARGS)  */)
   specpdl_ref count = SPECPDL_INDEX ();
 
 #ifdef WINDOWSNT
-  if (!json_initialized)
-    {
-      Lisp_Object status;
-      json_initialized = init_json_functions ();
-      status = json_initialized ? Qt : Qnil;
-      Vlibrary_cache = Fcons (Fcons (Qjson, status), Vlibrary_cache);
-    }
-  if (!json_initialized)
-    Fsignal (Qjson_unavailable,
-	     list1 (build_unibyte_string ("jansson library not found")));
+  ensure_json_available ();
 #endif
 
   struct json_configuration conf =
@@ -953,16 +969,7 @@ usage: (json-parse-string STRING &rest ARGS) */)
   specpdl_ref count = SPECPDL_INDEX ();
 
 #ifdef WINDOWSNT
-  if (!json_initialized)
-    {
-      Lisp_Object status;
-      json_initialized = init_json_functions ();
-      status = json_initialized ? Qt : Qnil;
-      Vlibrary_cache = Fcons (Fcons (Qjson, status), Vlibrary_cache);
-    }
-  if (!json_initialized)
-    Fsignal (Qjson_unavailable,
-	     list1 (build_unibyte_string ("jansson library not found")));
+  ensure_json_available ();
 #endif
 
   Lisp_Object string = args[0];
@@ -1050,16 +1057,7 @@ usage: (json-parse-buffer &rest args) */)
   specpdl_ref count = SPECPDL_INDEX ();
 
 #ifdef WINDOWSNT
-  if (!json_initialized)
-    {
-      Lisp_Object status;
-      json_initialized = init_json_functions ();
-      status = json_initialized ? Qt : Qnil;
-      Vlibrary_cache = Fcons (Fcons (Qjson, status), Vlibrary_cache);
-    }
-  if (!json_initialized)
-    Fsignal (Qjson_unavailable,
-	     list1 (build_unibyte_string ("jansson library not found")));
+  ensure_json_available ();
 #endif
 
   struct json_configuration conf =
@@ -1090,22 +1088,6 @@ usage: (json-parse-buffer &rest args) */)
   SET_PT_BOTH (BYTE_TO_CHAR (point), point);
 
   return unbind_to (count, lisp);
-}
-
-/* Simplified version of 'define-error' that works with pure
-   objects.  */
-
-static void
-define_error (Lisp_Object name, const char *message, Lisp_Object parent)
-{
-  eassert (SYMBOLP (name));
-  eassert (SYMBOLP (parent));
-  Lisp_Object parent_conditions = Fget (parent, Qerror_conditions);
-  eassert (CONSP (parent_conditions));
-  eassert (!NILP (Fmemq (parent, parent_conditions)));
-  eassert (NILP (Fmemq (name, parent_conditions)));
-  Fput (name, Qerror_conditions, pure_cons (name, parent_conditions));
-  Fput (name, Qerror_message, build_pure_c_string (message));
 }
 
 void
@@ -1153,6 +1135,7 @@ syms_of_json (void)
   DEFSYM (Qplist, "plist");
   DEFSYM (Qarray, "array");
 
+  defsubr (&Sjson__available_p);
   defsubr (&Sjson_serialize);
   defsubr (&Sjson_insert);
   defsubr (&Sjson_parse_string);

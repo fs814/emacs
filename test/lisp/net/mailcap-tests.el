@@ -1,6 +1,6 @@
 ;;; mailcap-tests.el --- tests for mailcap.el -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2023 Free Software Foundation, Inc.
 
 ;; Author: Mark Oteiza <mvoteiza@udel.edu>
 
@@ -125,7 +125,7 @@
 
 (ert-deftest mailcap-view-file ()
   (with-pristine-mailcap
-   ;; Try using a lambda as viewer and check wether
+   ;; Try using a lambda as viewer and check whether
    ;; `mailcap-view-file' works correctly.
    (let* ((mailcap-mime-extensions '((".test" . "test/test"))))
      (mailcap-add "test/test" 'mailcap--test-viewer)

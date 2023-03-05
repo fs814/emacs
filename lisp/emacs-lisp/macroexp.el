@@ -1,6 +1,6 @@
 ;;; macroexp.el --- Additional macro-expansion support -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 2004-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2023 Free Software Foundation, Inc.
 ;;
 ;; Author: Miles Bader <miles@gnu.org>
 ;; Keywords: lisp, compiler, macros
@@ -291,10 +291,11 @@ It should normally be a symbol with position and it defaults to FORM."
       (setq arglist (cdr arglist)))
     (if values
         (macroexp-warn-and-return
-         (format (if (eq values 'too-few)
-                     "attempt to open-code `%s' with too few arguments"
-                   "attempt to open-code `%s' with too many arguments")
-                 name)
+         (format-message
+          (if (eq values 'too-few)
+              "attempt to open-code `%s' with too few arguments"
+            "attempt to open-code `%s' with too many arguments")
+          name)
          form nil nil arglist)
 
       ;; The following leads to infinite recursion when loading a
@@ -338,14 +339,19 @@ Assumes the caller has bound `macroexpand-all-environment'."
             (`(cond . ,clauses)
              (macroexp--cons fn (macroexp--all-clauses clauses) form))
             (`(condition-case . ,(or `(,err ,body . ,handlers) pcase--dontcare))
-             (macroexp--cons
-              fn
-              (macroexp--cons err
-                              (macroexp--cons (macroexp--expand-all body)
-                                              (macroexp--all-clauses handlers 1)
-                                              (cddr form))
-                              (cdr form))
-              form))
+             (let ((exp-body (macroexp--expand-all body)))
+               (if handlers
+                   (macroexp--cons fn
+                                   (macroexp--cons
+                                    err (macroexp--cons
+                                         exp-body
+                                         (macroexp--all-clauses handlers 1)
+                                         (cddr form))
+                                    (cdr form))
+                                   form)
+                 (macroexp-warn-and-return
+                  (format-message "`condition-case' without handlers")
+                  exp-body (list 'suspicious 'condition-case) t form))))
             (`(,(or 'defvar 'defconst) ,(and name (pred symbolp)) . ,_)
              (push name macroexp--dynvars)
              (macroexp--all-forms form 2))
@@ -367,14 +373,14 @@ Assumes the caller has bound `macroexpand-all-environment'."
                  (if (null body)
                      (macroexp-unprogn
                       (macroexp-warn-and-return
-                       (format "Empty %s body" fun)
-                       nil nil 'compile-only fun))
+                       (format-message "`%s' with empty body" fun)
+                       nil (list 'empty-body fun) 'compile-only fun))
                    (macroexp--all-forms body))
                  (cdr form))
                 form)))
             (`(while)
              (macroexp-warn-and-return
-              "missing `while' condition"
+              (format-message "missing `while' condition")
               `(signal 'wrong-number-of-arguments '(while 0))
               nil 'compile-only form))
             (`(setq ,(and var (pred symbolp)
@@ -392,7 +398,7 @@ Assumes the caller has bound `macroexpand-all-environment'."
              (let ((nargs (length args)))
                (if (/= (logand nargs 1) 0)
                    (macroexp-warn-and-return
-                    "odd number of arguments in `setq' form"
+                    (format-message "odd number of arguments in `setq' form")
                     `(signal 'wrong-number-of-arguments '(setq ,nargs))
                     nil 'compile-only fn)
                  (let ((assignments nil))
@@ -457,12 +463,13 @@ Assumes the caller has bound `macroexpand-all-environment'."
                  (let ((arg (nth funarg form)))
                    (when (and (eq 'quote (car-safe arg))
                               (eq 'lambda (car-safe (cadr arg))))
-                     (setcar (nthcdr funarg form)
-                             (macroexp-warn-and-return
-                              (format "%S quoted with ' rather than with #'"
-                                      (let ((f (cadr arg)))
-                                        (if (symbolp f) f `(lambda ,(nth 1 f) ...))))
-                              arg nil nil (cadr arg))))))
+                     (setcar
+                      (nthcdr funarg form)
+                      (macroexp-warn-and-return
+                       (format
+                        "(lambda %s ...) quoted with ' rather than with #'"
+                        (or (nth 1 (cadr arg)) "()"))
+                       arg nil nil (cadr arg))))))
                ;; Macro expand compiler macros.  This cannot be delayed to
                ;; byte-optimize-form because the output of the compiler-macro can
                ;; use macros.
@@ -486,7 +493,7 @@ Assumes the caller has bound `macroexpand-all-environment'."
                          (setq form (macroexp--compiler-macro handler newform))
                          (if (eq newform form)
                              newform
-                           (macroexp--expand-all newform)))
+                           (macroexp--expand-all form)))
                      (macroexp--expand-all newform))))))
             (_ form))))
     (pop byte-compile-form-stack)))
@@ -494,7 +501,7 @@ Assumes the caller has bound `macroexpand-all-environment'."
 ;; Record which arguments expect functions, so we can warn when those
 ;; are accidentally quoted with ' rather than with #'
 (dolist (f '( funcall apply mapcar mapatoms mapconcat mapc cl-mapcar maphash
-              map-char-table map-keymap map-keymap-internal))
+              mapcan map-char-table map-keymap map-keymap-internal))
   (put f 'funarg-positions '(1)))
 (dolist (f '( add-hook remove-hook advice-remove advice--remove-function
               defalias fset global-set-key run-after-idle-timeout

@@ -1,22 +1,23 @@
 ;;; erc-scenarios-base-reconnect.el --- Base-reconnect scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
-;;
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+
 ;; This file is part of GNU Emacs.
-;;
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see
-;; <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Code:
 
 (require 'ert-x)
 (eval-and-compile
@@ -223,5 +224,51 @@
     (ert-info ("#chan convo done")
       (with-current-buffer "#chan"
         (funcall expect 10 "here comes the lady")))))
+
+
+(ert-deftest erc-scenarios-base-cancel-reconnect ()
+  :tags '(:expensive-test)
+  (erc-scenarios-common-with-cleanup
+      ((erc-scenarios-common-dialog "base/reconnect")
+       (dumb-server (erc-d-run "localhost" t 'timer 'timer 'timer-last))
+       (port (process-contact dumb-server :service))
+       (expect (erc-d-t-make-expecter))
+       (erc-server-auto-reconnect t)
+       erc-autojoin-channels-alist
+       erc-server-buffer)
+
+    (ert-info ("Connect to foonet")
+      (setq erc-server-buffer (erc :server "127.0.0.1"
+                                   :port port
+                                   :nick "tester"
+                                   :password "changeme"
+                                   :full-name "tester"))
+      (with-current-buffer erc-server-buffer
+        (should (string= (buffer-name) (format "127.0.0.1:%d" port)))))
+
+    (ert-info ("Two connection attempts, all stymied")
+      (with-current-buffer erc-server-buffer
+        (ert-info ("First two attempts behave normally")
+          (dotimes (n 2)
+            (ert-info ((format "Initial attempt %d" (1+ n)))
+              (funcall expect 3 "Opening connection")
+              (funcall expect 2 "Password incorrect")
+              (funcall expect 2 "Connection failed!")
+              (funcall expect 2 "Re-establishing connection"))))
+        (ert-info ("/RECONNECT cancels timer but still attempts to connect")
+          (erc-cmd-RECONNECT)
+          (funcall expect 2 "Canceled")
+          (funcall expect 3 "Opening connection")
+          (funcall expect 2 "Password incorrect")
+          (funcall expect 2 "Connection failed!")
+          (funcall expect 2 "Re-establishing connection"))
+        (ert-info ("Explicitly cancel timer")
+          (erc-cmd-RECONNECT "cancel")
+          (funcall expect 2 "Canceled")
+          (erc-d-t-absent-for 1 "Opening connection" (point)))))
+
+    (ert-info ("Server buffer is unique and temp name is absent")
+      (should (equal (list (get-buffer (format "127.0.0.1:%d" port)))
+                     (erc-scenarios-common-buflist "127.0.0.1"))))))
 
 ;;; erc-scenarios-base-reconnect.el ends here

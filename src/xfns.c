@@ -1,6 +1,6 @@
 /* Functions for the X Window System.
 
-Copyright (C) 1989, 1992-2022 Free Software Foundation, Inc.
+Copyright (C) 1989, 1992-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -37,13 +37,16 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "termhooks.h"
 #include "font.h"
 
+#ifdef HAVE_X_I18N
+#include "textconv.h"
+#endif
+
 #include <sys/types.h>
 #include <sys/stat.h>
 
 #ifdef USE_XCB
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
-#include <xcb/xcb_aux.h>
 #endif
 
 #include "bitmaps/gray.xbm"
@@ -1362,12 +1365,20 @@ x_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
       char *xmessage = alloca (1 + message_length);
       memcpy (xmessage, cursor_data.error_string, message_length);
 
-      x_uncatch_errors ();
+      x_uncatch_errors_after_check ();
+
+      /* XFreeCursor can generate BadCursor errors, because
+	 XCreateFontCursor is not a request that waits for a reply,
+	 and as such can return IDs that will not actually be used by
+	 the server.  */
+      x_ignore_errors_for_next_request (FRAME_DISPLAY_INFO (f), 0);
 
       /* Free any successfully created cursors.  */
       for (i = 0; i < mouse_cursor_max; i++)
 	if (cursor_data.cursor[i] != 0)
 	  XFreeCursor (dpy, cursor_data.cursor[i]);
+
+      x_stop_ignoring_errors (FRAME_DISPLAY_INFO (f));
 
       /* This should only be able to fail if the server's serial
 	 number tracking is broken.  */
@@ -1752,8 +1763,15 @@ x_change_tab_bar_height (struct frame *f, int height)
 {
   int unit = FRAME_LINE_HEIGHT (f);
   int old_height = FRAME_TAB_BAR_HEIGHT (f);
-  int lines = (height + unit - 1) / unit;
-  Lisp_Object fullscreen = get_frame_param (f, Qfullscreen);
+
+  /* This differs from the tool bar code in that the tab bar height is
+     not rounded up.  Otherwise, if redisplay_tab_bar decides to grow
+     the tab bar by even 1 pixel, FRAME_TAB_BAR_LINES will be changed,
+     leading to the tab bar height being incorrectly set upon the next
+     call to x_set_font.  (bug#59285) */
+  int lines = height / unit;
+  if (lines == 0 && height != 0)
+    lines = 1;
 
   /* Make sure we redisplay all windows in this frame.  */
   fset_redisplay (f);
@@ -1774,6 +1792,8 @@ x_change_tab_bar_height (struct frame *f, int height)
 
   if (!f->tab_bar_resized)
     {
+      Lisp_Object fullscreen = get_frame_param (f, Qfullscreen);
+
       /* As long as tab_bar_resized is false, effectively try to change
 	 F's native height.  */
       if (NILP (fullscreen) || EQ (fullscreen, Qfullwidth))
@@ -2626,12 +2646,18 @@ append_wm_protocols (struct x_display_info *dpyinfo,
   if (existing)
     XFree (existing);
 
-  if (!found_wm_ping)
-    protos[num_protos++] = dpyinfo->Xatom_net_wm_ping;
+  if (!dpyinfo->untrusted)
+    {
+      /* Untrusted clients cannot use these protocols which require
+	 communicating with the window manager.  */
+
+      if (!found_wm_ping)
+	protos[num_protos++] = dpyinfo->Xatom_net_wm_ping;
 #if !defined HAVE_GTK3 && defined HAVE_XSYNC
-  if (!found_wm_sync_request && dpyinfo->xsync_supported_p)
-    protos[num_protos++] = dpyinfo->Xatom_net_wm_sync_request;
+      if (!found_wm_sync_request && dpyinfo->xsync_supported_p)
+	protos[num_protos++] = dpyinfo->Xatom_net_wm_sync_request;
 #endif
+    }
 
   if (num_protos)
     XChangeProperty (dpyinfo->display,
@@ -2649,24 +2675,50 @@ append_wm_protocols (struct x_display_info *dpyinfo,
 
 #ifdef HAVE_X_I18N
 
-static void xic_preedit_draw_callback (XIC, XPointer, XIMPreeditDrawCallbackStruct *);
-static void xic_preedit_caret_callback (XIC, XPointer, XIMPreeditCaretCallbackStruct *);
+static void xic_preedit_draw_callback (XIC, XPointer,
+				       XIMPreeditDrawCallbackStruct *);
+static void xic_preedit_caret_callback (XIC, XPointer,
+					XIMPreeditCaretCallbackStruct *);
 static void xic_preedit_done_callback (XIC, XPointer, XPointer);
 static int xic_preedit_start_callback (XIC, XPointer, XPointer);
+static void xic_string_conversion_callback (XIC, XPointer,
+					    XIMStringConversionCallbackStruct *);
 
 #ifndef HAVE_XICCALLBACK_CALLBACK
 #define XICCallback XIMCallback
 #define XICProc XIMProc
 #endif
 
-static XIMCallback Xxic_preedit_draw_callback = { NULL,
-						  (XIMProc) xic_preedit_draw_callback };
-static XIMCallback Xxic_preedit_caret_callback = { NULL,
-						   (XIMProc) xic_preedit_caret_callback };
-static XIMCallback Xxic_preedit_done_callback = { NULL,
-						  (XIMProc) xic_preedit_done_callback };
-static XICCallback Xxic_preedit_start_callback = { NULL,
-						   (XICProc) xic_preedit_start_callback };
+static XIMCallback Xxic_preedit_draw_callback =
+  {
+    NULL,
+    (XIMProc) xic_preedit_draw_callback,
+  };
+
+static XIMCallback Xxic_preedit_caret_callback =
+  {
+    NULL,
+    (XIMProc) xic_preedit_caret_callback,
+  };
+
+static XIMCallback Xxic_preedit_done_callback =
+  {
+    NULL,
+    (XIMProc) xic_preedit_done_callback,
+  };
+
+static XICCallback Xxic_preedit_start_callback =
+  {
+    NULL,
+    (XICProc) xic_preedit_start_callback,
+  };
+
+static XIMCallback Xxic_string_conversion_callback =
+  {
+    /* This is actually an XICCallback! */
+    NULL,
+    (XIMProc) xic_string_conversion_callback,
+  };
 
 #if defined HAVE_X_WINDOWS && defined USE_X_TOOLKIT
 /* Create an X fontset on frame F with base font name BASE_FONTNAME.  */
@@ -3072,6 +3124,8 @@ create_frame_xic (struct frame *f)
                      XNFocusWindow, FRAME_X_WINDOW (f),
                      XNStatusAttributes, status_attr,
                      XNPreeditAttributes, preedit_attr,
+		     XNStringConversionCallback,
+		     &Xxic_string_conversion_callback,
                      NULL);
   else if (preedit_attr)
     xic = XCreateIC (xim,
@@ -3079,6 +3133,8 @@ create_frame_xic (struct frame *f)
                      XNClientWindow, FRAME_X_WINDOW (f),
                      XNFocusWindow, FRAME_X_WINDOW (f),
                      XNPreeditAttributes, preedit_attr,
+		     XNStringConversionCallback,
+		     &Xxic_string_conversion_callback,
                      NULL);
   else if (status_attr)
     xic = XCreateIC (xim,
@@ -3086,12 +3142,16 @@ create_frame_xic (struct frame *f)
                      XNClientWindow, FRAME_X_WINDOW (f),
                      XNFocusWindow, FRAME_X_WINDOW (f),
                      XNStatusAttributes, status_attr,
+		     XNStringConversionCallback,
+		     &Xxic_string_conversion_callback,
                      NULL);
   else
     xic = XCreateIC (xim,
                      XNInputStyle, xic_style,
                      XNClientWindow, FRAME_X_WINDOW (f),
                      XNFocusWindow, FRAME_X_WINDOW (f),
+		     XNStringConversionCallback,
+		     &Xxic_string_conversion_callback,
                      NULL);
 
   if (!xic)
@@ -3355,6 +3415,7 @@ struct x_xim_text_conversion_data
   struct coding_system *coding;
   char *source;
   struct x_display_info *dpyinfo;
+  size_t size;
 };
 
 static Lisp_Object
@@ -3384,6 +3445,38 @@ x_xim_text_to_utf8_unix_1 (ptrdiff_t nargs, Lisp_Object *args)
   data->coding->dst_bytes = 2048;
   data->coding->destination = xmalloc (2048);
   decode_coding_object (data->coding, Qnil, 0, 0,
+			nbytes, nbytes, Qnil);
+
+  return Qnil;
+}
+
+static Lisp_Object
+x_encode_xim_text_1 (ptrdiff_t nargs, Lisp_Object *args)
+{
+  struct x_xim_text_conversion_data *data;
+  ptrdiff_t nbytes;
+  Lisp_Object coding_system;
+
+  data = xmint_pointer (args[0]);
+
+  if (SYMBOLP (Vx_input_coding_system))
+    coding_system = Vx_input_coding_system;
+  else if (!NILP (data->dpyinfo->xim_coding))
+    coding_system = data->dpyinfo->xim_coding;
+  else
+    coding_system = Vlocale_coding_system;
+
+  nbytes = data->size;
+
+  data->coding->destination = NULL;
+
+  setup_coding_system (coding_system, data->coding);
+  data->coding->mode |= (CODING_MODE_LAST_BLOCK
+			 | CODING_MODE_SAFE_ENCODING);
+  data->coding->source = (const unsigned char *) data->source;
+  data->coding->dst_bytes = 2048;
+  data->coding->destination = xmalloc (2048);
+  encode_coding_object (data->coding, Qnil, 0, 0,
 			nbytes, nbytes, Qnil);
 
   return Qnil;
@@ -3443,6 +3536,46 @@ x_xim_text_to_utf8_unix (struct x_display_info *dpyinfo,
   waiting_for_input = was_waiting_for_input_p;
 
   *length = coding.produced;
+  return (char *) coding.destination;
+}
+
+/* Convert SIZE bytes of the specified text from Emacs's internal
+   coding system to the input method coding system.  Return the
+   result, its byte length in *LENGTH, and its character length in
+   *CHARS, or NULL.
+
+   The string returned is not NULL terminated.  */
+
+static char *
+x_encode_xim_text (struct x_display_info *dpyinfo, char *text,
+		   size_t size, ptrdiff_t *length,
+		   ptrdiff_t *chars)
+{
+  struct coding_system coding;
+  struct x_xim_text_conversion_data data;
+  Lisp_Object arg;
+  bool was_waiting_for_input_p;
+
+  data.coding = &coding;
+  data.source = text;
+  data.dpyinfo = dpyinfo;
+  data.size = size;
+
+  was_waiting_for_input_p = waiting_for_input;
+  /* Otherwise Fsignal will crash.  */
+  waiting_for_input = false;
+
+  arg = make_mint_ptr (&data);
+  internal_condition_case_n (x_encode_xim_text_1, 1, &arg,
+			     Qt, x_xim_text_to_utf8_unix_2);
+  waiting_for_input = was_waiting_for_input_p;
+
+  if (length)
+    *length = coding.produced;
+
+  if (chars)
+    *chars = coding.produced_char;
+
   return (char *) coding.destination;
 }
 
@@ -3640,6 +3773,128 @@ xic_set_xfontset (struct frame *f, const char *base_fontname)
   XFree (attr);
 
   FRAME_XIC_FONTSET (f) = xfs;
+}
+
+
+
+/* String conversion support.  See textconv.c for more details.  */
+
+static void
+xic_string_conversion_callback (XIC ic, XPointer client_data,
+				XIMStringConversionCallbackStruct *call_data)
+{
+  struct textconv_callback_struct request;
+  ptrdiff_t length;
+  struct frame *f;
+  int rc;
+
+  /* Find the frame associated with this IC.  */
+  f = x_xic_to_frame (ic);
+
+  if (!f)
+    goto failure;
+
+  /* Fill in CALL_DATA as early as possible.  */
+  call_data->text->feedback = NULL;
+  call_data->text->encoding_is_wchar = False;
+
+  /* Now translate the conversion request to the format understood by
+     textconv.c.  */
+  request.position = call_data->position;
+
+  switch (call_data->direction)
+    {
+    case XIMForwardChar:
+      request.direction = TEXTCONV_FORWARD_CHAR;
+      break;
+
+    case XIMBackwardChar:
+      request.direction = TEXTCONV_BACKWARD_CHAR;
+      break;
+
+    case XIMForwardWord:
+      request.direction = TEXTCONV_FORWARD_WORD;
+      break;
+
+    case XIMBackwardWord:
+      request.direction = TEXTCONV_BACKWARD_WORD;
+      break;
+
+    case XIMCaretUp:
+      request.direction = TEXTCONV_CARET_UP;
+      break;
+
+    case XIMCaretDown:
+      request.direction = TEXTCONV_CARET_DOWN;
+      break;
+
+    case XIMNextLine:
+      request.direction = TEXTCONV_NEXT_LINE;
+      break;
+
+    case XIMPreviousLine:
+      request.direction = TEXTCONV_PREVIOUS_LINE;
+      break;
+
+    case XIMLineStart:
+      request.direction = TEXTCONV_LINE_START;
+      break;
+
+    case XIMLineEnd:
+      request.direction = TEXTCONV_LINE_END;
+      break;
+
+    case XIMAbsolutePosition:
+      request.direction = TEXTCONV_ABSOLUTE_POSITION;
+      break;
+
+    default:
+      goto failure;
+    }
+
+  /* factor is signed in call_data but is actually a CARD16.  */
+  request.factor = call_data->factor;
+
+  if (call_data->operation == XIMStringConversionSubstitution)
+    request.operation = TEXTCONV_SUBSTITUTION;
+  else
+    request.operation = TEXTCONV_RETRIEVAL;
+
+  /* Now perform the string conversion.  */
+  rc = textconv_query (f, &request);
+
+  if (rc)
+    {
+      xfree (request.text.text);
+      goto failure;
+    }
+
+  /* Encode the text in the locale coding system and give it back to
+     the input method.  */
+  request.text.text = NULL;
+  call_data->text->string.mbs
+    = x_encode_xim_text (FRAME_DISPLAY_INFO (f),
+			 request.text.text,
+			 request.text.bytes, NULL,
+			 &length);
+  call_data->text->length = length;
+
+  /* Free the encoded text.  This is always set to something
+     valid.  */
+  xfree (request.text.text);
+
+  /* Detect failure.  */
+  if (!call_data->text->string.mbs)
+    goto failure;
+
+  return;
+
+ failure:
+  /* Return a string of length 0 using the C library malloc.  This
+     assumes XFree is able to free data allocated with our malloc
+     wrapper.  */
+  call_data->text->length = 0;
+  call_data->text->string.mbs = malloc (0);
 }
 
 #endif /* HAVE_X_I18N */
@@ -4506,9 +4761,11 @@ x_default_font_parameter (struct frame *f, Lisp_Object parms)
     }
 
   if (NILP (font))
-      font = !NILP (font_param) ? font_param
-      : gui_display_get_arg (dpyinfo, parms, Qfont, "font", "Font",
-                             RES_TYPE_STRING);
+    font = (!NILP (font_param)
+	    ? font_param
+	    : gui_display_get_arg (dpyinfo, parms,
+				   Qfont, "font", "Font",
+				   RES_TYPE_STRING));
 
   if (! FONTP (font) && ! STRINGP (font))
     {
@@ -4539,13 +4796,6 @@ x_default_font_parameter (struct frame *f, Lisp_Object parms)
 	}
       if (NILP (font))
 	error ("No suitable font was found");
-    }
-  else if (!NILP (font_param))
-    {
-      /* Remember the explicit font parameter, so we can re-apply it after
-	 we've applied the `default' face settings.  */
-      AUTO_FRAME_ARG (arg, Qfont_parameter, font_param);
-      gui_set_frame_parameters (f, arg);
     }
 
   /* This call will make X resources override any system font setting.  */
@@ -4724,6 +4974,7 @@ This function is an internal primitive--use `make-frame' instead.  */)
 #endif /* USE_LUCID && USE_TOOLKIT_SCROLL_BARS */
   f->output_data.x->white_relief.pixel = -1;
   f->output_data.x->black_relief.pixel = -1;
+  f->output_data.x->visibility_state = VisibilityFullyObscured;
 
   fset_icon_name (f, gui_display_get_arg (dpyinfo,
                                           parms,
@@ -5711,13 +5962,13 @@ x_get_net_workarea (struct x_display_info *dpyinfo, XRectangle *rect)
     = xcb_get_property (dpyinfo->xcb_connection, 0,
 			(xcb_window_t) dpyinfo->root_window,
 			(xcb_atom_t) dpyinfo->Xatom_net_current_desktop,
-			XCB_ATOM_CARDINAL, 0, 1);
+			XA_CARDINAL, 0, 1);
 
   workarea_cookie
     = xcb_get_property (dpyinfo->xcb_connection, 0,
 			(xcb_window_t) dpyinfo->root_window,
 			(xcb_atom_t) dpyinfo->Xatom_net_workarea,
-			XCB_ATOM_CARDINAL, 0, UINT32_MAX);
+			XA_CARDINAL, 0, UINT32_MAX);
 
   reply = xcb_get_property_reply (dpyinfo->xcb_connection,
 				  current_desktop_cookie, &error);
@@ -5728,7 +5979,7 @@ x_get_net_workarea (struct x_display_info *dpyinfo, XRectangle *rect)
   else
     {
       if (xcb_get_property_value_length (reply) != 4
-	  || reply->type != XCB_ATOM_CARDINAL || reply->format != 32)
+	  || reply->type != XA_CARDINAL || reply->format != 32)
 	rc = false;
       else
 	current_workspace = *(uint32_t *) xcb_get_property_value (reply);
@@ -5743,7 +5994,7 @@ x_get_net_workarea (struct x_display_info *dpyinfo, XRectangle *rect)
     free (error), rc = false;
   else
     {
-      if (rc && reply->type == XCB_ATOM_CARDINAL && reply->format == 32
+      if (rc && reply->type == XA_CARDINAL && reply->format == 32
 	  && (xcb_get_property_value_length (reply) / sizeof (uint32_t)
 	      >= current_workspace + 4))
 	{
@@ -7067,8 +7318,8 @@ that mouse buttons are being held down, such as immediately after a
   /* Catch errors since interning lots of targets can potentially
      generate a BadAlloc error.  */
   x_catch_errors (FRAME_X_DISPLAY (f));
-  XInternAtoms (FRAME_X_DISPLAY (f), target_names,
-		ntargets, False, target_atoms);
+  x_intern_atoms (FRAME_DISPLAY_INFO (f), target_names,
+		  ntargets, target_atoms);
   x_check_errors (FRAME_X_DISPLAY (f),
 		  "Failed to intern target atoms: %s");
   x_uncatch_errors_after_check ();
@@ -7365,20 +7616,6 @@ If TERMINAL is omitted or nil, that stands for the selected frame's display.  */
   return Qnil;
 }
 
-/* Wait for responses to all X commands issued so far for frame F.  */
-
-void
-x_sync (struct frame *f)
-{
-  block_input ();
-#ifndef USE_XCB
-  XSync (FRAME_X_DISPLAY (f), False);
-#else
-  xcb_aux_sync (FRAME_DISPLAY_INFO (f)->xcb_connection);
-#endif
-  unblock_input ();
-}
-
 
 /***********************************************************************
                            Window properties
@@ -7472,7 +7709,7 @@ silently ignored.  */)
       elsize = element_format == 32 ? sizeof (long) : element_format >> 3;
       data = xnmalloc (nelements, elsize);
 
-      x_fill_property_data (FRAME_X_DISPLAY (f), value, data, nelements,
+      x_fill_property_data (FRAME_DISPLAY_INFO (f), value, data, nelements,
                             element_format);
     }
   else
@@ -8443,10 +8680,10 @@ compute_tip_xy (struct frame *f, Lisp_Object parms, Lisp_Object dx,
   int min_x, min_y, max_x, max_y = -1;
 
   /* User-specified position?  */
-  left = Fcdr (Fassq (Qleft, parms));
-  top  = Fcdr (Fassq (Qtop, parms));
-  right = Fcdr (Fassq (Qright, parms));
-  bottom = Fcdr (Fassq (Qbottom, parms));
+  left = CDR (Fassq (Qleft, parms));
+  top  = CDR (Fassq (Qtop, parms));
+  right = CDR (Fassq (Qright, parms));
+  bottom = CDR (Fassq (Qbottom, parms));
 
   /* Move the tooltip window where the mouse pointer is.  Resize and
      show it.  */
@@ -8812,14 +9049,14 @@ Text larger than the specified size is clipped.  */)
 	  for (tail = parms; CONSP (tail); tail = XCDR (tail))
 	    {
 	      elt = XCAR (tail);
-	      parm = Fcar (elt);
+	      parm = CAR (elt);
 	      /* The left, top, right and bottom parameters are handled
 		 by compute_tip_xy so they can be ignored here.  */
 	      if (!EQ (parm, Qleft) && !EQ (parm, Qtop)
 		  && !EQ (parm, Qright) && !EQ (parm, Qbottom))
 		{
 		  last = Fassq (parm, tip_last_parms);
-		  if (NILP (Fequal (Fcdr (elt), Fcdr (last))))
+		  if (NILP (Fequal (CDR (elt), CDR (last))))
 		    {
 		      /* We lost, delete the old tooltip.  */
 		      delete = true;
@@ -8840,9 +9077,9 @@ Text larger than the specified size is clipped.  */)
 	  for (tail = tip_last_parms; CONSP (tail); tail = XCDR (tail))
 	    {
 	      elt = XCAR (tail);
-	      parm = Fcar (elt);
+	      parm = CAR (elt);
 	      if (!EQ (parm, Qleft) && !EQ (parm, Qtop) && !EQ (parm, Qright)
-		  && !EQ (parm, Qbottom) && !NILP (Fcdr (elt)))
+		  && !EQ (parm, Qbottom) && !NILP (CDR (elt)))
 		{
 		  /* We lost, delete the old tooltip.  */
 		  delete = true;
@@ -8963,8 +9200,8 @@ Text larger than the specified size is clipped.  */)
 				  make_fixnum (w->pixel_height), Qnil,
 				  Qnil);
   /* Add the frame's internal border to calculated size.  */
-  width = XFIXNUM (Fcar (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
-  height = XFIXNUM (Fcdr (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
+  width = XFIXNUM (CAR (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
+  height = XFIXNUM (CDR (size)) + 2 * FRAME_INTERNAL_BORDER_WIDTH (tip_f);
 
   /* Calculate position of tooltip frame.  */
   compute_tip_xy (tip_f, parms, dx, dy, width, height, &root_x, &root_y);
@@ -9716,10 +9953,12 @@ selected frame's display.  */)
   (Lisp_Object time_object, Lisp_Object terminal)
 {
   struct x_display_info *dpyinfo;
-  Time time;
+  uint32_t time;
 
+  /* time should be a 32-bit integer, regardless of what the size of
+     the X type `Time' is on this system.  */
   dpyinfo = check_x_display_info (terminal);
-  CONS_TO_INTEGER (time_object, Time, time);
+  CONS_TO_INTEGER (time_object, uint32_t, time);
 
   x_set_last_user_time_from_lisp (dpyinfo, time);
   return Qnil;
@@ -9765,6 +10004,53 @@ This should be called from a variable watcher for `x-gtk-use-native-input'.  */)
 
   return Qnil;
 }
+
+#if 0
+
+DEFUN ("x-test-string-conversion", Fx_test_string_conversion,
+       Sx_test_string_conversion, 5, 5, 0,
+       doc: /* Perform tests on the XIM string conversion support.  */)
+  (Lisp_Object frame, Lisp_Object position,
+   Lisp_Object direction, Lisp_Object operation, Lisp_Object factor)
+{
+  struct frame *f;
+  XIMStringConversionCallbackStruct call_data;
+  XIMStringConversionText text;
+
+  f = decode_window_system_frame (frame);
+
+  if (!FRAME_XIC (f))
+    error ("No XIC on FRAME!");
+
+  CHECK_FIXNUM (position);
+  CHECK_FIXNUM (direction);
+  CHECK_FIXNUM (operation);
+  CHECK_FIXNUM (factor);
+
+  /* xic_string_conversion_callback (XIC ic, XPointer client_data,
+     XIMStringConversionCallbackStruct *call_data)   */
+
+  call_data.position = XFIXNUM (position);
+  call_data.direction = XFIXNUM (direction);
+  call_data.operation = XFIXNUM (operation);
+  call_data.factor = XFIXNUM (factor);
+  call_data.text = &text;
+
+  block_input ();
+  xic_string_conversion_callback (FRAME_XIC (f), NULL,
+				  &call_data);
+  unblock_input ();
+
+  /* Place a breakpoint here to inspect TEXT! */
+
+  while (1)
+    maybe_quit ();
+
+  return Qnil;
+}
+
+#endif
+
 
 /***********************************************************************
 			    Initialization
@@ -10211,6 +10497,9 @@ eliminated in future versions of Emacs.  */);
   defsubr (&Sx_display_set_last_user_time);
   defsubr (&Sx_translate_coordinates);
   defsubr (&Sx_get_modifier_masks);
+#if 0
+  defsubr (&Sx_test_string_conversion);
+#endif
 
   tip_timer = Qnil;
   staticpro (&tip_timer);

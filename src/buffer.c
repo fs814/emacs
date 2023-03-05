@@ -1,6 +1,6 @@
 /* Buffer manipulation primitives for GNU Emacs.
 
-Copyright (C) 1985-2022  Free Software Foundation, Inc.
+Copyright (C) 1985-2023 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -231,6 +231,13 @@ bset_extra_line_spacing (struct buffer *b, Lisp_Object val)
 {
   b->extra_line_spacing_ = val;
 }
+#ifdef HAVE_TREE_SITTER
+static void
+bset_ts_parser_list (struct buffer *b, Lisp_Object val)
+{
+  b->ts_parser_list_ = val;
+}
+#endif
 static void
 bset_file_format (struct buffer *b, Lisp_Object val)
 {
@@ -518,14 +525,14 @@ get_truename_buffer (register Lisp_Object filename)
   return Qnil;
 }
 
-/* Run buffer-list-update-hook if Vrun_hooks is non-nil, and BUF is NULL
-   or does not have buffer hooks inhibited.  BUF is NULL when called by
-   make-indirect-buffer, since it does not inhibit buffer hooks.  */
+/* Run buffer-list-update-hook if Vrun_hooks is non-nil and BUF does
+   not have buffer hooks inhibited.  */
 
 static void
 run_buffer_list_update_hook (struct buffer *buf)
 {
-  if (! (NILP (Vrun_hooks) || (buf && buf->inhibit_buffer_hooks)))
+  eassert (buf);
+  if (! (NILP (Vrun_hooks) || buf->inhibit_buffer_hooks))
     call1 (Vrun_hooks, Qbuffer_list_update_hook);
 }
 
@@ -597,7 +604,6 @@ even if it is dead.  The return value is never nil.  */)
   set_buffer_intervals (b, NULL);
   BUF_UNCHANGED_MODIFIED (b) = 1;
   BUF_OVERLAY_UNCHANGED_MODIFIED (b) = 1;
-  BUF_CHARS_UNCHANGED_MODIFIED (b) = 1;
   BUF_END_UNCHANGED (b) = 0;
   BUF_BEG_UNCHANGED (b) = 0;
   *(BUF_GPT_ADDR (b)) = *(BUF_Z_ADDR (b)) = 0; /* Put an anchor '\0'.  */
@@ -901,7 +907,7 @@ does not run the hooks `kill-buffer-hook',
       set_buffer_internal_1 (old_b);
     }
 
-  run_buffer_list_update_hook (NULL);
+  run_buffer_list_update_hook (b);
 
   return buf;
 }
@@ -937,19 +943,16 @@ delete_all_overlays (struct buffer *b)
   if (! b->overlays)
     return;
 
-  /* FIXME: This loop sets the overlays' `buffer` field to NULL but
-     doesn't set the itree_nodes' `parent`, `left` and `right`
-     fields accordingly.  I believe it's harmless, but a bit untidy since
-     other parts of the code are careful to set those fields to NULL when
-     the overlay is deleted.
-     Of course, we can't set them to NULL from within the iteration
-     because the iterator may need them (tho we could if we added
-     an ITREE_POST_ORDER iteration order).  */
-  ITREE_FOREACH (node, b->overlays, PTRDIFF_MIN, PTRDIFF_MAX, ASCENDING)
+  /* The general rule is that the tree cannot be modified from within
+     ITREE_FOREACH, but here we bend this rule a little because we know
+     that the POST_ORDER iterator will not need to look at `node` again.  */
+  ITREE_FOREACH (node, b->overlays, PTRDIFF_MIN, PTRDIFF_MAX, POST_ORDER)
     {
       modify_overlay (b, node->begin, node->end);
-      /* Where are the nodes freed ? --ap */
       XOVERLAY (node->data)->buffer = NULL;
+      node->parent = NULL;
+      node->left = NULL;
+      node->right = NULL;
     }
   itree_clear (b->overlays);
 }
@@ -1061,6 +1064,9 @@ reset_buffer (register struct buffer *b)
     (b, BVAR (&buffer_defaults, enable_multibyte_characters));
   bset_cursor_type (b, BVAR (&buffer_defaults, cursor_type));
   bset_extra_line_spacing (b, BVAR (&buffer_defaults, extra_line_spacing));
+#ifdef HAVE_TREE_SITTER
+  bset_ts_parser_list (b, Qnil);
+#endif
 
   b->display_error_modiff = 0;
 }
@@ -1741,7 +1747,19 @@ other_buffer_safely (Lisp_Object buffer)
     if (candidate_buffer (buf, buffer))
       return buf;
 
-  return safe_call (1, Qget_scratch_buffer_create);
+  /* This function must return a valid buffer, since it is frequently
+     our last line of defense in the face of the expected buffers
+     becoming dead under our feet.  safe_call below could return nil
+     if recreating *scratch* in Lisp, which does some fancy stuff,
+     signals an error in some weird use case.  */
+  buf = safe_call (1, Qget_scratch_buffer_create);
+  if (NILP (buf))
+    {
+      AUTO_STRING (scratch, "*scratch*");
+      buf = Fget_buffer_create (scratch, Qnil);
+      Fset_buffer_major_mode (buf);
+    }
+  return buf;
 }
 
 DEFUN ("buffer-enable-undo", Fbuffer_enable_undo, Sbuffer_enable_undo,
@@ -2985,17 +3003,13 @@ overlays_in (ptrdiff_t beg, ptrdiff_t end, bool extend,
       if (node->begin > end)
         {
           next = min (next, node->begin);
-          ITREE_FOREACH_ABORT ();
           break;
         }
       else if (node->begin == end)
         {
           next = node->begin;
           if ((! empty || end < ZV) && beg < end)
-            {
-              ITREE_FOREACH_ABORT ();
-              break;
-            }
+            break;
           if (empty && node->begin != node->end)
             continue;
         }
@@ -3050,7 +3064,6 @@ next_overlay_change (ptrdiff_t pos)
              of pos, because the search is limited to [pos,next) . */
           eassert (node->begin < next);
           next = node->begin;
-          ITREE_FOREACH_ABORT ();
           break;
         }
       else if (node->begin < node->end && node->end < next)
@@ -3155,10 +3168,7 @@ overlay_touches_p (ptrdiff_t pos)
      pos. */
   ITREE_FOREACH (node, current_buffer->overlays, pos - 1, pos + 1, DESCENDING)
     if (node->begin == pos || node->end == pos)
-      {
-        ITREE_FOREACH_ABORT ();
-        return true;
-      }
+      return true;
   return false;
 }
 
@@ -3835,7 +3845,9 @@ and also contained within the specified region.
 
 Empty overlays are included in the result if they are located at BEG,
 between BEG and END, or at END provided END denotes the position at the
-end of the accessible part of the buffer.  */)
+end of the accessible part of the buffer.
+
+The resulting list of overlays is in an arbitrary unpredictable order.  */)
   (Lisp_Object beg, Lisp_Object end)
 {
   ptrdiff_t len, noverlays;
@@ -3898,11 +3910,11 @@ the value is (point-min).  */)
 /* These functions are for debugging overlays.  */
 
 DEFUN ("overlay-lists", Foverlay_lists, Soverlay_lists, 0, 0, 0,
-       doc: /* Return a pair of lists giving all the overlays of the current buffer.
-The car has all the overlays before the overlay center;
-the cdr has all the overlays after the overlay center.
-Recentering overlays moves overlays between these lists.
-The lists you get are copies, so that changing them has no effect.
+       doc: /* Return a list giving all the overlays of the current buffer.
+
+For backward compatibility, the value is actually a list that
+holds another list; the overlays are in the inner list.
+The list you get is a copy, so that changing it has no effect.
 However, the overlays you get are the real objects that the buffer uses. */)
   (void)
 {
@@ -3918,7 +3930,12 @@ However, the overlays you get are the real objects that the buffer uses. */)
 DEFUN ("overlay-recenter", Foverlay_recenter, Soverlay_recenter, 1, 1, 0,
        doc: /* Recenter the overlays of the current buffer around position POS.
 That makes overlay lookup faster for positions near POS (but perhaps slower
-for positions far away from POS).  */)
+for positions far away from POS).
+
+Since Emacs 29.1, this function is a no-op, because the implementation
+of overlays changed and their lookup is now fast regardless of their
+position in the buffer.  In particular, this function no longer affects
+the value returned by `overlay-lists'.  */)
   (Lisp_Object pos)
 {
   CHECK_FIXNUM_COERCE_MARKER (pos);
@@ -4690,6 +4707,9 @@ init_buffer_once (void)
   XSETFASTINT (BVAR (&buffer_local_flags, tab_line_format), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, cursor_type), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, extra_line_spacing), idx); ++idx;
+#ifdef HAVE_TREE_SITTER
+  XSETFASTINT (BVAR (&buffer_local_flags, ts_parser_list), idx); ++idx;
+#endif
   XSETFASTINT (BVAR (&buffer_local_flags, cursor_in_non_selected_windows), idx); ++idx;
 
   /* buffer_local_flags contains no pointers, so it's safe to treat it
@@ -4758,6 +4778,9 @@ init_buffer_once (void)
   bset_bidi_paragraph_separate_re (&buffer_defaults, Qnil);
   bset_cursor_type (&buffer_defaults, Qt);
   bset_extra_line_spacing (&buffer_defaults, Qnil);
+#ifdef HAVE_TREE_SITTER
+  bset_ts_parser_list (&buffer_defaults, Qnil);
+#endif
   bset_cursor_in_non_selected_windows (&buffer_defaults, Qt);
 
   bset_enable_multibyte_characters (&buffer_defaults, Qt);
@@ -5058,8 +5081,8 @@ the mode line appears at the bottom.  */);
 The header line appears, optionally, at the top of a window; the mode
 line appears at the bottom.
 
-Also see `header-line-indent-mode' if `display-line-number-mode' is
-used.  */);
+Also see `header-line-indent-mode' if `display-line-numbers-mode' is
+turned on and header-line text should be aligned with buffer text.  */);
 
   DEFVAR_PER_BUFFER ("mode-line-format", &BVAR (current_buffer, mode_line_format),
 		     Qnil,
@@ -5891,7 +5914,43 @@ this threshold.
 If nil, these display shortcuts will always remain disabled.
 
 There is no reason to change that value except for debugging purposes.  */);
-  XSETFASTINT (Vlong_line_threshold, 10000);
+  XSETFASTINT (Vlong_line_threshold, 50000);
+
+  DEFVAR_INT ("long-line-optimizations-region-size",
+	      long_line_optimizations_region_size,
+	      doc: /* Region size for narrowing in buffers with long lines.
+
+This variable has effect only in buffers in which
+`long-line-optimizations-p' is non-nil.  For performance reasons, in
+such buffers, the `fontification-functions', `pre-command-hook' and
+`post-command-hook' hooks are executed on a narrowed buffer around
+point, as if they were called in a `with-restriction' form with a label.
+This variable specifies the size of the narrowed region around point.
+
+To disable that narrowing, set this variable to 0.
+
+See also `long-line-optimizations-bol-search-limit'.
+
+There is no reason to change that value except for debugging purposes.  */);
+  long_line_optimizations_region_size = 500000;
+
+  DEFVAR_INT ("long-line-optimizations-bol-search-limit",
+	      long_line_optimizations_bol_search_limit,
+	      doc: /* Limit for beginning of line search in buffers with long lines.
+
+This variable has effect only in buffers in which
+`long-line-optimizations-p' is non-nil.  For performance reasons, in
+such buffers, the `fontification-functions', `pre-command-hook' and
+`post-command-hook' hooks are executed on a narrowed buffer around
+point, as if they were called in a `with-restriction' form with a label.
+The variable `long-line-optimizations-region-size' specifies the
+size of the narrowed region around point.  This variable, which should
+be a small integer, specifies the number of characters by which that
+region can be extended backwards to make it start at the beginning of
+a line.
+
+There is no reason to change that value except for debugging purposes.  */);
+  long_line_optimizations_bol_search_limit = 128;
 
   DEFVAR_INT ("large-hscroll-threshold", large_hscroll_threshold,
     doc: /* Horizontal scroll of truncated lines above which to use redisplay shortcuts.

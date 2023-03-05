@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2022 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2023 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node System Interface
@@ -1275,6 +1275,16 @@ This function returns the real @acronym{UID} of the user.
 
 @defun user-uid
 This function returns the effective @acronym{UID} of the user.
+@end defun
+
+@defun file-user-uid
+This function returns the connection-local value for the user's
+effective @acronym{UID}.  If @code{default-directory} is local, this
+is equivalent to @code{user-uid}, but for remote files (@pxref{Remote
+Files, , , emacs, The GNU Emacs Manual}), it will return the
+@acronym{UID} for the user associated with that remote connection; if
+the remote connection has no associated user, it will instead return
+-1.
 @end defun
 
 @cindex GID

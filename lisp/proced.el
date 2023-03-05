@@ -1,6 +1,6 @@
 ;;; proced.el --- operate on system processes like dired  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2023 Free Software Foundation, Inc.
 
 ;; Author: Roland Winkler <winkler@gnu.org>
 ;; Keywords: Processes, Unix
@@ -114,41 +114,58 @@ the external command (usually \"kill\")."
 (defcustom proced-grammar-alist
   '( ;; attributes defined in `process-attributes'
     (euid    "EUID"    "%d" right proced-< nil (euid pid) (nil t nil))
-    (user    "User"    nil left proced-string-lessp nil (user pid) (nil t nil))
+    (user    "User"    proced-format-user left proced-string-lessp nil
+                       (user pid) (nil t nil))
     (egid    "EGID"    "%d" right proced-< nil (egid euid pid) (nil t nil))
-    (group   "Group"   nil left proced-string-lessp nil (group user pid) (nil t nil))
+    (group   "Group"   nil left proced-string-lessp nil (group user pid)
+                       (nil t nil))
     (comm    "Command" nil left proced-string-lessp nil (comm pid) (nil t nil))
-    (state   "Stat"    nil left proced-string-lessp nil (state pid) (nil t nil))
-    (ppid    "PPID"    "%d" right proced-< nil (ppid pid)
-             ((lambda (ppid) (proced-filter-parents proced-process-alist ppid))
-              "refine to process parents"))
-    (pgrp    "PGrp"    "%d" right proced-< nil (pgrp euid pid) (nil t nil))
-    (sess    "Sess"    "%d" right proced-< nil (sess pid) (nil t nil))
-    (ttname  "TTY"     proced-format-ttname left proced-string-lessp nil (ttname pid) (nil t nil))
+    (state   "Stat"    proced-format-state left proced-string-lessp nil
+                       (state pid) (nil t nil))
+    (ppid    "PPID"    proced-format-ppid right proced-< nil (ppid pid)
+                       ((lambda (ppid)
+                          (proced-filter-parents proced-process-alist ppid))
+                        "refine to process parents"))
+    (pgrp    "PGrp"    proced-format-pgrp right proced-< nil (pgrp euid pid)
+                       (nil t nil))
+    (sess    "Sess"    proced-format-sess right proced-< nil (sess pid)
+                       (nil t nil))
+    (ttname  "TTY"     proced-format-ttname left proced-string-lessp nil
+                       (ttname pid) (nil t nil))
     (tpgid   "TPGID"   "%d" right proced-< nil (tpgid pid) (nil t nil))
     (minflt  "MinFlt"  "%d" right proced-< nil (minflt pid) (nil t t))
     (majflt  "MajFlt"  "%d" right proced-< nil (majflt pid) (nil t t))
     (cminflt "CMinFlt" "%d" right proced-< nil (cminflt pid) (nil t t))
     (cmajflt "CMajFlt" "%d" right proced-< nil (cmajflt pid) (nil t t))
-    (utime   "UTime"   proced-format-time right proced-time-lessp t (utime pid) (nil t t))
-    (stime   "STime"   proced-format-time right proced-time-lessp t (stime pid) (nil t t))
-    (time    "Time"   proced-format-time right proced-time-lessp t (time pid) (nil t t))
-    (cutime  "CUTime"  proced-format-time right proced-time-lessp t (cutime pid) (nil t t))
-    (cstime  "CSTime"  proced-format-time right proced-time-lessp t (cstime pid) (nil t t))
-    (ctime   "CTime"  proced-format-time right proced-time-lessp t (ctime pid) (nil t t))
+    (utime   "UTime"   proced-format-time right proced-time-lessp t (utime pid)
+                       (nil t t))
+    (stime   "STime"   proced-format-time right proced-time-lessp t (stime pid)
+                       (nil t t))
+    (time    "Time"    proced-format-time right proced-time-lessp t (time pid)
+                       (nil t t))
+    (cutime  "CUTime"  proced-format-time right proced-time-lessp t (cutime pid)
+                       (nil t t))
+    (cstime  "CSTime"  proced-format-time right proced-time-lessp t (cstime pid)
+                       (nil t t))
+    (ctime   "CTime"   proced-format-time right proced-time-lessp t (ctime pid)
+                       (nil t t))
     (pri     "Pr"      "%d" right proced-< t (pri pid) (nil t t))
     (nice    "Ni"      "%3d" 3 proced-< t (nice pid) (t t nil))
     (thcount "THCount" "%d" right proced-< t (thcount pid) (nil t t))
-    (start   "Start"   proced-format-start 6 proced-time-lessp nil (start pid) (t t nil))
-    (vsize   "VSize"   "%d" right proced-< t (vsize pid) (nil t t))
-    (rss     "RSS"     "%d" right proced-< t (rss pid) (nil t t))
-    (etime   "ETime"   proced-format-time right proced-time-lessp t (etime pid) (nil t t))
-    (pcpu    "%CPU"    "%.1f" right proced-< t (pcpu pid) (nil t t))
-    (pmem    "%Mem"    "%.1f" right proced-< t (pmem pid) (nil t t))
-    (args    "Args"    proced-format-args left proced-string-lessp nil (args pid) (nil t nil))
+    (start   "Start"   proced-format-start 6 proced-time-lessp nil (start pid)
+                       (t t nil))
+    (vsize   "VSize"   proced-format-memory right proced-< t (vsize pid)
+                       (nil t t))
+    (rss     "RSS"     proced-format-rss right proced-< t (rss pid) (nil t t))
+    (etime   "ETime"   proced-format-time right proced-time-lessp t (etime pid)
+                       (nil t t))
+    (pcpu    "%CPU"    proced-format-cpu right proced-< t (pcpu pid) (nil t t))
+    (pmem    "%Mem"    proced-format-mem right proced-< t (pmem pid) (nil t t))
+    (args    "Args"    proced-format-args left proced-string-lessp nil
+                       (args pid) (nil t nil))
     ;;
     ;; attributes defined by proced (see `proced-process-attributes')
-    (pid     "PID"     "%d" right proced-< nil (pid)
+    (pid     "PID"     proced-format-pid right proced-< nil (pid)
              ((lambda (ppid) (proced-filter-children proced-process-alist ppid))
               "refine to process children"))
     ;; process tree
@@ -367,6 +384,32 @@ May be used to revert the process listing."
   :type 'hook
   :options '(proced-revert))
 
+(defcustom proced-enable-color-flag nil
+  "Non-nil means Proced should display some process attributes with color."
+  :type 'boolean
+  :version "29.1")
+
+(defcustom proced-low-memory-usage-threshold 0.1
+  "The upper bound for low relative memory usage display in Proced.
+
+When `proced-enable-color-flag' is non-nil, RSS values denoting a
+proportion of memory, relative to total memory, that is lower
+than this value will be displayed using the `proced-memory-low-usage' face."
+  :type 'float
+  :version "29.1")
+
+(defcustom proced-medium-memory-usage-threshold 0.5
+  "The upper bound for medium relative memory usage display in Proced.
+
+When `proced-enable-color-flag' is non-nil, RSS values denoting a
+proportion of memory, relative to total memory, that is less than
+this value, but greater than `proced-low-memory-usage-threshold',
+will be displayed using the `proced-memory-medium-usage' face.
+RSS values denoting a greater proportion than this value will be
+displayed using the `proced-memory-high-usage' face."
+  :type 'float
+  :version "29.1")
+
 ;; Internal variables
 
 (defvar proced-available t;(not (null (list-system-processes)))
@@ -402,6 +445,114 @@ It is a list of lists (KEY PREDICATE REVERSE).")
 (defface proced-sort-header
   '((t (:inherit font-lock-keyword-face)))
   "Face used for header of attribute used for sorting.")
+
+(defface proced-run-status-code
+  '((t (:foreground "green")))
+  "Face used in Proced buffers for running or runnable status code character \"R\"."
+  :version "29.1")
+
+(defface proced-interruptible-sleep-status-code
+  '((((class color) (min-colors 88)) (:foreground "DimGrey"))
+    (t (:italic t)))
+  "Face used in Proced buffers for interruptible sleep status code character \"S\"."
+  :version "29.1")
+
+(defface proced-uninterruptible-sleep-status-code
+  '((((class color)) (:foreground "red"))
+    (t (:bold t)))
+  "Face used in Proced buffers for uninterruptible sleep status code character \"D\"."
+  :version "29.1")
+
+(defface proced-executable
+  '((((class color) (min-colors 88) (background dark)) (:foreground "DeepSkyBlue"))
+    (((class color) (background dark)) (:foreground "cyan"))
+    (((class color) (background light)) (:foreground "blue"))
+    (t (:bold t)))
+  "Face used in Proced buffers for executable names.
+The first word in the process arguments attribute is assumed to
+be the executable that runs in the process."
+  :version "29.1")
+
+(defface proced-memory-high-usage
+  '((((class color) (min-colors 88) (background dark)) (:foreground "orange"))
+    (((class color) (min-colors 88) (background light)) (:foreground "OrangeRed"))
+    (((class color)) (:foreground "red"))
+    (t (:underline t)))
+  "Face used in Proced buffers for high memory usage."
+  :version "29.1")
+
+(defface proced-memory-medium-usage
+  '((((class color) (min-colors 88) (background dark)) (:foreground "yellow3"))
+    (((class color) (min-colors 88) (background light)) (:foreground "orange"))
+    (((class color)) (:foreground "yellow")))
+  "Face used in Proced buffers for medium memory usage."
+  :version "29.1")
+
+(defface proced-memory-low-usage
+  '((((class color) (min-colors 88) (background dark)) (:foreground "#8bcd50"))
+    (((class color)) (:foreground "green")))
+  "Face used in Proced buffers for low memory usage."
+  :version "29.1")
+
+(defface proced-emacs-pid
+  '((((class color) (min-colors 88)) (:foreground "purple"))
+    (((class color)) (:foreground "magenta")))
+  "Face used in Proced buffers for the process ID of the current Emacs process."
+  :version "29.1")
+
+(defface proced-pid
+  '((((class color) (min-colors 88)) (:foreground "#5085ef"))
+    (((class color)) (:foreground "blue")))
+  "Face used in Proced buffers for process IDs."
+  :version "29.1")
+
+(defface proced-session-leader-pid
+  '((((class color) (min-colors 88)) (:foreground "#5085ef" :underline t))
+    (((class color)) (:foreground "blue" :underline t))
+    (t (:underline t)))
+  "Face used in Proced buffers for process IDs which are session leaders."
+  :version "29.1")
+
+(defface proced-ppid
+  '((((class color) (min-colors 88)) (:foreground "#5085bf"))
+    (((class color)) (:foreground "blue")))
+  "Face used in Proced buffers for parent process IDs."
+  :version "29.1")
+
+(defface proced-pgrp
+  '((((class color) (min-colors 88)) (:foreground "#4785bf"))
+    (((class color)) (:foreground "blue")))
+  "Face used in Proced buffers for process group IDs."
+  :version "29.1")
+
+(defface proced-sess
+  '((((class color) (min-colors 88)) (:foreground "#41729f"))
+    (((class color)) (:foreground "MidnightBlue")))
+  "Face used in Proced buffers for process session IDs."
+  :version "29.1")
+
+(defface proced-cpu
+  '((((class color) (min-colors 88)) (:foreground "#6d5cc3" :bold t))
+    (t (:bold t)))
+  "Face used in Proced buffers for process CPU utilization."
+  :version "29.1")
+
+(defface proced-mem
+  '((((class color) (min-colors 88))
+     (:foreground "#6d5cc3")))
+  "Face used in Proced buffers for process memory utilization."
+  :version "29.1")
+
+(defface proced-user
+  '((t (:bold t)))
+  "Face used in Proced buffers for the user owning the process."
+  :version "29.1")
+
+(defface proced-time-colon
+  '((((class color) (min-colors 88)) (:foreground "DarkMagenta"))
+    (t (:bold t)))
+  "Face used in Proced buffers for the colon in time strings."
+  :version "29.1")
 
 (defvar proced-re-mark "^[^ \n]"
   "Regexp matching a marked line.
@@ -504,6 +655,14 @@ Important: the match ends just after the marker.")
   ;; Additional keybindings are inherited from `special-mode-map'
   )
 (put 'proced-mark :advertised-binding "m")
+
+(defvar-local proced-refinements nil
+  "Information about the current buffer refinements.
+
+It should be a list of elements of the form (REFINER PID KEY GRAMMAR), where
+REFINER and GRAMMAR are as described in `proced-grammar-alist', PID is the
+process ID of the process used to create the refinement, and KEY the attribute
+of the process.  A value of nil indicates that there are no active refinements.")
 
 (easy-menu-define proced-menu proced-mode-map
   "Proced Menu."
@@ -633,6 +792,52 @@ Return nil if point is not on a process line."
     (if (looking-at "^. .")
         (get-text-property (match-end 0) 'proced-pid))))
 
+(defun proced--position-info (pos)
+  "Return information of the process at POS.
+
+The returned information will have the form `(PID KEY COLUMN)' where
+PID is the process ID of the process at point, KEY is the value of the
+proced-key text property at point, and COLUMN is the column for which the
+current value of the proced-key text property starts, or 0 if KEY is nil."
+  ;; If point is on a field, we try to return point to that field.
+  ;; Otherwise we try to return to the same column
+  (save-excursion
+    (goto-char pos)
+    (let ((pid (proced-pid-at-point))
+          (key (get-text-property (point) 'proced-key)))
+      (list pid key ; can both be nil
+            (if key
+                (if (get-text-property (1- (point)) 'proced-key)
+                    (- (point) (previous-single-property-change
+                                (point) 'proced-key))
+                  0)
+              (current-column))))))
+
+(defun proced--determine-pos (key column)
+  "Return position of point in the current line using KEY and COLUMN.
+
+Attempt to find the first position on the current line where the
+text property proced-key is equal to KEY.  If this is not possible, return
+the position of point of column COLUMN on the current line."
+  (save-excursion
+    (let (new-pos)
+      (if key
+          (let ((limit (line-end-position)) pos)
+            (while (and (not new-pos)
+                        (setq pos (next-property-change (point) nil limit)))
+              (goto-char pos)
+              (when (eq key (get-text-property (point) 'proced-key))
+                (forward-char (min column (- (next-property-change (point))
+                                             (point))))
+                (setq new-pos (point))))
+            (unless new-pos
+              ;; we found the process, but the field of point
+              ;; is not listed anymore
+              (setq new-pos (proced-move-to-goal-column))))
+        (setq new-pos (min (+ (line-beginning-position) column)
+                           (line-end-position))))
+      new-pos)))
+
 ;; proced mode
 
 (define-derived-mode proced-mode special-mode "Proced"
@@ -688,6 +893,7 @@ normal hook `proced-post-display-hook'.
   (setq-local revert-buffer-function #'proced-revert)
   (setq-local font-lock-defaults
               '(proced-font-lock-keywords t nil nil beginning-of-line))
+  (setq-local switch-to-buffer-preserve-window-point nil)
   (if (and (not proced-auto-update-timer) proced-auto-update-interval)
       (setq proced-auto-update-timer
             (run-at-time t proced-auto-update-interval
@@ -740,12 +946,18 @@ Proced buffers."
         "Type \\<proced-mode-map>\\[quit-window] to quit, \\[proced-help] for help")))))
 
 (defun proced-auto-update-timer ()
-  "Auto-update Proced buffers using `run-at-time'."
-  (dolist (buf (buffer-list))
-    (with-current-buffer buf
-      (if (and (eq major-mode 'proced-mode)
-               proced-auto-update-flag)
-          (proced-update t t)))))
+  "Auto-update Proced buffers using `run-at-time'.
+
+If there are no proced buffers, cancel the timer."
+  (unless (seq-filter (lambda (buf)
+                        (with-current-buffer buf
+                          (when (eq major-mode 'proced-mode)
+                            (if proced-auto-update-flag
+                                (proced-update t t))
+                            t)))
+                      (buffer-list))
+    (cancel-timer proced-auto-update-timer)
+    (setq proced-auto-update-timer nil)))
 
 (defun proced-toggle-auto-update (arg)
   "Change whether this Proced buffer is updated automatically.
@@ -1180,20 +1392,7 @@ a certain refinement, consider defining a new filter in `proced-filter-alist'."
         (let* ((grammar (assq key proced-grammar-alist))
                (refiner (nth 7 grammar)))
           (when refiner
-            (cond ((functionp (car refiner))
-                   (setq proced-process-alist (funcall (car refiner) pid)))
-                  ((consp refiner)
-                   (let ((predicate (nth 4 grammar))
-                         (ref (cdr (assq key (cdr (assq pid proced-process-alist)))))
-                         val new-alist)
-                     (dolist (process proced-process-alist)
-                       (setq val (funcall predicate (cdr (assq key (cdr process))) ref))
-                       (if (cond ((not val) (nth 2 refiner))
-                                 ((eq val 'equal) (nth 1 refiner))
-                                 (val (car refiner)))
-                           (push process new-alist)))
-                     (setq proced-process-alist new-alist))))
-            ;; Do not revert listing.
+            (add-to-list 'proced-refinements (list refiner pid key grammar) t)
             (proced-update)))
       (message "No refiner defined here."))))
 
@@ -1386,26 +1585,32 @@ Prefix ARG controls sort order, see `proced-sort-interactive'."
          (hours (truncate ftime 3600))
          (ftime (mod ftime 3600))
          (minutes (truncate ftime 60))
-         (seconds (mod ftime 60)))
+         (seconds (mod ftime 60))
+         (colon (if proced-enable-color-flag
+                    (propertize ":" 'font-lock-face 'proced-time-colon)
+                  ":")))
     (cond ((< 0 days)
-           (format "%d-%02d:%02d:%02d" days hours minutes seconds))
+           (format "%d-%02d%s%02d%s%02d" days hours colon minutes colon seconds))
           ((< 0 hours)
-           (format "%02d:%02d:%02d" hours minutes seconds))
+           (format "%02d%s%02d%s%02d" hours colon minutes colon seconds))
           (t
-           (format "%02d:%02d" minutes seconds)))))
+           (format "%02d%s%02d" minutes colon seconds)))))
 
 (defun proced-format-start (start)
   "Format time START.
 The return string is always 6 characters wide."
   (let ((d-start (decode-time start))
-        (d-current (decode-time)))
+        (d-current (decode-time))
+        (colon (if proced-enable-color-flag
+                   (propertize ":" 'font-lock-face 'proced-time-colon)
+                 ":")))
     (cond (;; process started in previous years
            (< (decoded-time-year d-start) (decoded-time-year d-current))
            (format-time-string "  %Y" start))
           ;; process started today
           ((and (= (decoded-time-day d-start) (decoded-time-day d-current))
                 (= (decoded-time-month d-start) (decoded-time-month d-current)))
-           (format-time-string " %H:%M" start))
+           (string-replace ":" colon (format-time-string " %H:%M" start)))
           (t ;; process started this year
            (format-time-string "%b %e" start)))))
 
@@ -1423,7 +1628,96 @@ The return string is always 6 characters wide."
 (defun proced-format-args (args)
   "Format attribute ARGS.
 Replace newline characters by \"^J\" (two characters)."
-  (string-replace "\n" "^J" args))
+  (string-replace "\n" "^J"
+                  (pcase-let* ((`(,exe . ,rest) (split-string args))
+                               (exe-prop (if proced-enable-color-flag
+                                             (propertize exe 'font-lock-face 'proced-executable)
+                                           exe)))
+                    (mapconcat #'identity (cons exe-prop rest) " "))))
+
+(defun proced-format-memory (kilobytes)
+  "Format KILOBYTES in a human readable format."
+  (funcall byte-count-to-string-function (* 1024 kilobytes)))
+
+(defun proced-format-rss (kilobytes)
+  "Format RSS KILOBYTES in a human readable format."
+  (let ((formatted (proced-format-memory kilobytes)))
+    (if-let* ((proced-enable-color-flag)
+              (total (car (memory-info)))
+              (proportion (/ (float kilobytes) total)))
+        (cond ((< proportion proced-low-memory-usage-threshold)
+               (propertize formatted 'font-lock-face 'proced-memory-low-usage))
+              ((< proportion proced-medium-memory-usage-threshold)
+               (propertize formatted 'font-lock-face 'proced-memory-medium-usage))
+              (t (propertize formatted 'font-lock-face 'proced-memory-high-usage)))
+      formatted)))
+
+(defun proced-format-state (state)
+  "Format STATE."
+  (cond ((and proced-enable-color-flag (string= state "R"))
+         (propertize state 'font-lock-face 'proced-run-status-code))
+        ((and proced-enable-color-flag (string= state "S"))
+         (propertize state 'font-lock-face 'proced-interruptible-sleep-status-code))
+        ((and proced-enable-color-flag (string= state "D"))
+         (propertize state 'font-lock-face 'proced-uninterruptible-sleep-status-code))
+        (t state)))
+
+(defun proced-format-pid (pid)
+  "Format PID."
+  (let ((proc-info (process-attributes pid))
+        (pid-s (number-to-string pid)))
+    (cond ((and proced-enable-color-flag
+                (not (file-remote-p default-directory))
+                (equal pid (emacs-pid)))
+           (propertize pid-s 'font-lock-face 'proced-emacs-pid))
+          ((and proced-enable-color-flag (equal pid (alist-get 'sess proc-info)))
+           (propertize pid-s 'font-lock-face 'proced-session-leader-pid))
+          (proced-enable-color-flag
+           (propertize pid-s 'font-lock-face 'proced-pid))
+          (t pid-s))))
+
+(defun proced-format-ppid (ppid)
+  "Format PPID."
+  (let ((ppid-s (number-to-string ppid)))
+    (cond ((and proced-enable-color-flag
+                (not (file-remote-p default-directory))
+                (= ppid (emacs-pid)))
+           (propertize ppid-s 'font-lock-face 'proced-emacs-pid))
+          (proced-enable-color-flag
+           (propertize ppid-s 'font-lock-face 'proced-ppid))
+          (t ppid-s))))
+
+(defun proced-format-pgrp (pgrp)
+  "Format PGRP."
+  (if proced-enable-color-flag
+      (propertize (number-to-string pgrp) 'font-lock-face 'proced-pgrp)
+    (number-to-string pgrp)))
+
+(defun proced-format-sess (sess)
+  "Format SESS."
+  (if proced-enable-color-flag
+      (propertize (number-to-string sess) 'font-lock-face 'proced-sess)
+    (number-to-string sess)))
+
+(defun proced-format-cpu (cpu)
+  "Format CPU."
+  (let ((formatted (format "%.1f" cpu)))
+    (if proced-enable-color-flag
+        (propertize formatted 'font-lock-face 'proced-cpu)
+      formatted)))
+
+(defun proced-format-mem (mem)
+  "Format MEM."
+  (let ((formatted (format "%.1f" mem)))
+    (if proced-enable-color-flag
+        (propertize formatted 'font-lock-face 'proced-mem)
+      formatted)))
+
+(defun proced-format-user (user)
+  "Format USER."
+  (if proced-enable-color-flag
+      (propertize user 'font-lock-face 'proced-user)
+    user))
 
 (defun proced-format (process-alist format)
   "Display PROCESS-ALIST using FORMAT."
@@ -1607,10 +1901,29 @@ After updating a displayed Proced buffer run the normal hook
                        "Updating process display...")))
   (if revert ;; evaluate all processes
       (setq proced-process-alist (proced-process-attributes)))
-  ;; filtering and sorting
+  ;; filtering
+  (setq proced-process-alist (proced-filter proced-process-alist proced-filter))
+  ;; refinements
+  (pcase-dolist (`(,refiner ,pid ,key ,grammar) proced-refinements)
+    ;; It's possible the process has exited since the refinement was made
+    (when (assq pid proced-process-alist)
+      (cond ((functionp (car refiner))
+             (setq proced-process-alist (funcall (car refiner) pid)))
+            ((consp refiner)
+             (let ((predicate (nth 4 grammar))
+                   (ref (cdr (assq key (cdr (assq pid proced-process-alist)))))
+                   val new-alist)
+               (dolist (process proced-process-alist)
+                 (setq val (funcall predicate (cdr (assq key (cdr process))) ref))
+                 (when (cond ((not val) (nth 2 refiner))
+                             ((eq val 'equal) (nth 1 refiner))
+                             (val (car refiner)))
+                   (push process new-alist)))
+               (setq proced-process-alist new-alist))))))
+
+  ;; sorting
   (setq proced-process-alist
-        (proced-sort (proced-filter proced-process-alist proced-filter)
-                     proced-sort proced-descend))
+        (proced-sort proced-process-alist proced-sort proced-descend))
 
   ;; display as process tree?
   (setq proced-process-alist
@@ -1623,17 +1936,10 @@ After updating a displayed Proced buffer run the normal hook
   (if (consp buffer-undo-list)
       (setq buffer-undo-list nil))
   (let ((buffer-undo-list t)
-        ;; If point is on a field, we try to return point to that field.
-        ;; Otherwise we try to return to the same column
-        (old-pos (let ((pid (proced-pid-at-point))
-                       (key (get-text-property (point) 'proced-key)))
-                   (list pid key ; can both be nil
-                         (if key
-                             (if (get-text-property (1- (point)) 'proced-key)
-                                 (- (point) (previous-single-property-change
-                                             (point) 'proced-key))
-                               0)
-                           (current-column)))))
+        (window-pos-infos
+         (mapcar (lambda (w) `(,w . ,(proced--position-info (window-point w))))
+                 (get-buffer-window-list (current-buffer) nil t)))
+        (old-pos (proced--position-info (point)))
         buffer-read-only mp-list)
     ;; remember marked processes (whatever the mark was)
     (goto-char (point-min))
@@ -1666,7 +1972,8 @@ After updating a displayed Proced buffer run the normal hook
     ;; Sometimes this puts point in the middle of the proced buffer
     ;; where it is not interesting.  Is there a better / more flexible solution?
     (goto-char (point-min))
-    (let (pid mark new-pos)
+
+    (let (pid mark new-pos win-points)
       (if (or mp-list (car old-pos))
           (while (not (eobp))
             (setq pid (proced-pid-at-point))
@@ -1675,28 +1982,25 @@ After updating a displayed Proced buffer run the normal hook
               (delete-char 1)
               (beginning-of-line))
             (when (eq (car old-pos) pid)
-              (if (nth 1 old-pos)
-                  (let ((limit (line-end-position)) pos)
-                    (while (and (not new-pos)
-                                (setq pos (next-property-change (point) nil limit)))
-                      (goto-char pos)
-                      (when (eq (nth 1 old-pos)
-                                (get-text-property (point) 'proced-key))
-                        (forward-char (min (nth 2 old-pos)
-                                           (- (next-property-change (point))
-                                              (point))))
-                        (setq new-pos (point))))
-                    (unless new-pos
-                      ;; we found the process, but the field of point
-                      ;; is not listed anymore
-                      (setq new-pos (proced-move-to-goal-column))))
-                (setq new-pos (min (+ (line-beginning-position) (nth 2 old-pos))
-                                   (line-end-position)))))
+              (setq new-pos (proced--determine-pos (nth 1 old-pos)
+                                                   (nth 2 old-pos))))
+            (mapc (lambda (w-pos)
+                    (when (eq (cadr w-pos) pid)
+                      (push `(,(car w-pos) . ,(proced--determine-pos
+                                               (nth 1 (cdr w-pos))
+                                               (nth 2 (cdr w-pos))))
+                            win-points)))
+                  window-pos-infos)
             (forward-line)))
-      (if new-pos
-          (goto-char new-pos)
-        (goto-char (point-min))
-        (proced-move-to-goal-column)))
+      (let ((fallback (save-excursion (goto-char (point-min))
+                                      (proced-move-to-goal-column)
+                                      (point))))
+        (goto-char (or new-pos fallback))
+        ;; Update window points
+        (mapc (lambda (w-pos)
+                (set-window-point (car w-pos)
+                                  (alist-get (car w-pos) win-points fallback)))
+              window-pos-infos)))
     ;; update mode line
     ;; Does the long `mode-name' clutter the mode line?  It would be nice
     ;; to have some other location for displaying the values of the various
@@ -1724,7 +2028,9 @@ After updating a displayed Proced buffer run the normal hook
 
 (defun proced-revert (&rest _args)
   "Reevaluate the process listing based on the currently running processes.
-Preserves point and marks."
+Preserves point and marks, but not refinements (see `proced-refine' for
+information on refinements)."
+  (setq proced-refinements nil)
   (proced-update t))
 
 (defun proced-marked-processes ()

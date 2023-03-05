@@ -1,6 +1,6 @@
 ;;; esh-opt.el --- command options processing  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -28,6 +28,11 @@
 ;; Macro expansion of eshell-eval-using-options refers to eshell-stringify-list
 ;; defined in esh-util.
 (require 'esh-util)
+
+(defgroup eshell-opt nil
+  "Functions for argument parsing in Eshell commands."
+  :tag "Option parsing"
+  :group 'eshell)
 
 (defmacro eshell-eval-using-options (name macro-args options &rest body-forms)
   "Process NAME's MACRO-ARGS using a set of command line OPTIONS.
@@ -132,7 +137,7 @@ This code doesn't really need to be macro expanded everywhere."
                       (setq args (eshell--process-args name args options))
                       nil))))
              (when usage-msg
-               (error "%s" usage-msg))))))
+               (user-error "%s" usage-msg))))))
     (if ext-command
         (throw 'eshell-external
                (eshell-external-command ext-command orig-args))
@@ -237,7 +242,7 @@ remaining characters in SWITCH to be processed later as further short
 options.
 
 If no matching handler is found, and an :external command is defined
-(and available), it will be called; otherwise, an error will be
+\(and available), it will be called; otherwise, an error will be
 triggered to say that the switch is unrecognized."
   (let ((switch (eshell--split-switch switch kind))
         (opts options)

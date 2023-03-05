@@ -2,7 +2,7 @@
 
 # Generate a new key and update the signatures for tests.
 
-# Copyright (C) 2020-2022 Free Software Foundation, Inc.
+# Copyright (C) 2020-2023 Free Software Foundation, Inc.
 
 # This file is part of GNU Emacs.
 
@@ -30,4 +30,5 @@ rm $KEYRING
 #$GPG --export-secret-keys -armor > "../key.sec"
 $GPG --import ../key.sec
 $GPG --detach-sign --sign "./archive-contents"
+$GPG --detach-sign --sign "./elpa-packages.eld"
 $GPG --detach-sign --sign "./signed-good-1.0.el"

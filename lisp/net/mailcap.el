@@ -1,6 +1,6 @@
 ;;; mailcap.el --- MIME media types configuration -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2023 Free Software Foundation, Inc.
 
 ;; Author: William M. Perry <wmperry@aventail.com>
 ;;	Lars Magne Ingebrigtsen <larsi@gnus.org>
@@ -510,7 +510,7 @@ If SOURCE, mark the entry with this as the source."
 	  (skip-chars-forward "^;\n")
 	  ;; skip \;
 	  (while (eq (char-before) ?\\)
-	    (backward-delete-char 1)
+	    (delete-char -1)
 	    (forward-char)
 	    (skip-chars-forward "^;\n"))
 	  (if (eq (or (char-after save-pos) 0) ?')

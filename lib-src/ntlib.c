@@ -1,6 +1,6 @@
 /* Utility and Unix shadow routines for GNU Emacs support programs on NT.
 
-Copyright (C) 1994, 2001-2022 Free Software Foundation, Inc.
+Copyright (C) 1994, 2001-2023 Free Software Foundation, Inc.
 
 Author: Geoff Voelker (voelker@cs.washington.edu)
 Created: 10-8-94
@@ -136,15 +136,6 @@ getlogin (void)
   if (GetUserName (user_name, &length))
     return user_name;
   return NULL;
-}
-
-char *
-cuserid (char * s)
-{
-  char * name = getlogin ();
-  if (s)
-    return strcpy (s, name ? name : "");
-  return name;
 }
 
 unsigned

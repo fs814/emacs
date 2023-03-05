@@ -4,7 +4,7 @@ dnl	autoconf
 dnl in the directory containing this script.
 dnl If you changed any AC_DEFINES, also run autoheader.
 dnl
-dnl Copyright (C) 1994-1996, 1999-2022 Free Software Foundation, Inc.
+dnl Copyright (C) 1994-1996, 1999-2023 Free Software Foundation, Inc.
 dnl
 dnl  This file is part of GNU Emacs.
 dnl
@@ -23,7 +23,7 @@ dnl  along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 AC_PREREQ([2.65])
 dnl Note this is parsed by (at least) make-dist and lisp/cedet/ede/emacs.el.
-AC_INIT([GNU Emacs], [29.0.50], [bug-gnu-emacs@gnu.org], [],
+AC_INIT([GNU Emacs], [30.0.50], [bug-gnu-emacs@gnu.org], [],
   [https://www.gnu.org/software/emacs/])
 
 dnl Set emacs_config_options to the options of 'configure', quoted for the shell,
@@ -463,6 +463,7 @@ OPTION_DEFAULT_ON([xml2],[don't compile with XML parsing support])
 OPTION_DEFAULT_OFF([imagemagick],[compile with ImageMagick image support])
 OPTION_DEFAULT_ON([native-image-api], [don't use native image APIs (GDI+ on Windows)])
 OPTION_DEFAULT_IFAVAILABLE([json], [compile with native JSON support])
+OPTION_DEFAULT_IFAVAILABLE([tree-sitter], [compile with tree-sitter])
 
 OPTION_DEFAULT_ON([xft],[don't use XFT for anti aliased fonts])
 OPTION_DEFAULT_ON([harfbuzz],[don't use HarfBuzz for text shaping])
@@ -1139,6 +1140,7 @@ AS_IF([test $gl_gcc_warnings = no],
 
   # clang is unduly picky about some things.
   if test "$emacs_cv_clang" = yes; then
+    gl_WARN_ADD([-Wno-bitwise-instead-of-logical])
     gl_WARN_ADD([-Wno-missing-braces])
     gl_WARN_ADD([-Wno-null-pointer-arithmetic])
     gl_WARN_ADD([-Wno-implicit-const-int-float-conversion])
@@ -1841,7 +1843,9 @@ AC_CHECK_HEADERS_ONCE(
   coff.h pty.h
   sys/resource.h
   sys/utsname.h pwd.h utmp.h util.h
-  sanitizer/lsan_interface.h])
+  sanitizer/lsan_interface.h
+  sanitizer/asan_interface.h
+  sanitizer/common_interface_defs.h])
 
 AC_CACHE_CHECK([for ADDR_NO_RANDOMIZE],
   [emacs_cv_personality_addr_no_randomize],
@@ -2694,39 +2698,6 @@ if test "${HAVE_X11}" = "yes"; then
     export LD_RUN_PATH
   fi
 
-  if test "${opsys}" = "gnu-linux"; then
-    AC_CACHE_CHECK([whether X on GNU/Linux needs -b to link], [emacs_cv_b_link],
-    [AC_LINK_IFELSE([AC_LANG_PROGRAM([[]],
-     [[XOpenDisplay ("foo");]])],
-     [xgnu_linux_first_failure=no],
-     [xgnu_linux_first_failure=yes])
-    if test "${xgnu_linux_first_failure}" = "yes"; then
-      OLD_CPPFLAGS="$CPPFLAGS"
-      OLD_LIBS="$LIBS"
-      CPPFLAGS="$CPPFLAGS -b i486-linuxaout"
-      LIBS="$LIBS -b i486-linuxaout"
-      AC_LINK_IFELSE([AC_LANG_PROGRAM([[]],
-       [[XOpenDisplay ("foo");]])],
-       [xgnu_linux_second_failure=no],
-       [xgnu_linux_second_failure=yes])
-      if test "${xgnu_linux_second_failure}" = "yes"; then
-	# If we get the same failure with -b, there is no use adding -b.
-	# So leave it out.  This plays safe.
-        emacs_cv_b_link=no
-      else
-        emacs_cv_b_link=yes
-      fi
-      CPPFLAGS=$OLD_CPPFLAGS
-      LIBS=$OLD_LIBS
-    else
-      emacs_cv_b_link=no
-    fi])
-    if test "x$emacs_cv_b_link" = xyes ; then
-      LD_SWITCH_X_SITE="$LD_SWITCH_X_SITE -b i486-linuxaout"
-      C_SWITCH_X_SITE="$C_SWITCH_X_SITE -b i486-linuxaout"
-    fi
-  fi
-
   # Reportedly, some broken Solaris systems have XKBlib.h but are missing
   # header files included from there.
   AC_CACHE_CHECK([for Xkb], [emacs_cv_xkb],
@@ -3219,6 +3190,52 @@ AC_SUBST([JSON_LIBS])
 AC_SUBST([JSON_CFLAGS])
 AC_SUBST([JSON_OBJ])
 
+HAVE_TREE_SITTER=no
+TREE_SITTER_OBJ=
+NEED_DYNLIB=no
+
+if test "${with_tree_sitter}" != "no"; then
+   dnl Tree-sitter 0.20.2 added support to change the malloc it uses
+   dnl at runtime, we need that feature.  However, tree-sitter's
+   dnl Makefile has problems, until that's fixed, all tree-sitter
+   dnl libraries distributed are versioned 0.6.3.  We try to
+   dnl accept a tree-sitter library that has incorrect version as long
+   dnl as it supports changing malloc.
+  EMACS_CHECK_MODULES([TREE_SITTER], [tree-sitter >= 0.20.2],
+    [HAVE_TREE_SITTER=yes], [HAVE_TREE_SITTER=no])
+  if test "${HAVE_TREE_SITTER}" = yes; then
+    AC_DEFINE(HAVE_TREE_SITTER, 1, [Define if using tree-sitter.])
+  else
+    EMACS_CHECK_MODULES([TREE_SITTER], [tree-sitter >= 0.6.3],
+      [HAVE_TREE_SITTER=yes], [HAVE_TREE_SITTER=no])
+    if test "${HAVE_TREE_SITTER}" = yes; then
+      OLD_CFLAGS=$CFLAGS
+      OLD_LIBS=$LIBS
+      CFLAGS="$CFLAGS $TREE_SITTER_CFLAGS"
+      LIBS="$TREE_SITTER_LIBS $LIBS"
+      AC_CHECK_FUNCS([ts_set_allocator])
+      CFLAGS=$OLD_CFLAGS
+      LIBS=$OLD_LIBS
+      if test "$ac_cv_func_ts_set_allocator" = yes; then
+        AC_DEFINE(HAVE_TREE_SITTER, 1, [Define if using tree-sitter.])
+	NEED_DYNLIB=yes
+      else
+        AC_MSG_ERROR([Tree-sitter library exists but its version is too old]);
+        TREE_SITTER_CFLAGS=
+        TREE_SITTER_LIBS=
+      fi
+    fi
+  fi
+
+  # Windows loads tree-sitter dynamically
+  if test "${opsys}" = "mingw32"; then
+    TREE_SITTER_LIBS=
+  fi
+fi
+
+AC_SUBST(TREE_SITTER_LIBS)
+AC_SUBST(TREE_SITTER_CFLAGS)
+
 NOTIFY_OBJ=
 NOTIFY_SUMMARY=no
 
@@ -3568,8 +3585,12 @@ XWIDGETS_OBJ=
 if test "$with_xwidgets" != "no"; then
   if test "$USE_GTK_TOOLKIT" = "GTK3" && test "$window_system" != "none"; then
     WEBKIT_REQUIRED=2.12
-    WEBKIT_MODULES="webkit2gtk-4.0 >= $WEBKIT_REQUIRED"
+    WEBKIT_MODULES="webkit2gtk-4.1 >= $WEBKIT_REQUIRED"
     EMACS_CHECK_MODULES([WEBKIT], [$WEBKIT_MODULES])
+    if test "$HAVE_WEBKIT" = "no"; then
+      WEBKIT_MODULES="webkit2gtk-4.0 >= $WEBKIT_REQUIRED"
+      EMACS_CHECK_MODULES([WEBKIT], [$WEBKIT_MODULES])
+    fi
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
     if test "$HAVE_X_WINDOWS" = "yes" && test "${with_cairo}" = "no"; then
@@ -3896,21 +3917,10 @@ if test "${HAVE_X11}" = "yes"; then
   if test "${HAVE_XCB}" = "yes"; then
     AC_CHECK_LIB([X11-xcb], [XGetXCBConnection], [HAVE_X11_XCB=yes])
     if test "${HAVE_X11_XCB}" = "yes"; then
-      AC_CHECK_LIB([xcb-util], [xcb_aux_sync], [HAVE_XCB_UTIL=yes])
-      if test "${HAVE_XCB_UTIL}" = "yes"; then
-	AC_DEFINE([USE_XCB], [1],
+      AC_DEFINE([USE_XCB], [1],
 [Define to 1 if you have the XCB library and X11-XCB library for mixed
-  X11/XCB programming.])
-        XCB_LIBS="-lX11-xcb -lxcb -lxcb-util"
-      else
-	AC_CHECK_LIB([xcb-aux], [xcb_aux_sync], [HAVE_XCB_AUX=yes])
-        if test "${HAVE_XCB_AUX}" = "yes"; then
-	  AC_DEFINE([USE_XCB], [1],
-[Define to 1 if you have the XCB library and X11-XCB library for mixed
- X11/XCB programming.])
-          XCB_LIBS="-lX11-xcb -lxcb -lxcb-aux"
-        fi
-      fi
+X11/XCB programming.])
+      XCB_LIBS="-lX11-xcb -lxcb"
     fi
   fi
 fi
@@ -4095,20 +4105,30 @@ if test "${HAVE_ZLIB}" = "yes"; then
 fi
 AC_SUBST([LIBZ])
 
+### Dynamic library support
+case $opsys in
+  cygwin|mingw32) DYNAMIC_LIB_SUFFIX=".dll" ;;
+  darwin) DYNAMIC_LIB_SUFFIX=".dylib" ;;
+  *) DYNAMIC_LIB_SUFFIX=".so" ;;
+esac
+case "${opsys}" in
+  darwin) DYNAMIC_LIB_SECONDARY_SUFFIX='.so' ;;
+  *) DYNAMIC_LIB_SECONDARY_SUFFIX='' ;;
+esac
+AC_DEFINE_UNQUOTED(DYNAMIC_LIB_SUFFIX, "$DYNAMIC_LIB_SUFFIX",
+  [System extension for dynamic libraries])
+AC_DEFINE_UNQUOTED(DYNAMIC_LIB_SECONDARY_SUFFIX, "$DYNAMIC_LIB_SECONDARY_SUFFIX",
+  [Alternative system extension for dynamic libraries.])
+
+AC_SUBST(DYNAMIC_LIB_SUFFIX)
+AC_SUBST(DYNAMIC_LIB_SECONDARY_SUFFIX)
+
 ### Dynamic modules support
 LIBMODULES=
 HAVE_MODULES=no
 MODULES_OBJ=
-NEED_DYNLIB=no
-case $opsys in
-  cygwin|mingw32) MODULES_SUFFIX=".dll" ;;
-  darwin) MODULES_SUFFIX=".dylib" ;;
-  *) MODULES_SUFFIX=".so" ;;
-esac
-case "${opsys}" in
-  darwin) MODULES_SECONDARY_SUFFIX='.so' ;;
-  *) MODULES_SECONDARY_SUFFIX='' ;;
-esac
+MODULES_SUFFIX="${DYNAMIC_LIB_SUFFIX}"
+MODULES_SECONDARY_SUFFIX="${DYNAMIC_LIB_SECONDARY_SUFFIX}"
 
 # pgtkterm.c uses dlsym
 if test $window_system = pgtk; then
@@ -4168,11 +4188,13 @@ AC_SUBST_FILE([module_env_snippet_26])
 AC_SUBST_FILE([module_env_snippet_27])
 AC_SUBST_FILE([module_env_snippet_28])
 AC_SUBST_FILE([module_env_snippet_29])
+AC_SUBST_FILE([module_env_snippet_30])
 module_env_snippet_25="$srcdir/src/module-env-25.h"
 module_env_snippet_26="$srcdir/src/module-env-26.h"
 module_env_snippet_27="$srcdir/src/module-env-27.h"
 module_env_snippet_28="$srcdir/src/module-env-28.h"
 module_env_snippet_29="$srcdir/src/module-env-29.h"
+module_env_snippet_30="$srcdir/src/module-env-30.h"
 emacs_major_version="${PACKAGE_VERSION%%.*}"
 AC_SUBST([emacs_major_version])
 
@@ -4525,6 +4547,12 @@ case $with_json,$HAVE_JSON in
   *) MISSING="$MISSING json"
      WITH_IFAVAILABLE="$WITH_IFAVAILABLE --with-json=ifavailable";;
 esac
+case $with_tree_sitter,$HAVE_TREE_SITTER in
+  no,* | ifavailable,* | *,yes) ;;
+  *) MISSING="$MISSING tree-sitter"
+     WITH_IFAVAILABLE="$WITH_IFAVAILABLE --with-tree-sitter=ifavailable";;
+esac
+
 if test "X${MISSING}" != X; then
   # If we have a missing library, and we don't have pkg-config installed,
   # the missing pkg-config may be the reason.  Give the user a hint.
@@ -4648,7 +4676,7 @@ AC_SUBST([XINERAMA_LIBS])
 ### Use Xfixes (-lXfixes) if available
 HAVE_XFIXES=no
 if test "${HAVE_X11}" = "yes"; then
-  XFIXES_REQUIRED=4.0.0
+  XFIXES_REQUIRED=1.0.0
   XFIXES_MODULES="xfixes >= $XFIXES_REQUIRED"
   EMACS_CHECK_MODULES([XFIXES], [$XFIXES_MODULES])
   if test $HAVE_XFIXES = no; then
@@ -4952,6 +4980,7 @@ pthread_sigmask strsignal setitimer \
 sendto recvfrom getsockname getifaddrs freeifaddrs \
 gai_strerror sync \
 getpwent endpwent getgrent endgrent \
+renameat2 \
 cfmakeraw cfsetspeed __executable_start log2 pthread_setname_np \
 pthread_set_name_np])
 LIBS=$OLD_LIBS
@@ -5193,6 +5222,7 @@ AC_CACHE_CHECK([whether signals can be handled on alternate stack],
 	       [emacs_cv_alternate_stack],
   [AC_COMPILE_IFELSE(
      [AC_LANG_PROGRAM([[#include <signal.h>
+			#include <stdlib.h>
 		      ]],
 		      [[stack_t ss;
 			struct sigaction sa;
@@ -5944,7 +5974,7 @@ case $opsys in
   gnu-linux | gnu-kfreebsd )
     AC_DEFINE([USG], [])
     AC_DEFINE([GNU_LINUX], [],
-      [Define if ths system is compatible with GNU/Linux.])
+      [Define if this system is compatible with GNU/Linux.])
     ;;
 
   hpux*)
@@ -6082,7 +6112,7 @@ fi
 
 version=$PACKAGE_VERSION
 
-copyright="Copyright (C) 2022 Free Software Foundation, Inc."
+copyright="Copyright (C) 2023 Free Software Foundation, Inc."
 AC_DEFINE_UNQUOTED([COPYRIGHT], ["$copyright"],
   [Short copyright string for this version of Emacs.])
 AC_SUBST([copyright])
@@ -6345,7 +6375,7 @@ fi
 # it temporarily reverts them to their pre-pkg-config values,
 # because gnulib needs to work with both src (which uses the
 # pkg-config stuff) and lib-src (which does not).  For example, gnulib
-# may need to determine whether LIB_CLOCK_GETTIME should contain -lrt,
+# may need to determine whether CLOCK_TIME_LIB should contain -lrt,
 # and it therefore needs to run in an environment where LIBS does not
 # already contain -lrt merely because 'pkg-config --libs' printed '-lrt'
 # for some package unrelated to lib-src.
@@ -6485,6 +6515,12 @@ if test "$window_system" != "none"; then
   AC_DEFINE([POLL_FOR_INPUT], [1],
     [Define if you poll periodically to detect C-g.])
   WINDOW_SYSTEM_OBJ="fontset.o fringe.o image.o"
+
+  if test "$window_system" = "x11"; then
+    AC_DEFINE([HAVE_TEXT_CONVERSION], [1],
+      [Define if the window system has text conversion support.])
+    WINDOW_SYSTEM_OBJ="$WINDOW_SYSTEM_OBJ textconv.o"
+  fi
 fi
 
 AC_SUBST([WINDOW_SYSTEM_OBJ])
@@ -6537,7 +6573,9 @@ if test "${HAVE_GTK}" = "yes"; then
 fi
 
 if test $USE_ACL -ne 0; then
-  ACL_SUMMARY="yes $LIB_ACL"
+  ACL_SUMMARY="yes"
+  test "$LIB_ACL" && ACL_SUMMARY="$ACL_SUMMARY $LIB_ACL"
+  test "$LIB_XATTR" && ACL_SUMMARY="$ACL_SUMMARY $LIB_XATTR"
 else
   ACL_SUMMARY=no
 fi
@@ -6568,7 +6606,7 @@ emacs_config_features=
 for opt in ACL BE_APP CAIRO DBUS FREETYPE GCONF GIF GLIB GMP GNUTLS GPM GSETTINGS \
  HARFBUZZ IMAGEMAGICK JPEG JSON LCMS2 LIBOTF LIBSELINUX LIBSYSTEMD LIBXML2 \
  M17N_FLT MODULES NATIVE_COMP NOTIFY NS OLDXMENU PDUMPER PGTK PNG RSVG SECCOMP \
- SOUND SQLITE3 THREADS TIFF TOOLKIT_SCROLL_BARS \
+ SOUND SQLITE3 THREADS TIFF TOOLKIT_SCROLL_BARS TREE_SITTER \
  UNEXEC WEBP X11 XAW3D XDBE XFT XIM XINPUT2 XPM XWIDGETS X_TOOLKIT \
  ZLIB; do
 
@@ -6608,6 +6646,7 @@ AC_DEFINE_UNQUOTED([EMACS_CONFIG_FEATURES], ["${emacs_config_features}"],
   [Summary of some of the main features enabled by configure.])
 
 AS_ECHO(["  Does Emacs use -lXaw3d?                                 ${HAVE_XAW3D}
+  Does Emacs use the X Double Buffer Extension?           ${HAVE_XDBE}
   Does Emacs use -lXpm?                                   ${HAVE_XPM}
   Does Emacs use -ljpeg?                                  ${HAVE_JPEG}
   Does Emacs use -ltiff?                                  ${HAVE_TIFF}
@@ -6637,6 +6676,7 @@ AS_ECHO(["  Does Emacs use -lXaw3d?                                 ${HAVE_XAW3D
   Does Emacs use -lxft?                                   ${HAVE_XFT}
   Does Emacs use -lsystemd?                               ${HAVE_LIBSYSTEMD}
   Does Emacs use -ljansson?                               ${HAVE_JSON}
+  Does Emacs use -ltree-sitter?                           ${HAVE_TREE_SITTER}
   Does Emacs use the GMP library?                         ${HAVE_GMP}
   Does Emacs directly use zlib?                           ${HAVE_ZLIB}
   Does Emacs have dynamic modules support?                ${HAVE_MODULES}

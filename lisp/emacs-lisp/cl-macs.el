@@ -1,6 +1,6 @@
 ;;; cl-macs.el --- Common Lisp macros  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993, 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: Dave Gillespie <daveg@synaptics.com>
 ;; Old-Version: 2.02
@@ -656,6 +656,8 @@ its argument list allows full Common Lisp conventions."
 		   (check `(while ,var
                              (cond
                               ((memq (car ,var) ',(append keys allow))
+                               (unless (cdr ,var)
+                                 (error "Missing argument for %s" (car ,var)))
                                (setq ,var (cdr (cdr ,var))))
                               ((car (cdr (memq (quote ,@allow) ,restarg)))
                                (setq ,var nil))
@@ -2050,7 +2052,8 @@ info node `(cl) Function Bindings' for details.
     (dolist (binding bindings)
       (let ((var (make-symbol (format "--cl-%s--" (car binding))))
             (args-and-body (cdr binding)))
-        (if (and (= (length args-and-body) 1) (symbolp (car args-and-body)))
+        (if (and (= (length args-and-body) 1)
+                 (macroexp-copyable-p (car args-and-body)))
             ;; Optimize (cl-flet ((fun var)) body).
             (setq var (car args-and-body))
           (push (list var (if (= (length args-and-body) 1)
@@ -2808,7 +2811,7 @@ values.  Note that this macro is *not* available in Common Lisp.
 As a special case, if `(PLACE)' is used instead of `(PLACE VALUE)',
 the PLACE is not modified before executing BODY.
 
-See info node `(cl) Function Bindings' for details.
+See info node `(cl) Modify Macros' for details.
 
 \(fn ((PLACE VALUE) ...) BODY...)"
   (declare (indent 1) (debug ((&rest [&or (symbolp form)
@@ -3173,8 +3176,9 @@ To see the documentation for a defined struct type, use
               (when (cl-oddp (length desc))
                 (push
                  (macroexp-warn-and-return
-                  (format "Missing value for option `%S' of slot `%s' in struct %s!"
-                          (car (last desc)) slot name)
+                  (format-message
+                   "Missing value for option `%S' of slot `%s' in struct %s!"
+                   (car (last desc)) slot name)
                   nil nil nil (car (last desc)))
                  forms)
                 (when (and (keywordp (car defaults))
@@ -3182,8 +3186,9 @@ To see the documentation for a defined struct type, use
                   (let ((kw (car defaults)))
                     (push
                      (macroexp-warn-and-return
-                      (format "  I'll take `%s' to be an option rather than a default value."
-                              kw)
+                      (format-message
+                       "  I'll take `%s' to be an option rather than a default value."
+                       kw)
                       nil nil nil kw)
                      forms)
                     (push kw desc)

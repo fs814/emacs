@@ -1,6 +1,6 @@
 ;;; add-log.el --- change log maintenance commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2022 Free
+;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2023 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -1188,7 +1188,7 @@ file were isearch was started."
      ((and wrap (null file))
       (current-buffer))
      ;; When there is no next file, file-exists-p raises the error to be
-     ;; catched by the search function that displays the error message.
+     ;; caught by the search function that displays the error message.
      ((file-exists-p file)
       (find-file-noselect file))
      (t

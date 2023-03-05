@@ -1,6 +1,6 @@
 ;;; files.el --- file input and output commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1987, 1992-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1985-1987, 1992-2023 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Package: emacs
@@ -1533,7 +1533,7 @@ in all cases, since that is the standard symbol for byte."
   (let ((power (if (or (null flavor) (eq flavor 'iec))
 		   1024.0
 		 1000.0))
-	(prefixes '("" "k" "M" "G" "T" "P" "E" "Z" "Y")))
+	(prefixes '("" "k" "M" "G" "T" "P" "E" "Z" "Y" "R" "Q")))
     (while (and (>= file-size power) (cdr prefixes))
       (setq file-size (/ file-size power)
 	    prefixes (cdr prefixes)))
@@ -2308,7 +2308,8 @@ it returns nil or exits non-locally."
   "Warn if an attempt to open file of SIZE bytes may run out of memory."
   (when (and (numberp size) (not (zerop size))
 	     (integerp out-of-memory-warning-percentage))
-    (let ((meminfo (memory-info)))
+    (let* ((default-directory temporary-file-directory)
+           (meminfo (memory-info)))
       (when (consp meminfo)
 	(let ((total-free-memory (float (+ (nth 1 meminfo) (nth 3 meminfo)))))
 	  (when (> (/ size 1024)
@@ -2849,7 +2850,7 @@ since only a single case-insensitive search through the alist is made."
      ("\\.emacs-places\\'" . lisp-data-mode)
      ("\\.el\\'" . emacs-lisp-mode)
      ("Project\\.ede\\'" . emacs-lisp-mode)
-     ("\\.\\(scm\\|stk\\|ss\\|sch\\)\\'" . scheme-mode)
+     ("\\.\\(scm\\|sls\\|sld\\|stk\\|ss\\|sch\\)\\'" . scheme-mode)
      ("\\.l\\'" . lisp-mode)
      ("\\.li?sp\\'" . lisp-mode)
      ("\\.[fF]\\'" . fortran-mode)
@@ -4016,6 +4017,7 @@ major-mode."
 	  (forward-line 1)
 	  (let ((startpos (point))
 	        endpos
+                (selective-p (eq selective-display t))
 	        (thisbuf (current-buffer)))
 	    (save-excursion
 	      (unless (let ((case-fold-search t))
@@ -4032,7 +4034,8 @@ major-mode."
 	    (with-temp-buffer
 	      (insert-buffer-substring thisbuf startpos endpos)
 	      (goto-char (point-min))
-	      (subst-char-in-region (point) (point-max) ?\^m ?\n)
+              (if selective-p
+	          (subst-char-in-region (point) (point-max) ?\r ?\n))
 	      (while (not (eobp))
 	        ;; Discard the prefix.
 	        (if (looking-at prefix)
@@ -5058,7 +5061,8 @@ This is a separate procedure so your site-init or startup file can
 redefine it.
 If the optional argument KEEP-BACKUP-VERSION is non-nil,
 we do not remove backup version numbers, only true file version numbers.
-See also `file-name-version-regexp'."
+See `file-name-version-regexp' for what constitutes backup versions
+and version strings."
   (let ((handler (find-file-name-handler name 'file-name-sans-versions)))
     (if handler
 	(funcall handler 'file-name-sans-versions name keep-backup-version)
@@ -5110,9 +5114,12 @@ the group would be preserved too."
 			       (file-attribute-group-id attributes)))))))))))
 
 (defun file-name-sans-extension (filename)
-  "Return FILENAME sans final \"extension\".
+  "Return FILENAME sans final \"extension\" and any backup version strings.
 The extension, in a file name, is the part that begins with the last `.',
-except that a leading `.' of the file name, if there is one, doesn't count."
+except that a leading `.' of the file name, if there is one, doesn't count.
+Any extensions that indicate backup versions and version strings are
+removed by calling `file-name-sans-versions', which see, before looking
+for the \"real\" file extension."
   (save-match-data
     (let ((file (file-name-sans-versions (file-name-nondirectory filename)))
 	  directory)
@@ -5126,12 +5133,14 @@ except that a leading `.' of the file name, if there is one, doesn't count."
 	filename))))
 
 (defun file-name-extension (filename &optional period)
-  "Return FILENAME's final \"extension\".
+  "Return FILENAME's final \"extension\" sans any backup version strings.
 The extension, in a file name, is the part that begins with the last `.',
-excluding version numbers and backup suffixes, except that a leading `.'
-of the file name, if there is one, doesn't count.
+except that a leading `.' of the file name, if there is one, doesn't count.
+This function calls `file-name-sans-versions', which see, to remove from
+the extension it returns any parts that indicate backup versions and
+version strings.
 Return nil for extensionless file names such as `foo'.
-Return the empty string for file names such as `foo.'.
+Return the empty string for file names such as `foo.' that end in a period.
 
 By default, the returned value excludes the period that starts the
 extension, but if the optional argument PERIOD is non-nil, the period
@@ -6193,17 +6202,16 @@ instance of such commands."
       (force-mode-line-update))))
 
 (defun files--ensure-directory (dir)
-  "Make directory DIR if it is not already a directory.  Return nil."
+  "Make directory DIR if it is not already a directory.
+Return non-nil if DIR is already a directory."
   (condition-case err
       (make-directory-internal dir)
     (error
-     (unless (file-directory-p dir)
-       (signal (car err) (cdr err))))))
+     (or (file-directory-p dir)
+	 (signal (car err) (cdr err))))))
 
 (defun make-directory (dir &optional parents)
   "Create the directory DIR and optionally any nonexistent parent dirs.
-If DIR already exists as a directory, signal an error, unless
-PARENTS is non-nil.
 
 Interactively, the default choice of directory to create is the
 current buffer's default directory.  That is useful when you have
@@ -6213,8 +6221,9 @@ Noninteractively, the second (optional) argument PARENTS, if
 non-nil, says whether to create parent directories that don't
 exist.  Interactively, this happens by default.
 
-If creating the directory or directories fail, an error will be
-raised."
+Return non-nil if PARENTS is non-nil and DIR already exists as a
+directory, and nil if DIR did not already exist but was created.
+Signal an error if unsuccessful."
   (interactive
    (list (read-file-name "Make directory: " default-directory default-directory
 			 nil nil)
@@ -6228,19 +6237,21 @@ raised."
       (if (not parents)
 	  (make-directory-internal dir)
 	(let ((dir (directory-file-name (expand-file-name dir)))
-	      create-list parent)
+	      already-dir create-list parent)
 	  (while (progn
 		   (setq parent (directory-file-name
 				 (file-name-directory dir)))
 		   (condition-case ()
-		       (files--ensure-directory dir)
-		     (file-missing
+		       (ignore (setq already-dir
+				     (files--ensure-directory dir)))
+		     (error
 		      ;; Do not loop if root does not exist (Bug#2309).
 		      (not (string= dir parent)))))
 	    (setq create-list (cons dir create-list)
 		  dir parent))
 	  (dolist (dir create-list)
-            (files--ensure-directory dir)))))))
+	    (setq already-dir (files--ensure-directory dir)))
+	  already-dir)))))
 
 (defun make-empty-file (filename &optional parents)
   "Create an empty file FILENAME.
@@ -6333,6 +6344,12 @@ RECURSIVE if DIRECTORY is nonempty."
 		  directory-exists))
 	(files--force recursive #'delete-directory-internal directory))))))
 
+(defcustom remote-file-name-inhibit-delete-by-moving-to-trash nil
+  "Whether remote files shall be moved to the Trash.
+This overrules any setting of `delete-by-moving-to-trash'."
+  :version "30.1"
+  :type 'boolean)
+
 (defun file-equal-p (file1 file2)
   "Return non-nil if files FILE1 and FILE2 name the same file.
 If FILE1 or FILE2 does not exist, the return value is unspecified."
@@ -6343,7 +6360,18 @@ If FILE1 or FILE2 does not exist, the return value is unspecified."
       (let (f1-attr f2-attr)
         (and (setq f1-attr (file-attributes (file-truename file1)))
 	     (setq f2-attr (file-attributes (file-truename file2)))
-	     (equal f1-attr f2-attr))))))
+             (progn
+               ;; Haiku systems change the file's last access timestamp
+               ;; every time `stat' is called.  Make sure to not compare
+               ;; the timestamps in that case.
+               (or (equal f1-attr f2-attr)
+                   (when (and (eq system-type 'haiku)
+                              (consp (nthcdr 4 f1-attr))
+                              (consp (nthcdr 4 f2-attr)))
+                     (ignore-errors
+                       (setcar (nthcdr 4 f1-attr) nil)
+                       (setcar (nthcdr 4 f2-attr) nil))
+	             (equal f1-attr f2-attr)))))))))
 
 (defun file-in-directory-p (file dir)
   "Return non-nil if DIR is a parent directory of FILE.
@@ -6434,7 +6462,7 @@ into NEWNAME instead."
   ;; copy-directory handler.
   (let ((handler (or (find-file-name-handler directory 'copy-directory)
 		     (find-file-name-handler newname 'copy-directory)))
-	(follow parents))
+	follow)
     (if handler
 	(funcall handler 'copy-directory directory
                  newname keep-time parents copy-contents)
@@ -6454,19 +6482,24 @@ into NEWNAME instead."
 				    t)
 	      (make-symbolic-link target newname t)))
         ;; Else proceed to copy as a regular directory
-        (cond ((not (directory-name-p newname))
+	;; first by creating the destination directory if needed,
+	;; preparing to follow any symlink to a directory we did not create.
+	(setq follow
+	    (if (not (directory-name-p newname))
 	       ;; If NEWNAME is not a directory name, create it;
 	       ;; that is where we will copy the files of DIRECTORY.
-	       (make-directory newname parents))
+	       (make-directory newname parents)
 	      ;; NEWNAME is a directory name.  If COPY-CONTENTS is non-nil,
 	      ;; create NEWNAME if it is not already a directory;
 	      ;; otherwise, create NEWNAME/[DIRECTORY-BASENAME].
-	      ((if copy-contents
-		   (or parents (not (file-directory-p newname)))
+	      (unless copy-contents
 	         (setq newname (concat newname
 				       (file-name-nondirectory directory))))
-	       (make-directory (directory-file-name newname) parents))
-	      (t (setq follow t)))
+	      (condition-case err
+		  (make-directory (directory-file-name newname) parents)
+		(error
+		 (or (file-directory-p newname)
+		     (signal (car err) (cdr err)))))))
 
         ;; Copy recursively.
         (dolist (file
@@ -7080,10 +7113,11 @@ specifies the list of buffers to kill, asking for approval for each one."
     (setq list (cdr list))))
 
 (defun kill-matching-buffers (regexp &optional internal-too no-ask)
-  "Kill buffers whose name matches the specified REGEXP.
-Ignores buffers whose name starts with a space, unless optional
-prefix argument INTERNAL-TOO is non-nil.  Asks before killing
-each buffer, unless NO-ASK is non-nil."
+  "Kill buffers whose names match the regular expression REGEXP.
+Interactively, prompt for REGEXP.
+Ignores buffers whose names start with a space, unless optional
+prefix argument INTERNAL-TOO(interactively, the prefix argument)
+is non-nil.  Asks before killing each buffer, unless NO-ASK is non-nil."
   (interactive "sKill buffers matching this regular expression: \nP")
   (dolist (buffer (buffer-list))
     (let ((name (buffer-name buffer)))
@@ -7091,6 +7125,17 @@ each buffer, unless NO-ASK is non-nil."
                  (or internal-too (/= (aref name 0) ?\s))
                  (string-match regexp name))
         (funcall (if no-ask 'kill-buffer 'kill-buffer-ask) buffer)))))
+
+(defun kill-matching-buffers-no-ask (regexp &optional internal-too)
+  "Kill buffers whose names match the regular expression REGEXP.
+Interactively, prompt for REGEXP.
+Like `kill-matching-buffers', but doesn't ask for confirmation
+before killing each buffer.
+Ignores buffers whose names start with a space, unless the
+optional argument INTERNAL-TOO (interactively, the prefix argument)
+is non-nil."
+  (interactive "sKill buffers matching this regular expression: \nP")
+  (kill-matching-buffers regexp internal-too t))
 
 
 (defun rename-auto-save-file ()
@@ -7294,7 +7339,7 @@ by `sh' are supported."
 			      (setq i (1+ i))
 			      "[]"))
 			   (t "["))
-			  (prog1	; copy everything upto next `]'.
+			  (prog1	; copy everything up to next `]'.
 			      (substring wildcard
 					 i
 					 (setq j (string-search
@@ -7406,9 +7451,9 @@ files, you could say something like:
 
   (\"src/emacs/[^/]+/\\\\(.*\\\\)\\\\\\='\" \"src/emacs/.*/\\\\1\\\\\\='\")
 
-In this example, if you're in src/emacs/emacs-27/lisp/abbrev.el,
-and you an src/emacs/emacs-28/lisp/abbrev.el file exists, it's
-now defined as a sibling."
+In this example, if you're in \"src/emacs/emacs-27/lisp/abbrev.el\",
+and a \"src/emacs/emacs-28/lisp/abbrev.el\" file exists, it's now
+defined as a sibling."
   :type 'sexp
   :version "29.1")
 
@@ -7440,7 +7485,7 @@ The \"sibling\" file is defined by the `find-sibling-rules' variable."
                           relatives nil t nil nil (car relatives))))))))
 
 (defun find-sibling-file-search (file &optional rules)
-  "Return a list of FILE's \"siblings\"
+  "Return a list of FILE's \"siblings\".
 RULES should be a list on the form defined by `find-sibling-rules' (which
 see), and if nil, defaults to `find-sibling-rules'."
   (let ((results nil))
@@ -7637,7 +7682,7 @@ If DIR's free space cannot be obtained, this function returns nil."
 	 ;; This avoids recognizing `1 may 1997' as a date in the line:
 	 ;; -r--r--r--   1 may      1997        1168 Oct 19 16:49 README
 
-	 ;; The "[BkKMGTPEZY]?" below supports "ls -alh" output.
+	 ;; The "[BkKMGTPEZYRQ]?" below supports "ls -alh" output.
 
 	 ;; For non-iso date formats, we add the ".*" in order to find
 	 ;; the last possible match.  This avoids recognizing
@@ -7649,8 +7694,8 @@ If DIR's free space cannot be obtained, this function returns nil."
          ;; parentheses:
          ;; -rw-r--r-- (modified) 2005-10-22 21:25 files.el
          ;; This is not supported yet.
-    (purecopy (concat "\\([0-9][BkKMGTPEZY]? " iso
-		      "\\|.*[0-9][BkKMGTPEZY]? "
+    (purecopy (concat "\\([0-9][BkKMGTPEZYRQ]? " iso
+		      "\\|.*[0-9][BkKMGTPEZYRQ]? "
 	              "\\(" western "\\|" western-comma
                       "\\|" DD-MMM-YYYY "\\|" east-asian "\\)"
 		      "\\) +")))
@@ -7661,9 +7706,12 @@ regardless of the language.")
 (defvar insert-directory-ls-version 'unknown)
 
 (defun insert-directory-wildcard-in-dir-p (dir)
-  "Return non-nil if DIR contents a shell wildcard in the directory part.
-The return value is a cons (DIR . WILDCARDS); DIR is the
-`default-directory' in the Dired buffer, and WILDCARDS are the wildcards.
+  "Return non-nil if DIR contains shell wildcards in its parent directory part.
+The return value is a cons (DIRECTORY . WILDCARD), where DIRECTORY is the
+part of DIR up to and excluding the first component that includes
+wildcard characters, and WILDCARD is the rest of DIR's components.  The
+DIRECTORY part of the value includes the trailing slash, to indicate that
+it is a directory.
 
 Valid wildcards are `*', `?', `[abc]' and `[a-z]'."
   (let ((wildcards "[?*"))
@@ -8358,11 +8406,14 @@ as in \"og+rX-w\"."
     num-rights))
 
 (defun file-modes-number-to-symbolic (mode &optional filetype)
-  "Return a string describing a file's MODE.
+  "Return a description of a file's MODE as a string of 10 letters and dashes.
+The returned string is like the mode description produced by \"ls -l\".
 For instance, if MODE is #o700, then it produces `-rwx------'.
-FILETYPE if provided should be a character denoting the type of file,
-such as `?d' for a directory, or `?l' for a symbolic link and will override
-the leading `-' char."
+Note that this is NOT the same as the \"chmod\" style symbolic description
+accepted by `file-modes-symbolic-to-number'.
+FILETYPE, if provided, should be a character denoting the type of file,
+such as `?d' for a directory, or `?l' for a symbolic link, and will override
+the leading `-' character."
   (string
    (or filetype
        (pcase (ash mode -12)
@@ -8496,7 +8547,7 @@ Otherwise, trash FILENAME using the freedesktop.org conventions,
 	   (unless (file-directory-p trash-dir)
 	     (make-directory trash-dir t))
 	   ;; Ensure that the trashed file-name is unique.
-	   (if (file-exists-p new-fn)
+	   (if (file-attributes new-fn)
 	       (let ((version-control t)
 		     (backup-directory-alist nil))
 		 (setq new-fn (car (find-backup-file-name new-fn)))))
@@ -8566,13 +8617,14 @@ Otherwise, trash FILENAME using the freedesktop.org conventions,
 
 	       ;; Make a .trashinfo file.  Use O_EXCL, as per trash-spec 1.0.
 	       (let* ((files-base (file-name-nondirectory fn))
-                      (is-directory (file-directory-p fn))
+                      (is-directory (and (file-directory-p fn)
+					 (not (file-symlink-p fn))))
                       (overwrite nil)
                       info-fn)
                  ;; We're checking further down whether the info file
                  ;; exists, but the file name may exist in the trash
                  ;; directory even if there is no info file for it.
-                 (when (file-exists-p
+                 (when (file-attributes
                         (file-name-concat trash-files-dir files-base))
                    (setq overwrite t
                          files-base (file-name-nondirectory
@@ -8596,10 +8648,27 @@ Otherwise, trash FILENAME using the freedesktop.org conventions,
 		    (setq files-base (substring (file-name-nondirectory info-fn)
                                                 0 (- (length ".trashinfo"))))
 		    (write-region nil nil info-fn nil 'quiet info-fn)))
-		 ;; Finally, try to move the file to the trashcan.
+		 ;; Finally, try to move the item to the trashcan.  If
+                 ;; it's a file, just move it.  Things are more
+                 ;; complicated for directories.  If the target
+                 ;; directory already exists (due to uniquification)
+                 ;; and the trash directory is in a different
+                 ;; filesystem, rename-file will error out, even when
+                 ;; 'overwrite' is non-nil.  Rather than worry about
+                 ;; whether we're crossing filesystems, just check if
+                 ;; we've moving a directory and the target directory
+                 ;; already exists.  That handles both the
+                 ;; same-filesystem and cross-filesystem cases.
 		 (let ((delete-by-moving-to-trash nil)
 		       (new-fn (file-name-concat trash-files-dir files-base)))
-		   (rename-file fn new-fn overwrite)))))))))
+                   (if (or (not is-directory)
+                           (not (file-attributes new-fn)))
+                       (rename-file fn new-fn overwrite)
+                     (copy-directory fn
+                                     (file-name-as-directory new-fn)
+                                     t nil t)
+                     (delete-directory fn t))))))))))
+
 
 
 (defsubst file-attribute-type (attributes)

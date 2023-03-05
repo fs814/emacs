@@ -1,5 +1,5 @@
-/* Buffer insertion/deletion and gap motion for GNU Emacs. -*- coding:
-utf-8 -*- Copyright (C) 1985-1986, 1993-1995, 1997-2022 Free Software
+/* Buffer insertion/deletion and gap motion for GNU Emacs. -*- coding: utf-8 -*-
+   Copyright (C) 1985-1986, 1993-1995, 1997-2023 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -30,10 +30,13 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include "region-cache.h"
 #include "window.h"
 
-static void insert_from_string_1 (Lisp_Object, ptrdiff_t, ptrdiff_t,
-                                  ptrdiff_t, ptrdiff_t, bool, bool);
-static void insert_from_buffer_1 (struct buffer *, ptrdiff_t,
-                                  ptrdiff_t, bool);
+#ifdef HAVE_TREE_SITTER
+#include "treesit.h"
+#endif
+
+static void insert_from_string_1 (Lisp_Object, ptrdiff_t, ptrdiff_t, ptrdiff_t,
+				  ptrdiff_t, bool, bool);
+static void insert_from_buffer_1 (struct buffer *, ptrdiff_t, ptrdiff_t, bool);
 static void gap_left (ptrdiff_t, ptrdiff_t, bool);
 static void gap_right (ptrdiff_t, ptrdiff_t);
 
@@ -973,6 +976,12 @@ insert_1_both (const char *string, ptrdiff_t nchars, ptrdiff_t nbytes,
     set_text_properties (make_fixnum (PT), make_fixnum (PT + nchars),
                          Qnil, Qnil, Qnil);
 
+#ifdef HAVE_TREE_SITTER
+  eassert (nbytes >= 0);
+  eassert (PT_BYTE >= 0);
+  treesit_record_change (PT_BYTE, PT_BYTE, PT_BYTE + nbytes);
+#endif
+
   adjust_point (nchars, nbytes);
 
   check_markers ();
@@ -1110,6 +1119,12 @@ insert_from_string_1 (Lisp_Object string, ptrdiff_t pos,
   graft_intervals_into_buffer (intervals, PT, nchars, current_buffer,
                                inherit);
 
+#ifdef HAVE_TREE_SITTER
+  eassert (nbytes >= 0);
+  eassert (PT_BYTE >= 0);
+  treesit_record_change (PT_BYTE, PT_BYTE, PT_BYTE + nbytes);
+#endif
+
   adjust_point (nchars, outgoing_nbytes);
 
   check_markers ();
@@ -1129,6 +1144,10 @@ insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes,
              ? nchars == nbytes
              : nchars <= nbytes);
 
+#ifdef HAVE_TREE_SITTER
+  ptrdiff_t ins_bytepos = GPT_BYTE;
+#endif
+
   GAP_SIZE -= nbytes;
   if (!text_at_gap_tail)
     {
@@ -1144,6 +1163,12 @@ insert_from_gap_1 (ptrdiff_t nchars, ptrdiff_t nbytes,
   if (GAP_SIZE > 0)
     *(GPT_ADDR) = 0;
   eassert (GPT <= GPT_BYTE);
+
+#ifdef HAVE_TREE_SITTER
+  eassert (nbytes >= 0);
+  eassert (ins_bytepos >= 0);
+  treesit_record_change (ins_bytepos, ins_bytepos, ins_bytepos + nbytes);
+#endif
 }
 
 /* Insert a sequence of NCHARS chars which occupy NBYTES bytes
@@ -1199,10 +1224,24 @@ insert_from_buffer (struct buffer *buf, ptrdiff_t charpos,
 {
   ptrdiff_t opoint = PT;
 
+#ifdef HAVE_TREE_SITTER
+  ptrdiff_t obyte = PT_BYTE;
+#endif
+
   insert_from_buffer_1 (buf, charpos, nchars, inherit);
   signal_after_change (opoint, 0, PT - opoint);
   update_compositions (opoint, PT, CHECK_BORDER);
+
+#ifdef HAVE_TREE_SITTER
+  eassert (PT_BYTE >= BEG_BYTE);
+  eassert (obyte >= BEG_BYTE);
+  eassert (PT_BYTE >= obyte);
+  treesit_record_change (obyte, obyte, PT_BYTE);
+#endif
 }
+
+/* NOTE: If we ever make insert_from_buffer_1 public, make sure to
+   move the call to treesit_record_change into it.  */
 
 static void
 insert_from_buffer_1 (struct buffer *buf, ptrdiff_t from,
@@ -1589,6 +1628,13 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
   graft_intervals_into_buffer (intervals, from, inschars,
                                current_buffer, inherit);
 
+#ifdef HAVE_TREE_SITTER
+  eassert (to_byte >= from_byte);
+  eassert (outgoing_insbytes >= 0);
+  eassert (from_byte >= 0);
+  treesit_record_change (from_byte, to_byte, from_byte + outgoing_insbytes);
+#endif
+
   /* Relocate point as if it were a marker.  */
   if (from < PT)
     adjust_point ((from + inschars - (PT < to ? PT : to)),
@@ -1620,7 +1666,11 @@ replace_range (ptrdiff_t from, ptrdiff_t to, Lisp_Object new,
    If MARKERS, relocate markers.
 
    Unlike most functions at this level, never call
-   prepare_to_modify_buffer and never call signal_after_change.  */
+   prepare_to_modify_buffer and never call signal_after_change.
+   Because this function is called in a loop, one character at a time.
+   The caller of 'replace_range_2' calls these hooks for the entire
+   region once.  Apart from signal_after_change, any caller of this
+   function should also call treesit_record_change.  */
 
 void
 replace_range_2 (ptrdiff_t from, ptrdiff_t from_byte, ptrdiff_t to,
@@ -1736,9 +1786,46 @@ del_range (ptrdiff_t from, ptrdiff_t to)
   del_range_1 (from, to, 1, 0);
 }
 
-/* Like del_range; PREPARE says whether to call
-   prepare_to_modify_buffer. RET_STRING says to return the deleted
-   text. */
+struct safe_del_range_context
+{
+  /* From and to positions.  */
+  ptrdiff_t from, to;
+};
+
+static Lisp_Object
+safe_del_range_1 (void *ptr)
+{
+  struct safe_del_range_context *context;
+
+  context = ptr;
+  del_range (context->from, context->to);
+  return Qnil;
+}
+
+static Lisp_Object
+safe_del_range_2 (enum nonlocal_exit type, Lisp_Object value)
+{
+  return Qt;
+}
+
+/* Like del_range; however, catch all non-local exits.  Value is 0 if
+   the buffer contents were really deleted.  Otherwise, it is 1.  */
+
+int
+safe_del_range (ptrdiff_t from, ptrdiff_t to)
+{
+  struct safe_del_range_context context;
+
+  context.from = from;
+  context.to = to;
+
+  return !NILP (internal_catch_all (safe_del_range_1,
+				    &context,
+				    safe_del_range_2));
+}
+
+/* Like del_range; PREPARE says whether to call prepare_to_modify_buffer.
+   RET_STRING says to return the deleted text. */
 
 Lisp_Object
 del_range_1 (ptrdiff_t from, ptrdiff_t to, bool prepare,
@@ -1934,6 +2021,12 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte, ptrdiff_t to,
     END_UNCHANGED = ZE - GPT;
 
   check_markers ();
+
+#ifdef HAVE_TREE_SITTER
+  eassert (from_byte <= to_byte);
+  eassert (from_byte >= 0);
+  treesit_record_change (from_byte, to_byte, from_byte);
+#endif
 
   return deletion;
 }

@@ -1,22 +1,21 @@
 ;;; erc-scenarios-common.el --- Common helpers for ERC scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
-;;
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+
 ;; This file is part of GNU Emacs.
-;;
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see
-;; <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -73,7 +72,7 @@
     (require 'erc-d-t)
     (require 'erc-d)))
 
-(require 'erc-backend)
+(require 'erc)
 
 (eval-when-compile (require 'erc-join)
                    (require 'erc-services))
@@ -125,6 +124,7 @@
       (erc-auth-source-parameters-join-function nil)
       (erc-autojoin-channels-alist nil)
       (erc-server-auto-reconnect nil)
+      (erc-after-connect nil)
       (erc-d-linger-secs 10)
       ,@bindings)))
 
@@ -185,7 +185,7 @@ Dialog resource directories are located by expanding the variable
 (defun erc-scenarios-common-assert-initial-buf-name (id port)
   ;; Assert no limbo period when explicit ID given
   (should (string= (if id
-                       (symbol-name id)
+                       (format "%s" id)
                      (format "127.0.0.1:%d" port))
                    (buffer-name))))
 
@@ -295,7 +295,7 @@ buffer-naming collisions involving bouncers in ERC."
         (erc-d-t-search-for 1 "<joe>")
         (erc-d-t-absent-for 0.1 "<bob>")
         (erc-d-t-wait-for 5 (eq erc-server-process erc-server-process-bar))
-        (erc-d-t-search-for 15 "keeps you from dishonour")
+        (erc-d-t-search-for 15 "joe: It is a rupture")
         (erc-d-t-wait-for 5 (not (erc-server-process-alive)))))
 
     (when after (funcall after))))

@@ -7,9 +7,12 @@
 	 (emacs-lisp-docstring-fill-column . 65)
          (vc-git-annotate-switches . "-w")
          (bug-reference-url-format . "https://debbugs.gnu.org/%s")
-	 (diff-add-log-use-relative-names . t)))
+	 (diff-add-log-use-relative-names . t)
+         (vc-prepare-patches-separately . nil)))
  (c-mode . ((c-file-style . "GNU")
-            (c-noise-macro-names . ("INLINE" "ATTRIBUTE_NO_SANITIZE_UNDEFINED" "UNINIT" "CALLBACK" "ALIGN_STACK"))
+            (c-noise-macro-names . ("INLINE" "NO_INLINE" "ATTRIBUTE_NO_SANITIZE_UNDEFINED"
+                                    "UNINIT" "CALLBACK" "ALIGN_STACK" "ATTRIBUTE_MALLOC"
+                                    "ATTRIBUTE_DEALLOC_FREE"))
             (electric-quote-comment . nil)
             (electric-quote-string . nil)
             (indent-tabs-mode . t)

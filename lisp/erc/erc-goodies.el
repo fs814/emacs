@@ -1,6 +1,6 @@
 ;;; erc-goodies.el --- Collection of ERC modules  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
 ;; Author: Jorgen Schaefer <forcer@forcix.cx>
 ;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
@@ -31,6 +31,7 @@
 
 ;;; Imenu support
 
+(eval-when-compile (require 'cl-lib))
 (require 'erc-common)
 
 (defvar erc-controls-highlight-regexp)

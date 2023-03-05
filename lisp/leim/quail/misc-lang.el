@@ -1,6 +1,6 @@
 ;;; misc-lang.el --- Quail package for inputting Miscellaneous characters  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
 
 ;; Author: समीर सिंह Sameer Singh <lumarzeli30@gmail.com>
 ;; Keywords: multilingual, input method, i18n, Miscellaneous
@@ -1526,7 +1526,7 @@
 
 (quail-define-package
  "gothic" "Gothic" "𐌰" nil
- "Input methid for the ancient Gothic script."
+ "Input method for the ancient Gothic script."
  nil t t t t nil nil nil nil nil t)
 
 (quail-define-rules

@@ -1,6 +1,6 @@
 ;;; simple-tests.el --- Tests for simple.el           -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 ;; Author: Artur Malabarba <bruce.connor.am@gmail.com>
 
@@ -71,6 +71,30 @@
   (with-temp-buffer
     (insert "あ\nい\nう\nえ\nお\n")
     (should (= (count-lines (point) (point)) 0))))
+
+
+;;; `execute-extended-command'
+
+(ert-deftest simple-execute-extended-command--shorter ()
+  ;; This test can be flaky with completion frameworks other than the
+  ;; default, so just skip it in interactive sessions.
+  (skip-unless noninteractive)
+  (should (equal (execute-extended-command--shorter
+                  "display-line-numbers-mode"
+                  "display-line")
+                 "di-n")))
+
+(ert-deftest simple-execute-extended-command--describe-binding-msg ()
+  (let ((text-quoting-style 'grave))
+    (should (equal (execute-extended-command--describe-binding-msg
+                    'foo "m" nil)
+                   "You can run the command `foo' with m"))
+    (should (equal (execute-extended-command--describe-binding-msg
+                    'foo [14] nil)
+                   "You can run the command `foo' with C-n"))
+    (should (equal (execute-extended-command--describe-binding-msg
+                    'display-line-numbers-mode nil "di-n")
+                   "You can run the command `display-line-numbers-mode' with M-x di-n"))))
 
 
 ;;; `transpose-sexps'

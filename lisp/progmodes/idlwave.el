@@ -1,6 +1,6 @@
 ;;; idlwave.el --- IDL editing mode for GNU Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Authors: JD Smith <jd.smith@utoledo.edu>
 ;;          Carsten Dominik <dominik@science.uva.nl>
@@ -133,7 +133,7 @@
 ;;   limited to comments only and occurs only when a comment
 ;;   paragraph is filled via `idlwave-fill-paragraph'.
 ;;
-;;   Muti-statement lines (using "&") on block begin and end lines can
+;;   Multi-statement lines (using "&") on block begin and end lines can
 ;;   ruin the formatting.  For example, multiple end statements on a
 ;;   line: endif & endif.  Using "&" outside of block begin/end lines
 ;;   should be okay.
@@ -266,7 +266,7 @@ extends to the end of the match for the regular expression."
   :type 'regexp)
 
 (defcustom idlwave-use-last-hang-indent nil
-  "If non-nil then use last match on line for `idlwave-indent-regexp'."
+  "If non-nil then use last match on line for `idlwave-hang-indent-regexp'."
   :group 'idlwave-code-formatting
   :type 'boolean)
 

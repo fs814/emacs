@@ -1,6 +1,6 @@
 /* Fully extensible Emacs, running on Unix, intended for GNU.
 
-Copyright (C) 1985-1987, 1993-1995, 1997-1999, 2001-2022 Free Software
+Copyright (C) 1985-1987, 1993-1995, 1997-1999, 2001-2023 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -136,6 +136,10 @@ extern char etext;
 #include <sys/time.h>
 #include <sys/resource.h>
 #endif
+
+/* We don't guard this with HAVE_TREE_SITTER because treesit.o is
+   always compiled (to provide treesit-available-p).  */
+#include "treesit.h"
 
 #include "pdumper.h"
 #include "fingerprint.h"
@@ -291,6 +295,7 @@ Initialization options:\n\
 --no-site-lisp, -nsl        do not add site-lisp directories to load-path\n\
 --no-splash                 do not display a splash screen on startup\n\
 --no-window-system, -nw     do not communicate with X, ignoring $DISPLAY\n\
+--init-directory=DIR        use DIR when looking for the Emacs init files.\n\
 ",
     "\
 --quick, -Q                 equivalent to:\n\
@@ -432,9 +437,9 @@ terminate_due_to_signal (int sig, int backtrace_limit)
           if (sig == SIGTERM || sig == SIGHUP || sig == SIGINT)
 	    {
 	      /* Avoid abort in shut_down_emacs if we were interrupted
-		 by SIGINT in noninteractive usage, as in that case we
-		 don't care about the message stack.  */
-	      if (sig == SIGINT && noninteractive)
+		 in noninteractive usage, as in that case we don't
+		 care about the message stack.  */
+	      if (noninteractive)
 		clear_message_stack ();
 	      Fkill_emacs (make_fixnum (sig), Qnil);
 	    }
@@ -1919,6 +1924,12 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 	 Vcoding_system_hash_table.  */
       syms_of_coding ();	/* This should be after syms_of_fileio.  */
       init_frame_once ();       /* Before init_window_once.  */
+      /* init_window_once calls make_initial_frame, which calls
+	 Fcurrent_time and bset_display_time, both of which allocate
+	 bignums.  Without the following call to init_bignums, crashes
+	 happen on Windows 9X after dumping when GC tries to free a
+	 pointer allocated on the system heap.  */
+      init_bignum ();
       init_window_once ();	/* Init the window system.  */
 #ifdef HAVE_WINDOW_SYSTEM
       init_fringe_once ();	/* Swap bitmaps if necessary.  */
@@ -1932,7 +1943,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   running_asynch_code = 0;
   init_random ();
   init_xfaces ();
-  init_itree ();
 
 #if defined HAVE_JSON && !defined WINDOWSNT
   init_json ();
@@ -2267,7 +2277,9 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #ifdef HAVE_MODULES
       syms_of_module ();
 #endif
-
+      /* We don't guard this with HAVE_TREE_SITTER because treesit.o
+	 is always compiled (to provide treesit-available-p).  */
+      syms_of_treesit ();
 #ifdef HAVE_SOUND
       syms_of_sound ();
 #endif
@@ -2435,7 +2447,8 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #ifdef HAVE_DBUS
   init_dbusbind ();
 #endif
-#if defined(USE_GTK) && !defined(HAVE_PGTK)
+
+#ifdef HAVE_X_WINDOWS
   init_xterm ();
 #endif
 
@@ -2898,6 +2911,7 @@ killed.  */
 
   if (!NILP (restart))
     {
+      turn_on_atimers (false);
 #ifdef WINDOWSNT
       if (w32_reexec_emacs (initial_cmdline, initial_wd) < 0)
 #else
@@ -3104,8 +3118,6 @@ You must run Emacs in batch mode in order to dump it.  */)
   gflags.will_dump_ = false;
   gflags.will_dump_with_unexec_ = false;
   gflags.dumped_with_unexec_ = true;
-
-  forget_itree ();
 
   alloc_unexec_pre ();
 

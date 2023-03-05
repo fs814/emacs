@@ -1,6 +1,6 @@
 /* Updating of data structures for redisplay.
 
-Copyright (C) 1985-1988, 1993-1995, 1997-2022 Free Software Foundation,
+Copyright (C) 1985-1988, 1993-1995, 1997-2023 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -3188,7 +3188,7 @@ DEFUN ("redraw-display", Fredraw_display, Sredraw_display, 0, 0, "",
   Lisp_Object tail, frame;
 
   FOR_EACH_FRAME (tail, frame)
-    if (FRAME_VISIBLE_P (XFRAME (frame)))
+    if (FRAME_REDISPLAY_P (XFRAME (frame)))
       redraw_frame (XFRAME (frame));
 
   return Qnil;
@@ -5008,6 +5008,10 @@ update_frame_1 (struct frame *f, bool force_p, bool inhibit_id_p,
 		}
 	    }
 	  while (row > top && col == 0);
+
+	  /* We exit the loop with COL at the glyph _after_ the last one.  */
+	  if (col > 0)
+	    col--;
 
 	  /* Make sure COL is not out of range.  */
 	  if (col >= FRAME_CURSOR_X_LIMIT (f))

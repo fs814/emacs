@@ -1,6 +1,6 @@
 /* Evaluator for GNU Emacs Lisp interpreter.
 
-Copyright (C) 1985-1987, 1993-1995, 1999-2022 Free Software Foundation,
+Copyright (C) 1985-1987, 1993-1995, 1999-2023 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -1329,7 +1329,7 @@ Then the value of the last BODY form is returned from the `condition-case'
 expression.
 
 The special handler (:success BODY...) is invoked if BODYFORM terminated
-without signalling an error.  BODY is then evaluated with VAR bound to
+without signaling an error.  BODY is then evaluated with VAR bound to
 the value returned by BODYFORM.
 
 See also the function `signal' for more info.
@@ -1367,7 +1367,7 @@ internal_lisp_condition_case (Lisp_Object var, Lisp_Object bodyform,
 	error ("Invalid condition handler: %s",
 	       SDATA (Fprin1_to_string (tem, Qt, Qnil)));
       if (CONSP (tem) && EQ (XCAR (tem), QCsuccess))
-	success_handler = XCDR (tem);
+	success_handler = tem;
       else
 	clausenb++;
     }
@@ -1430,7 +1430,7 @@ internal_lisp_condition_case (Lisp_Object var, Lisp_Object bodyform,
   if (!NILP (success_handler))
     {
       if (NILP (var))
-	return Fprogn (success_handler);
+	return Fprogn (XCDR (success_handler));
 
       Lisp_Object handler_var = var;
       if (!NILP (Vinternal_interpreter_environment))
@@ -1442,7 +1442,7 @@ internal_lisp_condition_case (Lisp_Object var, Lisp_Object bodyform,
 
       specpdl_ref count = SPECPDL_INDEX ();
       specbind (handler_var, result);
-      return unbind_to (count, Fprogn (success_handler));
+      return unbind_to (count, Fprogn (XCDR (success_handler)));
     }
   return result;
 }
@@ -1716,7 +1716,6 @@ signal_or_quit (Lisp_Object error_symbol, Lisp_Object data, bool keyboard_quit)
   Lisp_Object clause = Qnil;
   struct handler *h;
 
-  eassert (!itree_iterator_busy_p ());
   if (gc_in_progress || waiting_for_input)
     emacs_abort ();
 
@@ -1810,7 +1809,7 @@ signal_or_quit (Lisp_Object error_symbol, Lisp_Object data, bool keyboard_quit)
       unbind_to (count, Qnil);
     }
 
-  /* If an error is signalled during a Lisp hook in redisplay, write a
+  /* If an error is signaled during a Lisp hook in redisplay, write a
      backtrace into the buffer *Redisplay-trace*.  */
   if (!debugger_called && !NILP (error_symbol)
       && backtrace_on_redisplay_error
@@ -1901,6 +1900,19 @@ signal_error (const char *s, Lisp_Object arg)
     arg = list1 (arg);
 
   xsignal (Qerror, Fcons (build_string (s), arg));
+}
+
+void
+define_error (Lisp_Object name, const char *message, Lisp_Object parent)
+{
+  eassert (SYMBOLP (name));
+  eassert (SYMBOLP (parent));
+  Lisp_Object parent_conditions = Fget (parent, Qerror_conditions);
+  eassert (CONSP (parent_conditions));
+  eassert (!NILP (Fmemq (parent, parent_conditions)));
+  eassert (NILP (Fmemq (name, parent_conditions)));
+  Fput (name, Qerror_conditions, pure_cons (name, parent_conditions));
+  Fput (name, Qerror_message, build_pure_c_string (message));
 }
 
 /* Use this for arithmetic overflow, e.g., when an integer result is
@@ -2104,7 +2116,7 @@ then strings and vectors are not accepted.  */)
 
   fun = function;
 
-  fun = indirect_function (fun); /* Check cycles.  */
+  fun = indirect_function (fun);
   if (NILP (fun))
     return Qnil;
 
@@ -2338,6 +2350,8 @@ it defines a macro.  */)
 }
 
 
+static Lisp_Object list_of_t;  /* Never-modified constant containing (t).  */
+
 DEFUN ("eval", Feval, Seval, 1, 2, 0,
        doc: /* Evaluate FORM and return its value.
 If LEXICAL is t, evaluate using lexical scoping.
@@ -2347,7 +2361,7 @@ alist mapping symbols to their value.  */)
 {
   specpdl_ref count = SPECPDL_INDEX ();
   specbind (Qinternal_interpreter_environment,
-	    CONSP (lexical) || NILP (lexical) ? lexical : list1 (Qt));
+	    CONSP (lexical) || NILP (lexical) ? lexical : list_of_t);
   return unbind_to (count, eval_sub (form));
 }
 
@@ -4381,6 +4395,9 @@ alist of active lexical bindings.  */);
      cons cell as error data, so use an uninterned symbol instead.  */
   Qcatch_all_memory_full
     = Fmake_symbol (build_pure_c_string ("catch-all-memory-full"));
+
+  staticpro (&list_of_t);
+  list_of_t = list1 (Qt);
 
   defsubr (&Sor);
   defsubr (&Sand);

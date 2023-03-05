@@ -1,6 +1,6 @@
 ;;; eudc-vars.el --- Emacs Unified Directory Client  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2023 Free Software Foundation, Inc.
 
 ;; Author: Oscar Figueiredo <oscar@cpe.fr>
 ;;         Pavel Janík <Pavel@Janik.cz>
@@ -38,6 +38,9 @@
 
 (defcustom eudc-server nil
   "The name or IP address of the directory server.
+This variable is deprecated as of Emacs 29.1.  Please add an
+entry to `eudc-server-hotlist' instead of setting `eudc-server'.
+
 A port number may be specified by appending a colon and a
 number to the name of the server.  Use `localhost' if the directory
 server resides on your computer (BBDB backend).
@@ -48,7 +51,7 @@ instead."
 
 ;; Known protocols (used in completion)
 ;; Not to be mistaken with `eudc-supported-protocols'
-(defvar eudc-known-protocols '(bbdb ldap))
+(defvar eudc-known-protocols '(bbdb ldap ecomplete mailabbrev))
 
 (defcustom eudc-server-hotlist nil
   "Directory servers to query.

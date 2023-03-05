@@ -1,6 +1,6 @@
 ;;; startup.el --- process Emacs shell arguments  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994-2022 Free Software Foundation,
+;; Copyright (C) 1985-1986, 1992, 1994-2023 Free Software Foundation,
 ;; Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -542,8 +542,8 @@ DIRS are relative."
   (setq comp--compilable t))
 
 (defvar native-comp-eln-load-path)
-(defvar inhibit-automatic-native-compilation)
-(defvar comp-enable-subr-trampolines)
+(defvar native-comp-jit-compilation)
+(defvar native-comp-enable-subr-trampolines)
 
 (defvar startup--original-eln-load-path nil
   "Original value of `native-comp-eln-load-path'.")
@@ -579,10 +579,6 @@ the updated value."
 It sets `command-line-processed', processes the command-line,
 reads the initialization files, etc.
 It is the default value of the variable `top-level'."
-  ;; Allow disabling automatic .elc->.eln processing.
-  (setq inhibit-automatic-native-compilation
-        (getenv "EMACS_INHIBIT_AUTOMATIC_NATIVE_COMPILATION"))
-
   (if command-line-processed
       (message internal--top-level-message)
     (setq command-line-processed t)
@@ -601,8 +597,8 @@ It is the default value of the variable `top-level'."
         ;; in this session.  This is necessary if libgccjit is not
         ;; available on MS-Windows, but Emacs was built with
         ;; native-compilation support.
-        (setq inhibit-automatic-native-compilation t
-              comp-enable-subr-trampolines nil))
+        (setq native-comp-jit-compilation nil
+              native-comp-enable-subr-trampolines nil))
 
       ;; Form `native-comp-eln-load-path'.
       (let ((path-env (getenv "EMACSNATIVELOADPATH")))
@@ -1063,19 +1059,30 @@ init-file, or to a default value if loading is not possible."
 
             ;; If we loaded a compiled file, set `user-init-file' to
             ;; the source version if that exists.
-            (when (equal (file-name-extension user-init-file)
-                         "elc")
-              (let* ((source (file-name-sans-extension user-init-file))
-                     (alt (concat source ".el")))
-                (setq source (cond ((file-exists-p alt) alt)
-                                   ((file-exists-p source) source)
-                                   (t nil)))
-                (when source
-                  (when (file-newer-than-file-p source user-init-file)
-                    (message "Warning: %s is newer than %s"
-                             source user-init-file)
-                    (sit-for 1))
-                  (setq user-init-file source))))
+            (if (equal (file-name-extension user-init-file) "elc")
+                (let* ((source (file-name-sans-extension user-init-file))
+                       (alt (concat source ".el")))
+                  (setq source (cond ((file-exists-p alt) alt)
+                                     ((file-exists-p source) source)
+                                     (t nil)))
+                  (when source
+                    (when (file-newer-than-file-p source user-init-file)
+                      (message "Warning: %s is newer than %s"
+                               source user-init-file)
+                      (sit-for 1))
+                    (setq user-init-file source)))
+              ;; Else, perhaps the user init file was compiled
+              (when (and (equal (file-name-extension user-init-file) "eln")
+                         ;; The next test is for builds without native
+                         ;; compilation support or builds with unexec.
+                         (boundp 'comp-eln-to-el-h))
+                (if-let (source (gethash (file-name-nondirectory user-init-file)
+                                         comp-eln-to-el-h))
+                    ;; source exists or the .eln file would not load
+                    (setq user-init-file source)
+                  (message "Warning: unknown source file for init file %S"
+                           user-init-file)
+                  (sit-for 1))))
 
             (when (and load-defaults
                        (not inhibit-default-init))
@@ -1248,6 +1255,12 @@ please check its value")
 	  (setq init-file-user nil))
 	 ((member argi '("-init-directory"))
 	  (setq user-emacs-directory (or argval (pop args))
+                user-emacs-directory (if (stringp user-emacs-directory)
+                                         (file-name-as-directory
+                                          (expand-file-name
+                                           user-emacs-directory
+                                           command-line-default-directory))
+                                       user-emacs-directory)
                 argval nil))
 	 ((member argi '("-u" "-user"))
 	  (setq init-file-user (or argval (pop args))
@@ -1579,7 +1592,8 @@ please check its value")
   ;; or EMACSLOADPATH, so we basically always have to check.
   (let (warned)
     (dolist (dir load-path)
-      (and (not warned)
+      (and (not noninteractive)
+           (not warned)
 	   (stringp dir)
 	   (string-equal (file-name-as-directory (expand-file-name dir))
 			 (expand-file-name user-emacs-directory))
@@ -1587,7 +1601,7 @@ please check its value")
 	   (display-warning 'initialization
 			    (format-message "\
 Your `load-path' seems to contain\n\
-your `.emacs.d' directory: %s\n\
+your `user-emacs-directory': %s\n\
 This is likely to cause problems...\n\
 Consider using a subdirectory instead, e.g.: %s"
                                     dir (expand-file-name
@@ -2904,7 +2918,7 @@ nil default-directory" name)
        (when (looking-at "#!")
          (forward-line))
        (let (value form)
-         (while (ignore-error 'end-of-file
+         (while (ignore-error end-of-file
                   (setq form (read (current-buffer))))
            (setq value (eval form t)))
          (kill-emacs (if (numberp value)

@@ -1,6 +1,6 @@
 ;;; package.el --- Simple package system for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2007-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2023 Free Software Foundation, Inc.
 
 ;; Author: Tom Tromey <tromey@redhat.com>
 ;;         Daniel Hackney <dan@haxney.org>
@@ -378,10 +378,8 @@ If so, and variable `package-check-signature' is
 `allow-unsigned', return `allow-unsigned', otherwise return the
 value of variable `package-check-signature'."
   (if (eq package-check-signature 'allow-unsigned)
-      (progn
-        (require 'epg-config)
-        (and (epg-find-configuration 'OpenPGP)
-             'allow-unsigned))
+      (and (epg-find-configuration 'OpenPGP)
+           'allow-unsigned)
     package-check-signature))
 
 (defcustom package-unsigned-archives nil
@@ -458,7 +456,7 @@ synchronously."
 (defvar package--default-summary "No description available.")
 
 (define-inline package-vc-p (pkg-desc)
-  "Return non-nil if PKG-DESC is a source package."
+  "Return non-nil if PKG-DESC is a VC package."
   (inline-letevals (pkg-desc)
     (inline-quote (eq (package-desc-kind ,pkg-desc) 'vc))))
 
@@ -483,9 +481,7 @@ synchronously."
                                (if (eq 'quote (car requirements))
                                    (nth 1 requirements)
                                  requirements)))
-                 (kind (if (eq (car-safe version-string) 'vc)
-                           'vc
-                         (plist-get rest-plist :kind)))
+                 (kind (plist-get rest-plist :kind))
                  (archive (plist-get rest-plist :archive))
                  (extras (let (alist)
                            (while rest-plist
@@ -911,7 +907,7 @@ correspond to previously loaded files."
                            (let ((v1 (package-desc-version p1))
                                  (v2 (package-desc-version p2)))
                              (or
-                              ;; Prefer source packages.
+                              ;; Prefer VC packages.
                               (package-vc-p p1)
                               (package-vc-p p2)
                               ;; Prefer builtin packages.
@@ -960,7 +956,6 @@ Newer versions are always activated, regardless of FORCE."
   "Untar the current buffer.
 This uses `tar-untar-buffer' from Tar mode.  All files should
 untar into a directory named DIR; otherwise, signal an error."
-  (require 'tar-mode)
   (tar-mode)
   ;; Make sure everything extracts into DIR.
   (let ((regexp (concat "\\`" (regexp-quote (expand-file-name dir)) "/"))
@@ -1090,10 +1085,15 @@ untar into a directory named DIR; otherwise, signal an error."
          (backup-inhibited t)
          (version-control 'never))
     (loaddefs-generate
-     pkg-dir output-file
-     nil
-     "(add-to-list 'load-path (directory-file-name
-                         (or (file-name-directory #$) (car load-path))))")
+     pkg-dir output-file nil
+     (prin1-to-string
+      '(add-to-list
+        'load-path
+        ;; Add the directory that will contain the autoload file to
+        ;; the load path.  We don't hard-code `pkg-dir', to avoid
+        ;; issues if the package directory is moved around.
+        (or (and load-file-name (file-name-directory load-file-name))
+            (car load-path)))))
     (let ((buf (find-buffer-visiting output-file)))
       (when buf (kill-buffer buf)))
     auto-name))
@@ -1358,10 +1358,7 @@ is non-nil, don't propagate connection errors (does not apply to
 errors signaled by ERROR-FORM or by BODY).
 
 \(fn URL &key ASYNC FILE ERROR-FORM NOERROR &rest BODY)"
-  (declare (indent defun)
-           ;; FIXME: This should be something like
-           ;; `form def-body &rest form', but that doesn't work.
-           (debug (form &rest sexp)))
+  (declare (indent defun) (debug (sexp body)))
   (while (keywordp (car body))
     (setq body (cdr (cdr body))))
   `(package--with-response-buffer-1 ,url (lambda () ,@body)
@@ -1785,7 +1782,7 @@ similar to an entry in `package-alist'.  Save the cached copy to
 \"archives/NAME/FILE\" in `package-user-dir'."
   ;; The downloaded archive contents will be read as part of
   ;; `package--update-downloads-in-progress'.
-  (dolist (archive package-archives)
+  (when async
     (cl-pushnew (cons archive file) package--downloads-in-progress
                 :test #'equal))
   (package--with-response-buffer (cdr archive) :file file
@@ -1949,8 +1946,10 @@ SEEN is used internally to detect infinite recursion."
               (if (eq next-pkg 'emacs)
                   (error "This package requires Emacs version %s"
                          (package-version-join next-version))
-                (error "Package `%s-%s' is unavailable"
-                       next-pkg (package-version-join next-version))))))
+                (error (if (not next-version)
+                           (format "Package `%s' is unavailable" next-pkg)
+                         (format "Package `%s' (version %s) is unavailable"
+                                 next-pkg (package-version-join next-version))))))))
           (setq packages
                 (package-compute-transaction (cons found packages)
                                              (package-desc-reqs found)
@@ -2092,7 +2091,7 @@ if all the in-between dependencies are also in PACKAGE-LIST."
 (defun package-install-from-archive (pkg-desc)
   "Download and install a package defined by PKG-DESC."
   ;; This won't happen, unless the archive is doing something wrong.
-  (when (package-vc-p pkg-desc)
+  (when (eq (package-desc-kind pkg-desc) 'dir)
     (error "Can't install directory package from archive"))
   (let* ((location (package-archive-base pkg-desc))
          (file (concat (package-desc-full-name pkg-desc)
@@ -2419,7 +2418,7 @@ installed), maybe you need to \\[package-refresh-contents]")
 
 (declare-function comp-el-to-eln-filename "comp.c")
 (defvar package-vc-repository-store)
-(defun package--delete-directory (dir pkg-desc)
+(defun package--delete-directory (dir)
   "Delete PKG-DESC directory DIR recursively.
 Clean-up the corresponding .eln files if Emacs is native
 compiled."
@@ -2427,17 +2426,8 @@ compiled."
     (cl-loop
      for file in (directory-files-recursively dir "\\.el\\'")
      do (comp-clean-up-stale-eln (comp-el-to-eln-filename file))))
-  (if (and (package-vc-p pkg-desc)
-           (require 'package-vc)   ;load `package-vc-repository-store'
-           (file-in-directory-p dir package-vc-repository-store))
-      (progn
-        (delete-directory
-         (expand-file-name
-          (car (file-name-split
-                (file-relative-name dir package-vc-repository-store)))
-          package-vc-repository-store)
-         t)
-        (delete-file (directory-file-name dir)))
+  (if (file-symlink-p (directory-file-name dir))
+      (delete-file (directory-file-name dir))
     (delete-directory dir t)))
 
 
@@ -2493,7 +2483,7 @@ If NOSAVE is non-nil, the package is not removed from
                   (package-desc-name pkg-used-elsewhere-by)))
           (t
            (add-hook 'post-command-hook #'package-menu--post-refresh)
-           (package--delete-directory dir pkg-desc)
+           (package--delete-directory dir)
            ;; Remove NAME-VERSION.signed and NAME-readme.txt files.
            ;;
            ;; NAME-readme.txt files are no longer created, but they
@@ -2705,7 +2695,10 @@ Helper function for `describe-package'."
          (signed (if desc (package-desc-signed desc)))
          (maintainer (cdr (assoc :maintainer extras)))
          (authors (cdr (assoc :authors extras)))
-         (news (and-let* ((file (expand-file-name "news" pkg-dir))
+         (news (and-let* (pkg-dir
+                          ((not built-in))
+                          (file (expand-file-name "news" pkg-dir))
+                          ((file-regular-p file))
                           ((file-readable-p file)))
                  file)))
     (when (string= status "avail-obso")
@@ -3116,7 +3109,7 @@ package PKG-DESC, add one.  The alist is keyed with PKG-DESC."
   "If non-nil, include packages that don't have a version in `list-packages'.")
 
 (defvar package-list-unsigned nil
-  "If non-nil, mention in the list which packages were installed w/o signature.")
+  "If non-nil, mention in the list which packages were installed without signature.")
 
 (defvar package--emacs-version-list (version-to-list emacs-version)
   "The value of variable `emacs-version' as a list.")
@@ -4539,24 +4532,34 @@ DESC must be a `package-desc' object."
         (funcall browse-url-secondary-browser-function url)
       (browse-url url))))
 
+(declare-function ietf-drums-parse-address "ietf-drums"
+                  (string &optional decode))
+
 (defun package-maintainers (pkg-desc &optional no-error)
   "Return an email address for the maintainers of PKG-DESC.
 The email address may contain commas, if there are multiple
 maintainers.  If no maintainers are found, an error will be
-signalled.  If the optional argument NO-ERROR is non-nil no error
-will be signalled in that case."
-  (unless pkg-desc
-    (error "Invalid package description"))
-  (let* ((extras (package-desc-extras pkg-desc))
+signaled.  If the optional argument NO-ERROR is non-nil no error
+will be signaled in that case."
+  (unless (package-desc-p pkg-desc)
+    (error "Invalid package description: %S" pkg-desc))
+  (let* ((name (package-desc-name pkg-desc))
+         (extras (package-desc-extras pkg-desc))
          (maint (alist-get :maintainer extras)))
     (cond
      ((and (null maint) (null no-error))
-      (user-error "Package has no explicit maintainer"))
+      (user-error "Package `%s' has no explicit maintainer" name))
+     ((and (not (progn
+                  (require 'ietf-drums)
+                  (ietf-drums-parse-address (cdr maint))))
+           (null no-error))
+      (user-error "Package `%s' has no maintainer address" name))
      ((not (null maint))
       (with-temp-buffer
         (package--print-email-button maint)
         (string-trim (substring-no-properties (buffer-string))))))))
 
+;;;###autoload
 (defun package-report-bug (desc)
   "Prepare a message to send to the maintainers of a package.
 DESC must be a `package-desc' object."

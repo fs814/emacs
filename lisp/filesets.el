@@ -1,6 +1,6 @@
 ;;; filesets.el --- handle group of files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
 ;; Author: Thomas Link <sanobast-emacs@yahoo.de>
 ;; Maintainer: emacs-devel@gnu.org
@@ -2390,6 +2390,7 @@ fileset thinks this is necessary or not."
   (filesets-menu-cache-file-load))
 
 (defun filesets-update-pre010505 ()
+  (declare (obsolete nil "29.1"))
   (let ((msg (format-message
 "Filesets: manual editing of user data required!
 
@@ -2435,7 +2436,8 @@ We apologize for the inconvenience.")))
    ((or (not cached-version)
 	(string< cached-version "1.5.5")
 	(boundp 'filesets-subdocument-patterns))
-    (filesets-update-pre010505)))
+    (with-suppressed-warnings ((obsolete filesets-update-pre010505))
+      (filesets-update-pre010505))))
   (filesets-update-cleanup))
 
 (defun filesets-menu-cache-file-load ()

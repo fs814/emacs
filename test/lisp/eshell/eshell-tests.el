@@ -1,6 +1,6 @@
 ;;; eshell-tests.el --- Eshell test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -33,6 +33,8 @@
          (expand-file-name "eshell-tests-helpers"
                            (file-name-directory (or load-file-name
                                                     default-directory))))
+
+(defvar eshell-test-value nil)
 
 ;;; Tests:
 
@@ -105,37 +107,6 @@
      (format template "format \"%s\" eshell-in-pipeline-p")
      "nil")))
 
-(ert-deftest eshell-test/escape-nonspecial ()
-  "Test that \"\\c\" and \"c\" are equivalent when \"c\" is not a
-special character."
-  (with-temp-eshell
-   (eshell-match-command-output "echo he\\llo"
-                                "hello\n")))
-
-(ert-deftest eshell-test/escape-nonspecial-unicode ()
-  "Test that \"\\c\" and \"c\" are equivalent when \"c\" is a
-unicode character (unicode characters are nonspecial by
-definition)."
-  (with-temp-eshell
-   (eshell-match-command-output "echo Vid\\éos"
-                                "Vidéos\n")))
-
-(ert-deftest eshell-test/escape-nonspecial-quoted ()
-  "Test that the backslash is preserved for escaped nonspecial
-chars"
-  (with-temp-eshell
-   (eshell-match-command-output "echo \"h\\i\""
-                                ;; Backslashes are doubled for regexp.
-                                "h\\\\i\n")))
-
-(ert-deftest eshell-test/escape-special-quoted ()
-  "Test that the backslash is not preserved for escaped special
-chars"
-  (with-temp-eshell
-   (eshell-match-command-output "echo \"\\\"hi\\\\\""
-                                ;; Backslashes are doubled for regexp.
-                                "\\\"hi\\\\\n")))
-
 (ert-deftest eshell-test/command-running-p ()
   "Modeline should show no command running"
   (with-temp-eshell
@@ -148,27 +119,28 @@ chars"
   (with-temp-eshell
    (eshell-insert-command "echo $(+ 1 (- 4 3)) \"alpha beta\" file" 'ignore)
    (let ((here (point)) begin valid)
-     (eshell-bol)
+     (beginning-of-line)
      (setq begin (point))
      (eshell-forward-argument 4)
      (setq valid (= here (point)))
      (eshell-backward-argument 4)
      (prog1
          (and valid (= begin (point)))
-       (eshell-bol)
+       (beginning-of-line)
        (delete-region (point) (point-max))))))
 
 (ert-deftest eshell-test/queue-input ()
-  "Test queuing command input"
+  "Test queuing command input.
+This should let the current command finish, then automatically
+insert the queued one at the next prompt, and finally run it."
   (with-temp-eshell
-   (eshell-insert-command "sleep 2")
-   (eshell-insert-command "echo alpha" 'eshell-queue-input)
-   (let ((count 10))
-     (while (and eshell-current-command
-                 (> count 0))
-       (sit-for 1)
-       (setq count (1- count))))
-   (should (eshell-match-output "alpha\n"))))
+   (eshell-insert-command "sleep 1; echo slept")
+   (eshell-insert-command "echo alpha" #'eshell-queue-input)
+   (let ((start (marker-position (eshell-beginning-of-output))))
+     (eshell-wait-for (lambda () (not eshell-current-command)))
+     (should (string-match "^slept\n.*echo alpha\nalpha\n$"
+                           (buffer-substring-no-properties
+                            start (eshell-end-of-output)))))))
 
 (ert-deftest eshell-test/flush-output ()
   "Test flushing of previous output"
@@ -178,12 +150,43 @@ chars"
    (should (eshell-match-output
             (concat "^" (regexp-quote "*** output flushed ***\n") "$")))))
 
-(ert-deftest eshell-test/run-old-command ()
-  "Re-run an old command"
+(ert-deftest eshell-test/get-old-input ()
+  "Test that we can get the input of a previous command."
   (with-temp-eshell
    (eshell-insert-command "echo alpha")
    (goto-char eshell-last-input-start)
-   (string= (eshell-get-old-input) "echo alpha")))
+   (should (string= (eshell-get-old-input) "echo alpha"))
+   ;; Make sure that `eshell-get-old-input' works even if the point is
+   ;; inside the prompt.
+   (let ((inhibit-field-text-motion t))
+     (beginning-of-line))
+   (should (string= (eshell-get-old-input) "echo alpha"))))
+
+(ert-deftest eshell-test/get-old-input/rerun-command ()
+  "Test that we can rerun an old command when point is on it."
+  (with-temp-eshell
+   (let ((eshell-test-value "first"))
+     (eshell-match-command-output "echo $eshell-test-value" "first"))
+   ;; Go to the previous prompt.
+   (forward-line -2)
+   (let ((inhibit-field-text-motion t))
+     (end-of-line))
+   ;; Rerun the command, but with a different variable value.
+   (let ((eshell-test-value "second"))
+     (eshell-send-input))
+   (eshell-match-output "second")))
+
+(ert-deftest eshell-test/get-old-input/run-output ()
+  "Test that we can run a line of output as a command when point is on it."
+  (with-temp-eshell
+   (eshell-match-command-output "echo \"echo there\"" "echo there")
+   ;; Go to the output, and insert "hello" after "echo".
+   (forward-line -1)
+   (forward-word)
+   (insert " hello")
+   ;; Run the line as a command.
+   (eshell-send-input)
+   (eshell-match-output "(\"hello\" \"there\")")))
 
 (provide 'eshell-tests)
 

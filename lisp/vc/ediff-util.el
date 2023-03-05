@@ -1,6 +1,6 @@
 ;;; ediff-util.el --- the core commands and utilities of ediff  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1994-2022 Free Software Foundation, Inc.
+;; Copyright (C) 1994-2023 Free Software Foundation, Inc.
 
 ;; Author: Michael Kifer <kifer@cs.stonybrook.edu>
 ;; Package: ediff
@@ -1748,7 +1748,7 @@ With a prefix argument ARG, go back that many differences."
 		     regexp-skip
 		     ;; skip clashes, if necessary
 		     non-clash-skip
-		     ;; skipp changed regions
+                     ;; skip changed regions
 		     skip-changed
 		     ;; skip difference regions that differ in white space
 		     (and ediff-ignore-similar-regions

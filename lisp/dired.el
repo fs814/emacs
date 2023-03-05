@@ -1,6 +1,6 @@
 ;;; dired.el --- directory-browsing commands -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1986, 1992-1997, 2000-2022 Free Software
+;; Copyright (C) 1985-1986, 1992-1997, 2000-2023 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Sebastian Kremer <sk@thp.uni-koeln.de>
@@ -490,6 +490,11 @@ to nil: a pipe using `zcat' or `gunzip -c' will be used."
                  (string :tag "Switches"))
   :version "29.1")
 
+(defcustom dired-hide-details-preserved-columns nil
+  "List of columns which are not hidden in `dired-hide-details-mode'."
+  :type '(repeat integer)
+  :version "30.1")
+
 
 ;;; Internal variables
 
@@ -530,7 +535,7 @@ The directory name must be absolute, but need not be fully expanded.")
 
 (put 'dired-actual-switches 'safe-local-variable 'dired-safe-switches-p)
 
-(defvar dired-re-inode-size "[0-9 \t]*[.,0-9]*[BkKMGTPEZY]?[ \t]*"
+(defvar dired-re-inode-size "[0-9 \t]*[.,0-9]*[BkKMGTPEZYRQ]?[ \t]*"
   "Regexp for optional initial inode and file size as made by `ls -i -s'.")
 
 ;; These regexps must be tested at beginning-of-line, but are also
@@ -789,7 +794,7 @@ Subexpression 2 must end right before the \\n.")
                '(dired-move-to-filename)
                nil
                '(1 dired-symlink-face)
-               '(2 '(face dired-directory-face dired-symlink-filename t))))
+               '(2 `(face ,dired-directory-face dired-symlink-filename t))))
    ;;
    ;; Symbolic link to a non-directory.
    (list dired-re-sym
@@ -1541,7 +1546,7 @@ BEG..END is the line where the file info is located."
 	    (when (< alt-col other-col)
 	      (setq other-col alt-col)
 	      (setq other (point)))))
-	;; Keep positions uptodate when we insert stuff.
+	;; Keep positions up-to-date when we insert stuff.
 	(if (> other file) (setq other (copy-marker other)))
 	(setq file (copy-marker file))
 	;; Main loop.
@@ -1880,8 +1885,15 @@ other marked file as well.  Otherwise, unmark all files."
 	      (put-text-property (line-beginning-position)
 				 (1+ (line-end-position))
 				 'invisible 'dired-hide-details-information))
-	  (put-text-property (+ (line-beginning-position) 1) (1- (point))
-			     'invisible 'dired-hide-details-detail)
+	  (save-excursion
+            (let ((end (1- (point)))
+                  (opoint (goto-char (1+ (pos-bol))))
+                  (i 0))
+              (put-text-property opoint end 'invisible 'dired-hide-details-detail)
+              (while (re-search-forward "[^ ]+" end t)
+                (when (member (cl-incf i) dired-hide-details-preserved-columns)
+                  (put-text-property opoint (point) 'invisible nil))
+                (setq opoint (point)))))
           (when (and dired-mouse-drag-files (fboundp 'x-begin-drag))
             (put-text-property (point)
 	                       (save-excursion
@@ -2728,7 +2740,8 @@ directory in another window."
 (defun dired--find-possibly-alternative-file (file)
   "Find FILE, but respect `dired-kill-when-opening-new-dired-buffer'."
   (if (and dired-kill-when-opening-new-dired-buffer
-           (file-directory-p file))
+           (file-directory-p file)
+           (< (length (get-buffer-window-list)) 2))
       (progn
         (set-buffer-modified-p nil)
         (dired--find-file #'find-alternate-file file))
@@ -3028,13 +3041,13 @@ See options: `dired-hide-details-hide-symlink-targets' and
   ;; The old code used selective-display which only works at
   ;; a line-granularity, so it used start and end positions that where
   ;; approximate ("anywhere on the line is fine").
-  ;; FIXME: This also removes other invisible properties!
   (save-excursion
     (let ((inhibit-read-only t))
       (remove-list-of-text-properties
        (progn (goto-char start) (line-end-position))
        (progn (goto-char end) (line-end-position))
-       '(invisible)))))
+       '(invisible))
+      (dired-insert-set-properties start end))))
 
 ;;; Functions for finding the file name in a dired buffer line
 
@@ -4882,9 +4895,9 @@ Interactively with prefix argument, read FILE-NAME."
 
 (defvar-keymap dired-jump-map
   :doc "Keymap to repeat `dired-jump'.  Used in `repeat-mode'."
+  :repeat t
   "j"   #'dired-jump
   "C-j" #'dired-jump)
-(put 'dired-jump 'repeat-map 'dired-jump-map)
 
 
 ;;; Miscellaneous commands

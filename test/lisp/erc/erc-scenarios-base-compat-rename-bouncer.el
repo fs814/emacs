@@ -1,22 +1,23 @@
-;;; erc-scenarios-compat-rename-bouncer.el --- compat-rename scenarios -*- lexical-binding: t -*-
+;;; erc-scenarios-base-compat-rename-bouncer.el --- Compat-rename scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2022 Free Software Foundation, Inc.
-;;
+;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+
 ;; This file is part of GNU Emacs.
-;;
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see
-;; <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Code:
 
 (require 'ert-x)
 (eval-and-compile
@@ -106,7 +107,7 @@
         (erc-d-t-search-for 1 "<joe>")
         (erc-d-t-absent-for 0.1 "<bob>")
         (should (eq erc-server-process erc-server-process-bar))
-        (erc-d-t-search-for 10 "keeps you from dishonour")
+        (erc-d-t-search-for 10 "joe: It is a rupture")
         (erc-d-t-wait-for 5 (not (erc-server-process-alive)))))
 
     (when more (funcall more))))
@@ -168,4 +169,4 @@
         (erc-scenarios-common--base-compat-no-rename-bouncer dialogs
                                                              'auto after)))))
 
-;;; erc-scenarios-compat-rename-bouncer.el ends here
+;;; erc-scenarios-base-compat-rename-bouncer.el ends here
