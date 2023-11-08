@@ -1622,7 +1622,8 @@ predicate.  See Info node `(gnus)Customizing Articles'."
   "The protocol used for encrypt articles.
 It is a string, such as \"PGP\".  If nil, ask user."
   :version "22.1"
-  :type 'string
+  :type '(choice (const :tag "Ask me" nil)
+                 string)
   :group 'mime-security)
 
 (defcustom gnus-use-idna t
@@ -7390,6 +7391,7 @@ This is an extended text-mode.
 \\{gnus-article-edit-mode-map}"
   (make-local-variable 'gnus-article-edit-done-function)
   (make-local-variable 'gnus-prev-winconf)
+  (make-local-variable 'gnus-prev-cwc)
   (setq-local font-lock-defaults '(message-font-lock-keywords t))
   (setq-local mail-header-separator "")
   (setq-local gnus-article-edit-mode t)
@@ -7420,7 +7422,8 @@ groups."
 
 (defun gnus-article-edit-article (start-func exit-func &optional quiet)
   "Start editing the contents of the current article buffer."
-  (let ((winconf (current-window-configuration)))
+  (let ((winconf (current-window-configuration))
+        (cwc gnus-current-window-configuration))
     (set-buffer gnus-article-buffer)
     (let ((message-auto-save-directory
 	   ;; Don't associate the article buffer with a draft file.
@@ -7431,6 +7434,7 @@ groups."
     (gnus-configure-windows 'edit-article)
     (setq gnus-article-edit-done-function exit-func)
     (setq gnus-prev-winconf winconf)
+    (setq gnus-prev-cwc cwc)
     (unless quiet
       (gnus-message 6 "C-c C-c to end edits"))))
 
@@ -7440,7 +7444,8 @@ groups."
   (let ((func gnus-article-edit-done-function)
 	(buf (current-buffer))
 	(start (window-start))
-	(winconf gnus-prev-winconf))
+	(winconf gnus-prev-winconf)
+        (cwc gnus-prev-cwc))
     (widen) ;; Widen it in case that users narrowed the buffer.
     (funcall func arg)
     (set-buffer buf)
@@ -7458,6 +7463,7 @@ groups."
     (set-text-properties (point-min) (point-max) nil)
     (gnus-article-mode)
     (set-window-configuration winconf)
+    (setq gnus-current-window-configuration cwc)
     (set-buffer buf)
     (set-window-start (get-buffer-window buf) start)
     (set-window-point (get-buffer-window buf) (point)))
@@ -7479,10 +7485,12 @@ groups."
       (erase-buffer)
       (if (gnus-buffer-live-p gnus-original-article-buffer)
 	  (insert-buffer-substring gnus-original-article-buffer))
-      (let ((winconf gnus-prev-winconf))
+      (let ((winconf gnus-prev-winconf)
+            (cwc gnus-prev-cwc))
 	(kill-all-local-variables)
 	(gnus-article-mode)
 	(set-window-configuration winconf)
+        (setq gnus-current-window-configuration cwc)
 	;; Tippy-toe some to make sure that point remains where it was.
 	(with-current-buffer curbuf
 	  (set-window-start (get-buffer-window (current-buffer)) window-start)
@@ -7553,10 +7561,11 @@ must return `mid', `mail', `invalid' or `ask'."
   :version "22.1"
   :group 'gnus-article-buttons
   :type '(choice (function-item :tag "Heuristic function"
-				gnus-button-mid-or-mail-heuristic)
-		 (const ask)
-		 (const mid)
-		 (const mail)))
+                                gnus-button-mid-or-mail-heuristic)
+                 (const :tag "Query me" ask)
+                 (const :tag "Assume it's a message ID" mid)
+                 (const :tag "Assume it's a mail address" mail)
+                 function))
 
 (defcustom gnus-button-mid-or-mail-heuristic-alist
   '((-10.0 . ".+\\$.+@")
@@ -8324,11 +8333,10 @@ url is put as the `gnus-button-url' overlay property on the button."
       (when (looking-at "\\([A-Za-z]+\\):")
 	(setq scheme (match-string 1))
 	(goto-char (match-end 0)))
-      (when (looking-at "//\\([^:/]+\\)\\(:?\\)\\([0-9]+\\)?/")
+      (when (looking-at "//\\([^:/]+\\):?\\([0-9]+\\)?/")
 	(setq server (match-string 1))
-	(setq port (if (stringp (match-string 3))
-		       (string-to-number (match-string 3))
-		     (match-string 3)))
+        (setq port (and (match-beginning 2)
+                        (string-to-number (match-string 2))))
 	(goto-char (match-end 0)))
 
       (cond

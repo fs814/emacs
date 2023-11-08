@@ -417,7 +417,7 @@ It is probably good to never set this variable to nil, for the sake of
 portability of tables."
   :group 'org-table-calculation
   :type '(choice
-	  (const :tag "Allow to cross" t)
+          (const :tag "Allow crossing hline" t)
 	  (const :tag "Stick to hline" nil)
 	  (const :tag "Error on attempt to cross" error)))
 
@@ -477,6 +477,7 @@ This may be useful when columns have been shrunk."
       (format "|%s" (mapconcat #'identity (reverse str) "")))))
 
 (defvar-local org-table-header-overlay nil)
+(put 'org-table-header-overlay 'permanent-local t)
 (defun org-table-header-set-header ()
   "Display the header of the table at point."
   (let ((gcol temporary-goal-column))
@@ -2861,7 +2862,7 @@ list, `literal' is for the format specifier L."
       (if lispp
 	  (if (eq lispp 'literal)
 	      elements
-	    (if (and (eq elements "") (not keep-empty))
+	    (if (and (equal elements "") (not keep-empty))
 		""
 	      (prin1-to-string
 	       (if numbers (string-to-number elements) elements))))
@@ -3812,6 +3813,7 @@ FACE, when non-nil, for the highlight."
 
 (defvar-local org-table-coordinate-overlays nil
   "Collects the coordinate grid overlays, so that they can be removed.")
+(put 'org-table-coordinate-overlays 'permanent-local t)
 
 (defun org-table-overlay-coordinates ()
   "Add overlays to the table at point, to show row/column coordinates."
@@ -3898,7 +3900,7 @@ When non-nil, return the overlay narrowing the field."
     ;; Aligning table from the first row will not shrink again the
     ;; second row, which was not visible initially.
     ;;
-    ;; However, fixing it requires to check every row, which may be
+    ;; However, fixing it requires checking every row, which may be
     ;; slow on large tables.  Moreover, the hindrance of this
     ;; pathological case is very limited.
     (beginning-of-line)
@@ -5414,12 +5416,10 @@ overwritten, and the table is not marked as requiring realignment."
 	(self-insert-command N))
     (setq org-table-may-need-update t)
     (let* (orgtbl-mode
-	   a
 	   (cmd (or (key-binding
 		     (or (and (listp function-key-map)
-			      (setq a (assoc last-input-event function-key-map))
-			      (cdr a))
-			 (vector last-input-event)))
+			      (cdr (assoc last-command-event function-key-map)))
+			 (vector last-command-event)))
 		    'self-insert-command)))
       (call-interactively cmd)
       (if (and org-self-insert-cluster-for-undo
@@ -6134,9 +6134,13 @@ supported."
   (with-temp-buffer
     (insert (orgtbl-to-orgtbl table params))
     (org-table-align)
-    (replace-regexp-in-string
-     "-|" "-+"
-     (replace-regexp-in-string "|-" "+-" (buffer-substring 1 (buffer-size))))))
+    (goto-char (point-min))
+    (while (search-forward "-|" nil t)
+      (replace-match "-+"))
+    (goto-char (point-min))
+    (while (search-forward "|-" nil t)
+      (replace-match "+-"))
+    (buffer-string)))
 
 (defun orgtbl-to-unicode (table params)
   "Convert the `orgtbl-mode' TABLE into a table with unicode characters.

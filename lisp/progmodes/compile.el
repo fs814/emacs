@@ -683,7 +683,10 @@ File = \\(.+\\), Line = \\([0-9]+\\)\\(?:, Column = \\([0-9]+\\)\\)?"
   "Alist of values for `compilation-error-regexp-alist'.")
 
 (defcustom compilation-error-regexp-alist
-  (mapcar #'car compilation-error-regexp-alist-alist)
+  ;; Omit `omake' by default: its mere presence here triggers special processing
+  ;; and modifies regexps for other rules (see `compilation-parse-errors'),
+  ;; which may slow down matching (or even cause mismatches).
+  (delq 'omake (mapcar #'car compilation-error-regexp-alist-alist))
   "Alist that specifies how to match errors in compiler output.
 On GNU and Unix, any string is a valid filename, so these
 matchers must make some common sense assumptions, which catch
@@ -1862,6 +1865,9 @@ process from additional information inserted by Emacs."
     (apply #'insert args)
     (put-text-property start (point) 'compilation-annotation t)))
 
+(defvar-local compilation--start-time nil
+  "The time when the compilation started as returned by `float-time'.")
+
 ;;;###autoload
 (defun compilation-start (command &optional mode name-function highlight-regexp
                                   continue)
@@ -1993,6 +1999,7 @@ Returns the compilation buffer created."
                  mode-name
 		 (substring (current-time-string) 0 19))
 	 command "\n")
+        (setq compilation--start-time (float-time))
 	(setq thisdir default-directory))
       (set-buffer-modified-p nil))
     ;; Pop up the compilation buffer.
@@ -2480,7 +2487,14 @@ commands of Compilation major mode are available.  See
 	(message "%s" (cdr status)))
     (if (bolp)
 	(forward-char -1))
-    (compilation-insert-annotation " at " (substring (current-time-string) 0 19))
+    (compilation-insert-annotation
+     " at "
+     (substring (current-time-string) 0 19)
+     ", duration "
+     (let ((elapsed (- (float-time) compilation--start-time)))
+       (cond ((< elapsed 10) (format "%.2f s" elapsed))
+             ((< elapsed 60) (format "%.1f s" elapsed))
+             (t (format-seconds "%h:%02m:%02s" elapsed)))))
     (goto-char (point-max))
     ;; Prevent that message from being recognized as a compilation error.
     (add-text-properties omax (point)
@@ -2710,7 +2724,7 @@ looking for the next message."
 	  (compilation-loop > compilation-next-single-property-change 1-
 			    (if (get-buffer-process (current-buffer))
 				"No more %ss yet"
-			      "Moved past last %s")
+			      "Past last %s")
 			    (point-max))
 	;; Don't move "back" to message at or before point.
 	;; Pass an explicit (point-min) to make sure pt is non-nil.

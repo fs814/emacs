@@ -272,7 +272,7 @@ DEFAULT-BODY, if present, is used as the body of a default method.
               (list
                (macroexp-warn-and-return
                 (format "Non-symbol arguments to cl-defgeneric: %s"
-                        (mapconcat #'prin1-to-string nonsymargs ""))
+                        (mapconcat #'prin1-to-string nonsymargs " "))
                 nil nil nil nonsymargs)))))
          next-head)
     (while (progn (setq next-head (car-safe (car options-and-methods)))
@@ -1101,10 +1101,10 @@ MET-NAME is as returned by `cl--generic-load-hist-format'."
          (qualifiers   (cl--generic-method-qualifiers method))
          (call-con     (cl--generic-method-call-con method))
          (function     (cl--generic-method-function method))
-         (args (help-function-arglist (if (not (eq call-con 'curried))
-                                          function
-                                        (funcall function #'ignore))
-                                      'names))
+         (function (if (not (eq call-con 'curried))
+                              function
+                            (funcall function #'ignore)))
+         (args (help-function-arglist function 'names))
          (docstring (documentation function))
          (qual-string
           (if (null qualifiers) ""

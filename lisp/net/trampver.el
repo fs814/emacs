@@ -47,6 +47,7 @@
 (defconst tramp-bug-report-address "tramp-devel@gnu.org"
   "Email address to send bug reports to.")
 
+;;;###tramp-autoload
 (defconst tramp-repository-branch
   (ignore-errors
     ;; Suppress message from `emacs-repository-get-branch'.  We must
@@ -60,6 +61,7 @@
 	   (emacs-repository-get-branch dir))))
   "The repository branch of the Tramp sources.")
 
+;;;###tramp-autoload
 (defconst tramp-repository-version
   (ignore-errors
     ;; Suppress message from `emacs-repository-get-version'.  We must
@@ -103,7 +105,7 @@
          ("2.3.5.26.3" . "26.3")
          ("2.4.3.27.1" . "27.1") ("2.4.5.27.2" . "27.2")
          ("2.5.2.28.1" . "28.1") ("2.5.3.28.2" . "28.2") ("2.5.4" . "28.3")
-         ("2.6.0.29.1" . "29.1")))
+         ("2.6.0.29.1" . "29.1") ("2.6.2.29.2" . "29.2")))
 
 (add-hook 'tramp-unload-hook
 	  (lambda ()

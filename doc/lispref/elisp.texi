@@ -534,10 +534,10 @@ Variables
 
 Scoping Rules for Variable Bindings
 
-* Dynamic Binding::         The default for binding local variables in Emacs.
+* Lexical Binding::         The standard type of local variable binding.
+* Dynamic Binding::         A different type of local variable binding.
 * Dynamic Binding Tips::    Avoiding problems with dynamic binding.
-* Lexical Binding::         A different type of local variable binding.
-* Using Lexical Binding::   How to enable lexical binding.
+* Selecting Lisp Dialect::   How to select the Emacs Lisp dialect to use.
 * Converting to Lexical Binding:: Convert existing code to lexical binding.
 
 Buffer-Local Variables
@@ -569,6 +569,7 @@ Functions
 * Function Cells::          Accessing or setting the function definition
                               of a symbol.
 * Closures::                Functions that enclose a lexical environment.
+* OClosures::               Function objects with meta-data.
 * Advising Functions::      Adding to the definition of a function.
 * Obsolete Functions::      Declaring functions obsolete.
 * Inline Functions::        Defining functions that the compiler
@@ -1138,6 +1139,7 @@ Frames
 * Dialog Boxes::            Displaying a box to ask yes or no.
 * Pointer Shape::           Specifying the shape of the mouse pointer.
 * Window System Selections::Transferring text to and from other X clients.
+* Accessing Selections::    The multiple different kinds of selections.
 * Yanking Media::           Yanking things that aren't plain text.
 * Drag and Drop::           Internals of Drag-and-Drop implementation.
 * Color Names::             Getting the definitions of color names.

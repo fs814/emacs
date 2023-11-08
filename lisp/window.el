@@ -2121,12 +2121,16 @@ remapped (see `face-remapping-alist'), the function returns the
 information for the remapped face."
    (with-selected-window (window-normalize-window window t)
      (if (display-multi-font-p)
-	 (let* ((face (if face face 'default))
-		(info (font-info (face-font face)))
-		(width (aref info 11)))
-	   (if (> width 0)
-	      width
-	     (aref info 10)))
+         ;; Opening the XLFD returned by `font-info' may be
+         ;; unsuccessful.  Use `frame-char-width' as a recourse if
+         ;; such a situation transpires.
+         (or (when-let* ((face (if face face 'default))
+		         (info (font-info (face-font face)))
+		         (width (aref info 11)))
+	       (if (> width 0)
+	           width
+	         (aref info 10)))
+             (frame-char-width))
        (frame-char-width))))
 
 (defun window-font-height (&optional window face)
@@ -2138,9 +2142,10 @@ remapped (see `face-remapping-alist'), the function returns the
 information for the remapped face."
    (with-selected-window (window-normalize-window window t)
      (if (display-multi-font-p)
-	 (let* ((face (if face face 'default))
-		(info (font-info (face-font face))))
-	   (aref info 3))
+	 (or (when-let* ((face (if face face 'default))
+		         (info (font-info (face-font face))))
+	       (aref info 3))
+             (frame-char-height))
        (frame-char-height))))
 
 (defvar overflow-newline-into-fringe)
@@ -4143,6 +4148,10 @@ X and Y are FRAME-relative pixel coordinates.  A coordinate on an
 edge shared by two windows is attributed to the window on the
 right (or below).  Return nil if no such window can be found.
 
+Tool-bar and tab-bar pseudo-windows are ignored by this function:
+if the specified coordinates are in any of these two windows, this
+function returns nil.
+
 Optional argument FRAME must specify a live frame and defaults to
 the selected one.  Optional argument NO-OTHER non-nil means to
 return nil if the window located at the specified coordinates has
@@ -4168,8 +4177,8 @@ a non-nil `no-other-window' parameter."
   "How to choose a frame's selected window after window deletion.
 When a frame's selected window gets deleted, Emacs has to choose
 another live window on that frame to serve as its selected
-window.  This option allows to control which window gets selected
-instead.
+window.  This option controls the window that is selected in such
+a situation.
 
 The possible choices are `mru' (the default) to select the most
 recently used window on that frame, and `pos' to choose the
@@ -6174,7 +6183,14 @@ value can be also stored on disk and read back in a new session."
       (let* ((horizontal (eq type 'hc))
 	     (total (window-size window horizontal pixelwise))
              (first t)
-             (window-combination-limit (cdr (assq 'combination-limit state)))
+	     ;; Make sure to make a new parent window for a horizontal
+	     ;; or vertical combination embedded in one of the same type
+	     ;; (see Bug#50867 and Bug#64405).
+	     (window-combination-limit
+	      (and (or (eq (cdr (assq 'combination-limit state)) t)
+		       (and horizontal (window-combined-p window t))
+		       (and (not horizontal) (window-combined-p window)))
+		   t))
 	     size new)
 	(dolist (item state)
 	  ;; Find the next child window.  WINDOW always points to the
@@ -6387,7 +6403,7 @@ windows can get as small as `window-safe-min-height' and
                      (selected-window)))
       (delete-other-windows-internal window root)
       ;; Create a new window to replace the existing one.
-      (setq window (prog1 (split-window window)
+      (setq window (prog1 (split-window window window-safe-min-width t)
                      (delete-window window)))))
 
   (set-window-dedicated-p window nil)
@@ -6414,7 +6430,10 @@ windows can get as small as `window-safe-min-height' and
 			   head)))
 	 (min-width (cdr (assq
 			  (if pixelwise 'min-pixel-width 'min-weight)
-			  head))))
+			  head)))
+	 ;; Bind the following two variables.  `window--state-put-1' has
+	 ;; to fully control them (see Bug#50867 and Bug#64405).
+	 window-combination-limit window-combination-resize)
     (if (and (not totals)
 	     (or (> min-height (window-size window nil pixelwise))
 		 (> min-width (window-size window t pixelwise)))
@@ -7449,6 +7468,64 @@ Return WINDOW if BUFFER and WINDOW are live."
 The actual non-nil value of this variable will be copied to the
 `window-dedicated-p' flag.")
 
+(defcustom toggle-window-dedicated-flag 'interactive
+  "What dedicated flag should `toggle-window-dedicated' use by default.
+
+If `toggle-window-dedicated' does not receive a flag argument,
+the value of this variable is used and passed to
+`set-window-dedicated-p'.  Setting this to t will make
+`toggle-window-dedicated' use strong dedication by default.  Any
+other non-nil value will result in the same kind of non-strong
+dedication."
+  :type '(choice (const :tag "Strongly dedicated" t)
+                 (const :tag "Dedicated" interactive))
+  :version "30.0"
+  :group 'windows)
+
+(defun toggle-window-dedicated (&optional window flag interactive)
+  "Toggle whether WINDOW is dedicated to its current buffer.
+
+WINDOW must be a live window and defaults to the selected one.
+If FLAG is t (interactively, the prefix argument), make the window
+\"strongly\" dedicated to its buffer.  FLAG defaults to a non-nil,
+non-t value, and is passed to `set-window-dedicated-p', which see.
+If INTERACTIVE is non-nil, print a message describing the dedication
+status of WINDOW, after toggling it.  Interactively, this argument is
+always non-nil.
+
+When a window is dedicated to its buffer, `display-buffer' will avoid
+displaying another buffer in it, if possible.  When a window is
+strongly dedicated to its buffer, changing the buffer shown in the
+window will usually signal an error.
+
+You can control the default of FLAG with
+`toggle-window-dedicated-flag'.  Consequently, if you set that
+variable to t, strong dedication will be used by default and
+\\[universal-argument] will make the window weakly dedicated.
+
+See the info node `(elisp)Dedicated Windows' for more details."
+  (interactive "i\nP\np")
+  (setq window (window-normalize-window window))
+  (setq flag (cond
+              ((consp flag)
+               (if (eq toggle-window-dedicated-flag t)
+                   'interactive
+                 t))
+              ((null flag) toggle-window-dedicated-flag)
+              (t flag)))
+  (if (window-dedicated-p window)
+      (set-window-dedicated-p window nil)
+    (set-window-dedicated-p window flag))
+  (when interactive
+    (message "Window is %s dedicated to buffer %s"
+             (let ((status (window-dedicated-p window)))
+               (cond
+                ((null status) "no longer")
+                ((eq status t) "now strongly")
+                (t "now")))
+             (current-buffer))
+    (force-mode-line-update)))
+
 (defconst display-buffer--action-function-custom-type
   '(choice :tag "Function"
 	   (const :tag "--" ignore) ; default for insertion
@@ -7506,8 +7583,8 @@ Its value takes effect before processing the ACTION argument of
 If non-nil, this is an alist of elements (CONDITION . ACTION),
 where:
 
- CONDITION is passed to `buffer-match-p', along with the buffer
-  that is to be displayed and the ACTION argument of
+ CONDITION is passed to `buffer-match-p', along with the name of
+  the buffer that is to be displayed and the ACTION argument of
   `display-buffer', to check if ACTION should be used.
 
  ACTION is a cons cell (FUNCTIONS . ALIST), where FUNCTIONS is an
@@ -7516,10 +7593,8 @@ where:
   arguments: a buffer to display and an alist of the same form as
   ALIST.  See `display-buffer' for details.
 
-`display-buffer' scans this alist until it either finds a
-matching regular expression or the function specified by a
-condition returns non-nil.  In any of these cases, it adds the
-associated action to the list of actions it will try."
+`display-buffer' scans this alist until the CONDITION is satisfied
+and adds the associated ACTION to the list of actions it will try."
   :type `(alist :key-type
 		(choice :tag "Condition"
 			regexp
@@ -7561,15 +7636,16 @@ all fail.  It should never be set by programs or users.  See
 `display-buffer'.")
 (put 'display-buffer-fallback-action 'risky-local-variable t)
 
-(defun display-buffer-assq-regexp (buffer-or-name alist action)
-  "Retrieve ALIST entry corresponding to buffer specified by BUFFER-OR-NAME.
+(defun display-buffer-assq-regexp (buffer-name alist action)
+  "Retrieve ALIST entry corresponding to buffer whose name is BUFFER-NAME.
 This returns the cdr of the alist entry ALIST if the entry's
-key (its car) and BUFFER-OR-NAME satisfy `buffer-match-p', using
-the key as CONDITION argument of `buffer-match-p'.  ACTION should
-have the form of the action argument passed to `display-buffer'."
+key (its car) and the name of the buffer designated by
+BUFFER-NAME satisfy `buffer-match-p', using the key as
+CONDITION argument of `buffer-match-p'.  ACTION should have the
+form of the action argument passed to `display-buffer'."
   (catch 'match
     (dolist (entry alist)
-      (when (buffer-match-p (car entry) buffer-or-name action)
+      (when (buffer-match-p (car entry) buffer-name action)
         (throw 'match (cdr entry))))))
 
 (defvar display-buffer--same-window-action
@@ -7728,6 +7804,9 @@ specified by the ACTION argument."
   (let ((buffer (if (bufferp buffer-or-name)
 		    buffer-or-name
 		  (get-buffer buffer-or-name)))
+        (buf-name (if (bufferp buffer-or-name)
+                      (buffer-name buffer-or-name)
+                    buffer-or-name))
 	;; Make sure that when we split windows the old window keeps
 	;; point, bug#14829.
 	(split-window-keep-point t)
@@ -7736,7 +7815,7 @@ specified by the ACTION argument."
     (unless (listp action) (setq action nil))
     (let* ((user-action
             (display-buffer-assq-regexp
-             buffer display-buffer-alist action))
+             buf-name display-buffer-alist action))
            (special-action (display-buffer--special-action buffer))
            ;; Extra actions from the arguments to this function:
            (extra-action
@@ -7967,8 +8046,7 @@ indirectly called by the latter."
                           buffer-mode))
          (curwin (selected-window))
          (curframe (selected-frame)))
-    (unless (listp allowed-modes)
-      (setq allowed-modes (list allowed-modes)))
+    (setq allowed-modes (ensure-list allowed-modes))
     (let (same-mode-same-frame
           same-mode-other-frame
           derived-mode-same-frame
@@ -8253,8 +8331,8 @@ This function tries to reuse or split a window such that the
 window produced this way is on the side of the reference window
 specified by the `direction' entry.
 
-Four special values for `direction' entries allow to implicitly
-specify the selected frame's main window as reference window:
+Four special values for `direction' entries allow implicitly
+specifying the selected frame's main window as reference window:
 `leftmost', `top', `rightmost' and `bottom'.  Hence, instead of
 `(direction . left) (window . main)' one can simply write
 `(direction . leftmost)'.
@@ -8776,6 +8854,15 @@ another window."
   :version "29.1"
   :group 'windows
   :group 'comint)
+
+(defcustom display-tex-shell-buffer-action '(display-buffer-in-previous-window
+                                             (inhibit-same-window . t))
+  "`display-buffer' action for displaying TeX shell buffers."
+  :type display-buffer--action-custom-type
+  :risky t
+  :version "29.1"
+  :group 'windows
+  :group 'tex-run)
 
 (defun read-buffer-to-switch (prompt)
   "Read the name of a buffer to switch to, prompting with PROMPT.
@@ -10719,6 +10806,7 @@ Used in `repeat-mode'."
   "2" #'split-root-window-below
   "3" #'split-root-window-right
   "s" #'window-toggle-side-windows
+  "d" #'toggle-window-dedicated
   "^ f" #'tear-off-window
   "^ t" #'tab-window-detach
   "-" #'fit-window-to-buffer

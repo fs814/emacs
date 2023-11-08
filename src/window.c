@@ -1680,7 +1680,8 @@ check_window_containing (struct window *w, void *user_data)
 
 Lisp_Object
 window_from_coordinates (struct frame *f, int x, int y,
-			 enum window_part *part, bool tab_bar_p, bool tool_bar_p)
+			 enum window_part *part, bool menu_bar_p,
+			 bool tab_bar_p, bool tool_bar_p)
 {
   Lisp_Object window;
   struct check_window_data cw;
@@ -1692,6 +1693,21 @@ window_from_coordinates (struct frame *f, int x, int y,
   window = Qnil;
   cw.window = &window, cw.x = x, cw.y = y; cw.part = part;
   foreach_window (f, check_window_containing, &cw);
+
+#if defined (HAVE_WINDOW_SYSTEM) && ! defined (HAVE_EXT_MENU_BAR)
+  /* If not found above, see if it's in the menu bar window, if a menu
+     bar exists.  */
+  if (NILP (window)
+      && menu_bar_p
+      && WINDOWP (f->menu_bar_window)
+      && WINDOW_TOTAL_LINES (XWINDOW (f->menu_bar_window)) > 0
+      && (coordinates_in_window (XWINDOW (f->menu_bar_window), x, y)
+	  != ON_NOTHING))
+    {
+      *part = ON_TEXT;
+      window = f->menu_bar_window;
+    }
+#endif
 
 #if defined (HAVE_WINDOW_SYSTEM)
   /* If not found above, see if it's in the tab bar window, if a tab
@@ -1729,8 +1745,11 @@ window_from_coordinates (struct frame *f, int x, int y,
 DEFUN ("window-at", Fwindow_at, Swindow_at, 2, 3, 0,
        doc: /* Return window containing coordinates X and Y on FRAME.
 FRAME must be a live frame and defaults to the selected one.
-The top left corner of the frame is considered to be row 0,
-column 0.  */)
+X and Y are measured in units of canonical columns and rows.
+The top left corner of the frame is considered to be column 0, row 0.
+Tool-bar and tab-bar pseudo-windows are ignored by this function: if
+the specified coordinates are in any of these two windows, this
+function returns nil.  */)
   (Lisp_Object x, Lisp_Object y, Lisp_Object frame)
 {
   struct frame *f = decode_live_frame (frame);
@@ -1743,7 +1762,7 @@ column 0.  */)
 				   + FRAME_INTERNAL_BORDER_WIDTH (f)),
 				  (FRAME_PIXEL_Y_FROM_CANON_Y (f, y)
 				   + FRAME_INTERNAL_BORDER_WIDTH (f)),
-				  0, false, false);
+				  0, false, false, false);
 }
 
 ptrdiff_t
@@ -3511,7 +3530,10 @@ window-start value is reasonable when this function is called.  */)
 void
 replace_buffer_in_windows (Lisp_Object buffer)
 {
-  call1 (Qreplace_buffer_in_windows, buffer);
+  /* When kill-buffer is called early during loadup, this function is
+     undefined.  */
+  if (!NILP (Ffboundp (Qreplace_buffer_in_windows)))
+    call1 (Qreplace_buffer_in_windows, buffer);
 }
 
 /* If BUFFER is shown in a window, safely replace it with some other
@@ -4825,10 +4847,9 @@ values.  */)
   return Qt;
 }
 
+/* Resize frame F's windows when F's inner height (inner width if
+   HORFLAG is true) has been set to SIZE pixels.  */
 
-/**
-Resize frame F's windows when F's inner height (inner width if HORFLAG
-is true) has been set to SIZE pixels.  */
 void
 resize_frame_windows (struct frame *f, int size, bool horflag)
 {
@@ -7411,7 +7432,7 @@ the return value is nil.  Otherwise the value is t.  */)
 	do_switch_frame (NILP (dont_set_frame)
                          ? data->selected_frame
                          : old_frame
-                         , 0, Qnil);
+                         , 0, 0, Qnil);
     }
 
   FRAME_WINDOW_CHANGE (f) = true;

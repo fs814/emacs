@@ -188,6 +188,36 @@ int main()
 }
 =-=-=
 
+Name: Switch-Case statement
+
+=-=
+int main() {
+switch (a) {
+case 1:
+b = c;
+return 10;
+case 2:
+{
+a = b;
+return 12
+}
+}
+}
+=-=
+int main() {
+  switch (a) {
+  case 1:
+    b = c;
+    return 10;
+  case 2:
+    {
+      a = b;
+      return 12
+    }
+  }
+}
+=-=-=
+
 Name: Multiline Block Comments 1 (bug#60270)
 
 =-=
@@ -401,4 +431,50 @@ int main()
   int a = 1;
   |
 }
+=-=-=
+
+Name: Prev-Sibling But Not Trailing Comment
+
+=-=
+static int
+required_matrix_height (struct window *w)
+{
+#ifdef HAVE_WINDOW_SYSTEM
+  if (FRAME_WINDOW_P (f))
+    {
+      return 0;
+    }
+#endif /* Don't align to this comment.  */
+  |
+}
+=-=-=
+
+Name: Empty Line
+
+=-=
+int
+main (void)
+{
+|
+}
+=-=
+int
+main (void)
+{
+  |
+}
+=-=-=
+
+Name: Empty Line (Block Start)
+
+=-=
+int
+main (void)
+{
+|
+=-=
+int
+main (void)
+{
+  |
 =-=-=

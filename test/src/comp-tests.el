@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 2019-2023 Free Software Foundation, Inc.
 
-;; Author: Andrea Corallo <akrl@sdf.org>
+;; Author: Andrea Corallo <acorallo@gnu.org>
 
 ;; This file is part of GNU Emacs.
 
@@ -33,7 +33,8 @@
 
 (eval-and-compile
   (defconst comp-test-src (ert-resource-file "comp-test-funcs.el"))
-  (defconst comp-test-dyn-src (ert-resource-file "comp-test-funcs-dyn.el")))
+  (defconst comp-test-dyn-src (ert-resource-file "comp-test-funcs-dyn.el"))
+  (defconst comp-test-dyn-src2 (ert-resource-file "comp-test-funcs-dyn2.el")))
 
 (when (native-comp-available-p)
   (message "Compiling tests...")
@@ -44,6 +45,7 @@
 ;; names used in this file.
 (require 'comp-test-funcs comp-test-src)
 (require 'comp-test-dyn-funcs comp-test-dyn-src) ;Non-standard feature name!
+(require 'comp-test-funcs-dyn2 comp-test-dyn-src2)
 
 (defmacro comp-deftest (name args &rest docstring-and-body)
   "Define a test for the native compiler tagging it as :nativecomp."
@@ -62,6 +64,7 @@
 
 
 
+(defvar native-comp-eln-load-path)
 (ert-deftest comp-tests-bootstrap ()
   "Compile the compiler and load it to compile it-self.
 Check that the resulting binaries do not differ."
@@ -70,9 +73,11 @@ Check that the resulting binaries do not differ."
     :suffix "-comp-stage1.el"
     (ert-with-temp-file comp2-src
       :suffix "-comp-stage2.el"
-      (let* ((byte+native-compile t)     ; FIXME HACK
+      (let* ((byte+native-compile t)
+             (native-compile-target-directory
+              (car (last native-comp-eln-load-path)))
              (comp-src (expand-file-name "../../../lisp/emacs-lisp/comp.el"
-                                     (ert-resource-directory)))
+                                         (ert-resource-directory)))
              ;; Can't use debug symbols.
              (native-comp-debug 0))
         (copy-file comp-src comp1-src t)
@@ -305,7 +310,8 @@ Check that the resulting binaries do not differ."
               (lambda () (throw 'foo 3)))
              3))
   (should (= (catch 'foo
-               (comp-tests-throw-f 3)))))
+               (comp-tests-throw-f 3))
+             3)))
 
 (comp-deftest gc ()
   "Try to do some longer computation to let the GC kick in."
@@ -446,7 +452,7 @@ https://lists.gnu.org/archive/html/bug-gnu-emacs/2020-03/msg00914.html."
           (should (equal comp-test-primitive-advice '(3 4))))
       (advice-remove #'+ f))))
 
-(defvar comp-test-primitive-redefine-args)
+(defvar comp-test-primitive-redefine-args nil)
 (comp-deftest primitive-redefine ()
   "Test effectiveness of primitive redefinition."
   (cl-letf ((comp-test-primitive-redefine-args nil)
@@ -531,6 +537,22 @@ https://lists.gnu.org/archive/html/bug-gnu-emacs/2020-03/msg00914.html."
   "<https://lists.gnu.org/archive/html/bug-gnu-emacs/2022-07/msg00666.html>"
   (should (subr-native-elisp-p
            (symbol-function 'comp-test-48029-nonascii-žžž-f))))
+
+(comp-deftest 61917-1 ()
+  "Verify we can compile calls to redefined primitives with
+dedicated byte-op code."
+  (let (x
+        (f (lambda (_fn &rest args)
+             (setq comp-test-primitive-redefine-args args))))
+    (advice-add #'delete-region :around f)
+    (unwind-protect
+        (setf x (native-compile
+                 '(lambda ()
+                    (delete-region 1 2))))
+      (should (subr-native-elisp-p x))
+      (funcall x)
+      (advice-remove #'delete-region f)
+      (should (equal comp-test-primitive-redefine-args '(1 2))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;
@@ -859,6 +881,8 @@ Return a list of results."
                    ret-type))))
 
 (cl-eval-when (compile eval load)
+  (cl-defstruct comp-foo a b)
+  (cl-defstruct (comp-bar (:include comp-foo)) c)
   (defconst comp-tests-type-spec-tests
     ;; Why we quote everything here, you ask?  So that values of
     ;; `most-positive-fixnum' and `most-negative-fixnum', which can be
@@ -953,7 +977,7 @@ Return a list of results."
          (if (= x y)
              x
            'foo))
-       '(or (member foo) marker number))
+       '(or (member foo) number-or-marker))
 
       ;; 14
       ((defun comp-tests-ret-type-spec-f (x)
@@ -1093,7 +1117,7 @@ Return a list of results."
       ((defun comp-tests-ret-type-spec-f (x)
 	 (when (> x 1.0)
 	   x))
-       '(or null marker number))
+       '(or null number-or-marker))
 
       ;; 36
       ((defun comp-tests-ret-type-spec-f (x y)
@@ -1388,7 +1412,39 @@ Return a list of results."
          (if (eq x 0)
 	     (error "")
 	   (1+ x)))
-       'number)))
+       'number)
+
+      ;; 75
+      ((defun comp-tests-ret-type-spec-f ()
+         (make-comp-foo))
+       'comp-foo)
+
+      ;; 76
+      ((defun comp-tests-ret-type-spec-f ()
+         (make-comp-bar))
+       'comp-bar)
+
+      ;; 77
+      ((defun comp-tests-ret-type-spec-f (x)
+          (setf (comp-foo-a x) 2)
+          x)
+       'comp-foo)
+
+      ;; 78
+      ((defun comp-tests-ret-type-spec-f (x)
+          (if x
+              (if (> x 11)
+	          x
+	        (make-comp-foo))
+            (make-comp-bar)))
+       '(or comp-foo float (integer 12 *)))
+
+      ;; 79
+      ((defun comp-tests-ret-type-spec-f (x)
+         (if (comp-foo-p x)
+             x
+           (error "")))
+       'comp-foo)))
 
   (defun comp-tests-define-type-spec-test (number x)
     `(comp-deftest ,(intern (format "ret-type-spec-%d" number)) ()
@@ -1477,4 +1533,7 @@ folded."
           (equal (comp-mvar-typeset mvar)
                  comp-tests-cond-rw-expected-type))))))))
 
+(comp-deftest comp-tests-result-lambda ()
+  (native-compile 'comp-tests-result-lambda)
+  (should (eq (funcall (comp-tests-result-lambda) '(a . b)) 'a)))
 ;;; comp-tests.el ends here

@@ -660,9 +660,7 @@ and @code{define-overloadable-function} (see the commentary in
 @item Definitions for major or minor modes:
 @code{define-minor-mode}, @code{define-globalized-minor-mode},
 @code{define-generic-mode}, @code{define-derived-mode},
-@code{easy-mmode-define-minor-mode},
-@code{easy-mmode-define-global-mode}, @code{define-compilation-mode},
-and @code{define-global-minor-mode}.
+@code{define-compilation-mode}, and @code{define-global-minor-mode}.
 
 @item Other definition types:
 @code{defcustom}, @code{defgroup}, @code{deftheme}, @code{defclass}
@@ -1338,7 +1336,7 @@ specified @var{file} and perform the necessary initialization of the
 module.  This is the primitive which makes sure the module exports the
 @code{plugin_is_GPL_compatible} symbol, calls the module's
 @code{emacs_module_init} function, and signals an error if that
-function returns an error indication, or if the use typed @kbd{C-g}
+function returns an error indication, or if the user typed @kbd{C-g}
 during the initialization.  If the initialization succeeds,
 @code{module-load} returns @code{t}.  Note that @var{file} must
 already have the proper file-name extension, as this function doesn't

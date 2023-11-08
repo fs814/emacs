@@ -241,12 +241,12 @@
             (let ((buffers (find-file (concat (file-name-as-directory test-dir)
                                               "*")
                                       t)))
+              (setq allbufs (append buffers allbufs))
               (dolist (buf buffers)
                 (let ((pt (with-current-buffer buf (point))))
                   (switch-to-buffer (find-file-noselect test-dir))
                   (find-file (buffer-name buf))
-                  (should (equal (point) pt))))
-              (append buffers allbufs)))
+                  (should (equal (point) pt))))))
         (dolist (buf allbufs)
           (when (buffer-live-p buf) (kill-buffer buf)))))))
 
@@ -477,9 +477,9 @@
             ;;(should (= 0 (length (directory-files testdir nil "[0-9]" t -1))))
             (should (= 5 (length (directory-files testdir nil "[0-9]" t))))
             (should (= 5 (length (directory-files testdir nil "[0-9]" t 50))))
-            (should-not (directory-empty-p testdir)))
+            (should-not (directory-empty-p testdir))))
 
-          (delete-directory testdir t)))))
+      (delete-directory testdir t))))
 
 (ert-deftest dired-test-directory-files-and-attributes ()
   "Test for `directory-files-and-attributes'."

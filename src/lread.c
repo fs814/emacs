@@ -62,6 +62,24 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <fcntl.h>
 
+#if !defined HAVE_ANDROID || defined ANDROID_STUBIFY	\
+  || (__ANDROID_API__ < 9)
+
+#define lread_fd	int
+#define lread_fd_cmp(n) (fd == (n))
+#define lread_fd_p	(fd >= 0)
+#define lread_close	emacs_close
+#define lread_fstat	fstat
+#define lread_read_quit	emacs_read_quit
+#define lread_lseek	lseek
+
+#define file_stream		FILE *
+#define file_seek		fseek
+#define file_stream_valid_p(p)	(p)
+#define file_stream_close	emacs_fclose
+#define file_stream_invalid	NULL
+#define file_get_char		getc
+
 #ifdef HAVE_FSEEKO
 #define file_offset off_t
 #define file_tell ftello
@@ -70,10 +88,87 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #define file_tell ftell
 #endif
 
+#else
+
+#include "android.h"
+
+/* Use an Android file descriptor under Android instead, as this
+   allows loading directly from asset files without loading each asset
+   into memory and creating a separate file descriptor every time.
+
+   Note that `struct android_fd_or_asset' as used here is different
+   from that returned from `android_open_asset'; if fd.asset is NULL,
+   then fd.fd is either a valid file descriptor or -1, meaning that
+   the file descriptor is invalid.
+
+   However, lread requires the ability to seek inside asset files,
+   which is not provided under Android 2.2.  So when building for that
+   particular system, fall back to the usual file descriptor-based
+   code.  */
+
+#define lread_fd	struct android_fd_or_asset
+#define lread_fd_cmp(n)	(!fd.asset && fd.fd == (n))
+#define lread_fd_p	(fd.asset || fd.fd >= 0)
+#define lread_close	android_close_asset
+#define lread_fstat	android_asset_fstat
+#define lread_read_quit	android_asset_read_quit
+#define lread_lseek	android_asset_lseek
+
+/* The invalid file stream.  */
+
+static struct android_fd_or_asset invalid_file_stream =
+  {
+    -1,
+    NULL,
+  };
+
+#define file_stream		struct android_fd_or_asset
+#define file_offset		off_t
+#define file_tell(n)		(android_asset_lseek ((n), 0, SEEK_CUR))
+#define file_seek		android_asset_lseek
+#define file_stream_valid_p(p)	((p).asset || (p).fd >= 0)
+#define file_stream_close	android_close_asset
+#define file_stream_invalid	invalid_file_stream
+
+/* Return a single character from the file input stream STREAM.
+   Value and errors are the same as getc.  */
+
+static int
+file_get_char (file_stream stream)
+{
+  int c;
+  char byte;
+  ssize_t rc;
+
+ retry:
+  rc = android_asset_read (stream, &byte, 1);
+
+  if (rc == 0)
+    c = EOF;
+  else if (rc == -1)
+    {
+      if (errno == EINTR)
+	goto retry;
+      else
+	c = EOF;
+    }
+  else
+    c = (unsigned char) byte;
+
+  return c;
+}
+
+#define USE_ANDROID_ASSETS
+#endif
+
 #if IEEE_FLOATING_POINT
 # include <ieee754.h>
 # ifndef INFINITY
 #  define INFINITY ((union ieee754_double) {.ieee = {.exponent = -1}}.d)
+# endif
+#else
+# ifndef INFINITY
+#  define INFINITY HUGE_VAL
 # endif
 #endif
 
@@ -113,7 +208,7 @@ static Lisp_Object read_objects_completed;
 static struct infile
 {
   /* The input stream.  */
-  FILE *stream;
+  file_stream stream;
 
   /* Lookahead byte count.  */
   signed char lookahead;
@@ -375,7 +470,7 @@ skip_dyn_bytes (Lisp_Object readcharfun, ptrdiff_t n)
   if (FROM_FILE_P (readcharfun))
     {
       block_input ();		/* FIXME: Not sure if it's needed.  */
-      fseek (infile->stream, n - infile->lookahead, SEEK_CUR);
+      file_seek (infile->stream, n - infile->lookahead, SEEK_CUR);
       unblock_input ();
       infile->lookahead = 0;
     }
@@ -399,7 +494,7 @@ skip_dyn_eof (Lisp_Object readcharfun)
   if (FROM_FILE_P (readcharfun))
     {
       block_input ();		/* FIXME: Not sure if it's needed.  */
-      fseek (infile->stream, 0, SEEK_END);
+      file_seek (infile->stream, 0, SEEK_END);
       unblock_input ();
       infile->lookahead = 0;
     }
@@ -480,9 +575,11 @@ readbyte_from_stdio (void)
     return infile->buf[--infile->lookahead];
 
   int c;
-  FILE *instream = infile->stream;
+  file_stream instream = infile->stream;
 
   block_input ();
+
+#if !defined USE_ANDROID_ASSETS
 
   /* Interrupted reads have been observed while reading over the network.  */
   while ((c = getc (instream)) == EOF && errno == EINTR && ferror (instream))
@@ -492,6 +589,35 @@ readbyte_from_stdio (void)
       block_input ();
       clearerr (instream);
     }
+
+#else
+
+  {
+    char byte;
+    ssize_t rc;
+
+  retry:
+    rc = android_asset_read (instream, &byte, 1);
+
+    if (rc == 0)
+      c = EOF;
+    else if (rc == -1)
+      {
+	if (errno == EINTR)
+	  {
+	    unblock_input ();
+	    maybe_quit ();
+	    block_input ();
+	    goto retry;
+	  }
+	else
+	  c = EOF;
+      }
+    else
+      c = (unsigned char) byte;
+  }
+
+#endif
 
   unblock_input ();
 
@@ -672,7 +798,11 @@ static void substitute_in_interval (INTERVAL, void *);
    if the character warrants that.
 
    If SECONDS is a number, wait that many seconds for input, and
-   return Qnil if no input arrives within that time.  */
+   return Qnil if no input arrives within that time.
+
+   If text conversion is enabled and ASCII_REQUIRED, temporarily
+   disable any input method which wants to perform edits, unless
+   `disable-inhibit-text-conversion'.  */
 
 static Lisp_Object
 read_filtered_event (bool no_switch_frame, bool ascii_required,
@@ -680,10 +810,26 @@ read_filtered_event (bool no_switch_frame, bool ascii_required,
 {
   Lisp_Object val, delayed_switch_frame;
   struct timespec end_time;
+#ifdef HAVE_TEXT_CONVERSION
+  specpdl_ref count;
+#endif
 
 #ifdef HAVE_WINDOW_SYSTEM
   if (display_hourglass_p)
     cancel_hourglass ();
+#endif
+
+#ifdef HAVE_TEXT_CONVERSION
+  count = SPECPDL_INDEX ();
+
+  /* Don't use text conversion when trying to just read a
+     character.  */
+
+  if (ascii_required && !disable_inhibit_text_conversion)
+    {
+      disable_text_conversion ();
+      record_unwind_protect_void (resume_text_conversion);
+    }
 #endif
 
   delayed_switch_frame = Qnil;
@@ -761,7 +907,11 @@ read_filtered_event (bool no_switch_frame, bool ascii_required,
 
 #endif
 
+#ifdef HAVE_TEXT_CONVERSION
+  return unbind_to (count, val);
+#else
   return val;
+#endif
 }
 
 DEFUN ("read-char", Fread_char, Sread_char, 0, 3, 0,
@@ -1038,7 +1188,7 @@ lisp_file_lexically_bound_p (Lisp_Object readcharfun)
    safe to load.  Only files compiled with Emacs can be loaded.  */
 
 static int
-safe_to_load_version (Lisp_Object file, int fd)
+safe_to_load_version (Lisp_Object file, lread_fd fd)
 {
   struct stat st;
   char buf[512];
@@ -1047,12 +1197,12 @@ safe_to_load_version (Lisp_Object file, int fd)
 
   /* If the file is not regular, then we cannot safely seek it.
      Assume that it is not safe to load as a compiled file.  */
-  if (fstat (fd, &st) == 0 && !S_ISREG (st.st_mode))
+  if (lread_fstat (fd, &st) == 0 && !S_ISREG (st.st_mode))
     return 0;
 
   /* Read the first few bytes from the file, and look for a line
      specifying the byte compiler version used.  */
-  nbytes = emacs_read_quit (fd, buf, sizeof buf);
+  nbytes = lread_read_quit (fd, buf, sizeof buf);
   if (nbytes > 0)
     {
       /* Skip to the next newline, skipping over the initial `ELC'
@@ -1067,7 +1217,7 @@ safe_to_load_version (Lisp_Object file, int fd)
 	version = 0;
     }
 
-  if (lseek (fd, 0, SEEK_SET) < 0)
+  if (lread_lseek (fd, 0, SEEK_SET) < 0)
     report_file_error ("Seeking to start of file", file);
 
   return version;
@@ -1141,7 +1291,7 @@ close_infile_unwind (void *arg)
 {
   struct infile *prev_infile = arg;
   eassert (infile && infile != prev_infile);
-  fclose (infile->stream);
+  file_stream_close (infile->stream);
   infile = prev_infile;
 }
 
@@ -1169,6 +1319,22 @@ loadhist_initialize (Lisp_Object filename)
   eassert (STRINGP (filename) || NILP (filename));
   specbind (Qcurrent_load_list, Fcons (filename, Qnil));
 }
+
+#ifdef USE_ANDROID_ASSETS
+
+/* Like `close_file_unwind'.  However, PTR is a pointer to an Android
+   file descriptor instead of a system file descriptor.  */
+
+static void
+close_file_unwind_android_fd (void *ptr)
+{
+  struct android_fd_or_asset *fd;
+
+  fd = ptr;
+  android_close_asset (*fd);
+}
+
+#endif
 
 DEFUN ("load", Fload, Sload, 1, 5, 0,
        doc: /* Execute a file of Lisp code named FILE.
@@ -1218,8 +1384,12 @@ Return t if the file exists and loads successfully.  */)
   (Lisp_Object file, Lisp_Object noerror, Lisp_Object nomessage,
    Lisp_Object nosuffix, Lisp_Object must_suffix)
 {
-  FILE *stream UNINIT;
-  int fd;
+  file_stream stream UNINIT;
+  lread_fd fd;
+#ifdef USE_ANDROID_ASSETS
+  int rc;
+  void *asset;
+#endif
   specpdl_ref fd_index UNINIT;
   specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object found, efound, hist_file_name;
@@ -1260,7 +1430,12 @@ Return t if the file exists and loads successfully.  */)
      since it would try to load a directory as a Lisp file.  */
   if (SCHARS (file) == 0)
     {
+#if !defined USE_ANDROID_ASSETS
       fd = -1;
+#else
+      fd.asset = NULL;
+      fd.fd = -1;
+#endif
       errno = ENOENT;
     }
   else
@@ -1299,12 +1474,22 @@ Return t if the file exists and loads successfully.  */)
 	    suffixes = CALLN (Fappend, suffixes, Vload_file_rep_suffixes);
 	}
 
-      fd =
-	openp (Vload_path, file, suffixes, &found, Qnil, load_prefer_newer,
-	       no_native);
+#if !defined USE_ANDROID_ASSETS
+      fd = openp (Vload_path, file, suffixes, &found, Qnil,
+		  load_prefer_newer, no_native, NULL);
+#else
+      asset = NULL;
+      rc = openp (Vload_path, file, suffixes, &found, Qnil,
+		  load_prefer_newer, no_native, &asset);
+      fd.fd = rc;
+      fd.asset = asset;
+
+      /* fd.asset will be non-NULL if this is actually an asset
+	 file.  */
+#endif
     }
 
-  if (fd == -1)
+  if (lread_fd_cmp (-1))
     {
       if (NILP (noerror))
 	report_file_error ("Cannot open load file", file);
@@ -1316,7 +1501,7 @@ Return t if the file exists and loads successfully.  */)
     Vuser_init_file = found;
 
   /* If FD is -2, that means openp found a magic file.  */
-  if (fd == -2)
+  if (lread_fd_cmp (-2))
     {
       if (NILP (Fequal (found, file)))
 	/* If FOUND is a different file name from FILE,
@@ -1345,11 +1530,21 @@ Return t if the file exists and loads successfully.  */)
 #endif
     }
 
+#if !defined USE_ANDROID_ASSETS
   if (0 <= fd)
     {
       fd_index = SPECPDL_INDEX ();
       record_unwind_protect_int (close_file_unwind, fd);
     }
+#else
+  if (fd.asset || fd.fd >= 0)
+    {
+      /* Use a different kind of unwind_protect here.  */
+      fd_index = SPECPDL_INDEX ();
+      record_unwind_protect_ptr (close_file_unwind_android_fd,
+				 &fd);
+    }
+#endif
 
 #ifdef HAVE_MODULES
   bool is_module =
@@ -1415,11 +1610,12 @@ Return t if the file exists and loads successfully.  */)
   if (is_elc
       /* version = 1 means the file is empty, in which case we can
 	 treat it as not byte-compiled.  */
-      || (fd >= 0 && (version = safe_to_load_version (file, fd)) > 1))
+      || (lread_fd_p
+	  && (version = safe_to_load_version (file, fd)) > 1))
     /* Load .elc files directly, but not when they are
        remote and have no handler!  */
     {
-      if (fd != -2)
+      if (!lread_fd_cmp (-2))
 	{
 	  struct stat s1, s2;
 	  int result;
@@ -1476,9 +1672,9 @@ Return t if the file exists and loads successfully.  */)
 	{
 	  Lisp_Object val;
 
-	  if (fd >= 0)
+	  if (lread_fd_p)
 	    {
-	      emacs_close (fd);
+	      lread_close (fd);
 	      clear_unwind_protect (fd_index);
 	    }
 	  val = call4 (Vload_source_file_function, found, hist_file_name,
@@ -1488,12 +1684,12 @@ Return t if the file exists and loads successfully.  */)
 	}
     }
 
-  if (fd < 0)
+  if (!lread_fd_p)
     {
       /* We somehow got here with fd == -2, meaning the file is deemed
 	 to be remote.  Don't even try to reopen the file locally;
 	 just force a failure.  */
-      stream = NULL;
+      stream = file_stream_invalid;
       errno = EINVAL;
     }
   else if (!is_module && !is_native_elisp)
@@ -1504,7 +1700,15 @@ Return t if the file exists and loads successfully.  */)
       efound = ENCODE_FILE (found);
       stream = emacs_fopen (SSDATA (efound), fmode);
 #else
-      stream = fdopen (fd, fmode);
+#if !defined USE_ANDROID_ASSETS
+      stream = emacs_fdopen (fd, fmode);
+#else
+      /* Android systems use special file descriptors which can point
+	 into compressed data and double as file streams.  FMODE is
+	 unused.  */
+      ((void) fmode);
+      stream = fd;
+#endif
 #endif
     }
 
@@ -1516,15 +1720,15 @@ Return t if the file exists and loads successfully.  */)
     {
       /* `module-load' uses the file name, so we can close the stream
          now.  */
-      if (fd >= 0)
+      if (lread_fd_p)
         {
-          emacs_close (fd);
+          lread_close (fd);
           clear_unwind_protect (fd_index);
         }
     }
   else
     {
-      if (! stream)
+      if (!file_stream_valid_p (stream))
         report_file_error ("Opening stdio stream", file);
       set_unwind_protect_ptr (fd_index, close_infile_unwind, infile);
       input.stream = stream;
@@ -1660,7 +1864,8 @@ directories, make sure the PREDICATE function returns `dir-ok' for them.  */)
   (Lisp_Object filename, Lisp_Object path, Lisp_Object suffixes, Lisp_Object predicate)
 {
   Lisp_Object file;
-  int fd = openp (path, filename, suffixes, &file, predicate, false, true);
+  int fd = openp (path, filename, suffixes, &file, predicate, false, true,
+		  NULL);
   if (NILP (predicate) && fd >= 0)
     emacs_close (fd);
   return file;
@@ -1676,7 +1881,7 @@ maybe_swap_for_eln1 (Lisp_Object src_name, Lisp_Object eln_name,
 
   if (eln_fd > 0)
     {
-      if (fstat (eln_fd, &eln_st) || S_ISDIR (eln_st.st_mode))
+      if (sys_fstat (eln_fd, &eln_st) || S_ISDIR (eln_st.st_mode))
 	emacs_close (eln_fd);
       else
 	{
@@ -1801,14 +2006,20 @@ maybe_swap_for_eln (bool no_native, Lisp_Object *filename, int *fd,
 
    If NEWER is true, try all SUFFIXes and return the result for the
    newest file that exists.  Does not apply to remote files,
-   or if a non-nil and non-t PREDICATE is specified.
+   platform-specific files, or if a non-nil and non-t PREDICATE is
+   specified.
 
-   if NO_NATIVE is true do not try to load native code.  */
+   If NO_NATIVE is true do not try to load native code.
+
+   If PLATFORM is non-NULL and the file being loaded lies in a special
+   directory, such as the Android `/assets' directory, return a handle
+   to that directory in *PLATFORM instead of a file descriptor; in
+   that case, value is -3.  */
 
 int
 openp (Lisp_Object path, Lisp_Object str, Lisp_Object suffixes,
        Lisp_Object *storeptr, Lisp_Object predicate, bool newer,
-       bool no_native)
+       bool no_native, void **platform)
 {
   ptrdiff_t fn_size = 100;
   char buf[100];
@@ -1820,6 +2031,9 @@ openp (Lisp_Object path, Lisp_Object str, Lisp_Object suffixes,
   ptrdiff_t max_suffix_len = 0;
   int last_errno = ENOENT;
   int save_fd = -1;
+#ifdef USE_ANDROID_ASSETS
+  struct android_fd_or_asset platform_fd;
+#endif
   USE_SAFE_ALLOCA;
 
   /* The last-modified time of the newest matching file found.
@@ -1964,8 +2178,8 @@ openp (Lisp_Object path, Lisp_Object str, Lisp_Object suffixes,
 		fd = -1;
 		if (INT_MAX < XFIXNAT (predicate))
 		  last_errno = EINVAL;
-		else if (faccessat (AT_FDCWD, pfn, XFIXNAT (predicate),
-				    AT_EACCESS)
+		else if (sys_faccessat (AT_FDCWD, pfn, XFIXNAT (predicate),
+					AT_EACCESS)
 			 == 0)
 		  {
 		    if (file_directory_p (encoded_fn))
@@ -1985,11 +2199,34 @@ openp (Lisp_Object path, Lisp_Object str, Lisp_Object suffixes,
                     it.  Only open the file when we are sure that it
                     exists.  */
 #ifdef WINDOWSNT
-                if (faccessat (AT_FDCWD, pfn, R_OK, AT_EACCESS))
+                if (sys_faccessat (AT_FDCWD, pfn, R_OK, AT_EACCESS))
                   fd = -1;
                 else
 #endif
-                  fd = emacs_open (pfn, O_RDONLY, 0);
+		  {
+#if !defined USE_ANDROID_ASSETS
+		    fd = emacs_open (pfn, O_RDONLY, 0);
+#else
+		    if (platform)
+		      {
+			platform_fd = android_open_asset (pfn, O_RDONLY, 0);
+
+			if (platform_fd.asset
+			    && platform_fd.asset != (void *) -1)
+			  {
+			    *storeptr = string;
+			    goto handle_platform_fd;
+			  }
+
+			if (platform_fd.asset == (void *) -1)
+			  fd = -1;
+			else
+			  fd = platform_fd.fd;
+		      }
+		    else
+		      fd = emacs_open (pfn, O_RDONLY, 0);
+#endif
+		  }
 
 		if (fd < 0)
 		  {
@@ -1998,7 +2235,7 @@ openp (Lisp_Object path, Lisp_Object str, Lisp_Object suffixes,
 		  }
 		else
 		  {
-		    int err = (fstat (fd, &st) != 0 ? errno
+		    int err = (sys_fstat (fd, &st) != 0 ? errno
 			       : S_ISDIR (st.st_mode) ? EISDIR : 0);
 		    if (err)
 		      {
@@ -2057,6 +2294,16 @@ openp (Lisp_Object path, Lisp_Object str, Lisp_Object suffixes,
   SAFE_FREE ();
   errno = last_errno;
   return -1;
+
+#ifdef USE_ANDROID_ASSETS
+ handle_platform_fd:
+
+  /* Here, openp found a platform specific file descriptor.  It can't
+     be a directory under Android, so return it in *PLATFORM and then
+     -3 as the file descriptor.  */
+  *platform = platform_fd.asset;
+  return -3;
+#endif
 }
 
 
@@ -2088,7 +2335,7 @@ build_load_history (Lisp_Object filename, bool entire)
 	{
 	  foundit = 1;
 
-	  /*  If we're loading the entire file, remove old data.  */
+	  /* If we're loading the entire file, remove old data.  */
 	  if (entire)
 	    {
 	      if (NILP (prev))
@@ -2096,8 +2343,8 @@ build_load_history (Lisp_Object filename, bool entire)
 	      else
 		Fsetcdr (prev, XCDR (tail));
 	    }
-
-	  /*  Otherwise, cons on new symbols that are not already members.  */
+	  /* Otherwise, cons on new symbols that are not already
+	     members.  */
 	  else
 	    {
 	      tem2 = Vcurrent_load_list;
@@ -2255,6 +2502,7 @@ readevalloop (Lisp_Object readcharfun,
 	  record_unwind_protect_excursion ();
 	  /* Save ZV in it.  */
 	  record_unwind_protect (save_restriction_restore, save_restriction_save ());
+	  labeled_restrictions_remove_in_current_buffer ();
 	  /* Those get unbound after we read one expression.  */
 
 	  /* Set point and ZV around stuff to be read.  */
@@ -2639,154 +2887,131 @@ character_name_to_code (char const *name, ptrdiff_t name_len,
    Unicode 9.0.0 the maximum is 83, so this should be safe.  */
 enum { UNICODE_CHARACTER_NAME_LENGTH_BOUND = 200 };
 
-/* Read a \-escape sequence, assuming we already read the `\'.
-   If the escape sequence forces unibyte, return eight-bit char.  */
-
+/* Read a character escape sequence, assuming we just read a backslash
+   and one more character (next_char).  */
 static int
-read_escape (Lisp_Object readcharfun)
+read_char_escape (Lisp_Object readcharfun, int next_char)
 {
-  int c = READCHAR;
-  /* \u allows up to four hex digits, \U up to eight.  Default to the
-     behavior for \u, and change this value in the case that \U is seen.  */
-  int unicode_hex_count = 4;
+  int modifiers = 0;
+  ptrdiff_t ncontrol = 0;
+  int chr;
+
+ again: ;
+  int c = next_char;
+  int unicode_hex_count;
+  int mod;
 
   switch (c)
     {
     case -1:
       end_of_file_error ();
 
-    case 'a':
-      return '\007';
-    case 'b':
-      return '\b';
-    case 'd':
-      return 0177;
-    case 'e':
-      return 033;
-    case 'f':
-      return '\f';
-    case 'n':
-      return '\n';
-    case 'r':
-      return '\r';
-    case 't':
-      return '\t';
-    case 'v':
-      return '\v';
+    case 'a': chr = '\a'; break;
+    case 'b': chr = '\b'; break;
+    case 'd': chr =  127; break;
+    case 'e': chr =   27; break;
+    case 'f': chr = '\f'; break;
+    case 'n': chr = '\n'; break;
+    case 'r': chr = '\r'; break;
+    case 't': chr = '\t'; break;
+    case 'v': chr = '\v'; break;
 
     case '\n':
       /* ?\LF is an error; it's probably a user mistake.  */
-      error ("Invalid escape character syntax");
+      error ("Invalid escape char syntax: \\<newline>");
 
-    case 'M':
-      c = READCHAR;
-      if (c != '-')
-	error ("Invalid escape character syntax");
-      c = READCHAR;
-      if (c == '\\')
-	c = read_escape (readcharfun);
-      return c | meta_modifier;
+    /* \M-x etc: set modifier bit and parse the char to which it applies,
+       allowing for chains such as \M-\S-\A-\H-\s-\C-q.  */
+    case 'M': mod = meta_modifier;  goto mod_key;
+    case 'S': mod = shift_modifier; goto mod_key;
+    case 'H': mod = hyper_modifier; goto mod_key;
+    case 'A': mod = alt_modifier;   goto mod_key;
+    case 's': mod = super_modifier; goto mod_key;
 
-    case 'S':
-      c = READCHAR;
-      if (c != '-')
-	error ("Invalid escape character syntax");
-      c = READCHAR;
-      if (c == '\\')
-	c = read_escape (readcharfun);
-      return c | shift_modifier;
-
-    case 'H':
-      c = READCHAR;
-      if (c != '-')
-	error ("Invalid escape character syntax");
-      c = READCHAR;
-      if (c == '\\')
-	c = read_escape (readcharfun);
-      return c | hyper_modifier;
-
-    case 'A':
-      c = READCHAR;
-      if (c != '-')
-	error ("Invalid escape character syntax");
-      c = READCHAR;
-      if (c == '\\')
-	c = read_escape (readcharfun);
-      return c | alt_modifier;
-
-    case 's':
-      c = READCHAR;
-      if (c != '-')
-	{
-	  UNREAD (c);
-	  return ' ';
-	}
-      c = READCHAR;
-      if (c == '\\')
-	c = read_escape (readcharfun);
-      return c | super_modifier;
-
-    case 'C':
-      c = READCHAR;
-      if (c != '-')
-	error ("Invalid escape character syntax");
-      FALLTHROUGH;
-    case '^':
-      c = READCHAR;
-      if (c == '\\')
-	c = read_escape (readcharfun);
-      if ((c & ~CHAR_MODIFIER_MASK) == '?')
-	return 0177 | (c & CHAR_MODIFIER_MASK);
-      else if (! ASCII_CHAR_P ((c & ~CHAR_MODIFIER_MASK)))
-	return c | ctrl_modifier;
-      /* ASCII control chars are made from letters (both cases),
-	 as well as the non-letters within 0100...0137.  */
-      else if ((c & 0137) >= 0101 && (c & 0137) <= 0132)
-	return (c & (037 | ~0177));
-      else if ((c & 0177) >= 0100 && (c & 0177) <= 0137)
-	return (c & (037 | ~0177));
-      else
-	return c | ctrl_modifier;
-
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-      /* An octal escape, as in ANSI C.  */
+    mod_key:
       {
-	register int i = c - '0';
-	register int count = 0;
-	while (++count < 3)
+	int c1 = READCHAR;
+	if (c1 != '-')
 	  {
-	    if ((c = READCHAR) >= '0' && c <= '7')
+	    if (c == 's')
 	      {
-		i *= 8;
-		i += c - '0';
+		/* \s not followed by a hyphen is SPC.  */
+		UNREAD (c1);
+		chr = ' ';
+		break;
 	      }
 	    else
+	      /* \M, \S, \H, \A not followed by a hyphen is an error.  */
+	      error ("Invalid escape char syntax: \\%c not followed by -", c);
+	  }
+	modifiers |= mod;
+	c1 = READCHAR;
+	if (c1 == '\\')
+	  {
+	    next_char = READCHAR;
+	    goto again;
+	  }
+	chr = c1;
+	break;
+      }
+
+    /* Control modifiers (\C-x or \^x) are messy and not actually idempotent.
+       For example, ?\C-\C-a = ?\C-\001 = 0x4000001.
+       Keep a count of them and apply them separately.  */
+    case 'C':
+      {
+	int c1 = READCHAR;
+	if (c1 != '-')
+	  error ("Invalid escape char syntax: \\%c not followed by -", c);
+      }
+      FALLTHROUGH;
+    /* The prefixes \C- and \^ are equivalent.  */
+    case '^':
+      {
+	ncontrol++;
+	int c1 = READCHAR;
+	if (c1 == '\\')
+	  {
+	    next_char = READCHAR;
+	    goto again;
+	  }
+	chr = c1;
+	break;
+      }
+
+    /* 1-3 octal digits.  Values in 0x80..0xff are encoded as raw bytes.  */
+    case '0': case '1': case '2': case '3':
+    case '4': case '5': case '6': case '7':
+      {
+	int i = c - '0';
+	int count = 0;
+	while (count < 2)
+	  {
+	    int c = READCHAR;
+	    if (c < '0' || c > '7')
 	      {
 		UNREAD (c);
 		break;
 	      }
+	    i = (i << 3) + (c - '0');
+	    count++;
 	  }
 
 	if (i >= 0x80 && i < 0x100)
 	  i = BYTE8_TO_CHAR (i);
-	return i;
+	chr = i;
+	break;
       }
 
+    /* 1 or more hex digits.  Values may encode modifiers.
+       Values in 0x80..0xff using 2 hex digits are encoded as raw bytes.  */
     case 'x':
-      /* A hex escape, as in ANSI C.  */
       {
 	unsigned int i = 0;
 	int count = 0;
 	while (1)
 	  {
-	    c = READCHAR;
+	    int c = READCHAR;
 	    int digit = char_hexdigit (c);
 	    if (digit < 0)
 	      {
@@ -2796,40 +3021,37 @@ read_escape (Lisp_Object readcharfun)
 	    i = (i << 4) + digit;
 	    /* Allow hex escapes as large as ?\xfffffff, because some
 	       packages use them to denote characters with modifiers.  */
-	    if ((CHAR_META | (CHAR_META - 1)) < i)
+	    if (i > (CHAR_META | (CHAR_META - 1)))
 	      error ("Hex character out of range: \\x%x...", i);
 	    count += count < 3;
 	  }
 
+	if (count == 0)
+	  error ("Invalid escape char syntax: \\x not followed by hex digit");
 	if (count < 3 && i >= 0x80)
-	  return BYTE8_TO_CHAR (i);
-	return i;
+	  i = BYTE8_TO_CHAR (i);
+	modifiers |= i & CHAR_MODIFIER_MASK;
+	chr = i & ~CHAR_MODIFIER_MASK;
+	break;
       }
 
+    /* 8-digit Unicode hex escape: \UHHHHHHHH */
     case 'U':
-      /* Post-Unicode-2.0: Up to eight hex chars.  */
       unicode_hex_count = 8;
-      FALLTHROUGH;
-    case 'u':
+      goto unicode_hex;
 
-      /* A Unicode escape.  We only permit them in strings and characters,
-	 not arbitrarily in the source code, as in some other languages.  */
+    /* 4-digit Unicode hex escape: \uHHHH */
+    case 'u':
+      unicode_hex_count = 4;
+    unicode_hex:
       {
 	unsigned int i = 0;
-	int count = 0;
-
-	while (++count <= unicode_hex_count)
+	for (int count = 0; count < unicode_hex_count; count++)
 	  {
-	    c = READCHAR;
+	    int c = READCHAR;
 	    if (c < 0)
-	      {
-		if (unicode_hex_count > 4)
-		  error ("Malformed Unicode escape: \\U%x", i);
-		else
-		  error ("Malformed Unicode escape: \\u%x", i);
-	      }
-	    /* `isdigit' and `isalpha' may be locale-specific, which we don't
-	       want.  */
+	      error ("Malformed Unicode escape: \\%c%x",
+		     unicode_hex_count == 4 ? 'u' : 'U', i);
 	    int digit = char_hexdigit (c);
 	    if (digit < 0)
 	      error ("Non-hex character used for Unicode escape: %c (%d)",
@@ -2838,13 +3060,14 @@ read_escape (Lisp_Object readcharfun)
 	  }
 	if (i > 0x10FFFF)
 	  error ("Non-Unicode character: 0x%x", i);
-	return i;
+	chr = i;
+	break;
       }
 
+    /* Named character: \N{name} */
     case 'N':
-      /* Named character.  */
       {
-        c = READCHAR;
+        int c = READCHAR;
         if (c != '{')
           invalid_syntax ("Expected opening brace after \\N", readcharfun);
         char name[UNICODE_CHARACTER_NAME_LENGTH_BOUND + 1];
@@ -2852,12 +3075,12 @@ read_escape (Lisp_Object readcharfun)
         ptrdiff_t length = 0;
         while (true)
           {
-            c = READCHAR;
+            int c = READCHAR;
             if (c < 0)
               end_of_file_error ();
             if (c == '}')
               break;
-            if (! (0 < c && c < 0x80))
+            if (c >= 0x80)
               {
                 AUTO_STRING (format,
                              "Invalid character U+%04X in character name");
@@ -2886,13 +3109,41 @@ read_escape (Lisp_Object readcharfun)
 	name[length] = '\0';
 
 	/* character_name_to_code can invoke read0, recursively.
-	   This is why read0's buffer is not static.  */
-	return character_name_to_code (name, length, readcharfun);
+	   This is why read0 needs to be re-entrant.  */
+	chr = character_name_to_code (name, length, readcharfun);
+	break;
       }
 
     default:
-      return c;
+      chr = c;
+      break;
     }
+  eassert (chr >= 0 && chr < (1 << CHARACTERBITS));
+
+  /* Apply Control modifiers, using the rules:
+     \C-X = ascii_ctrl(nomod(X)) | mods(X)  if nomod(X) is one of:
+                                                A-Z a-z ? @ [ \ ] ^ _
+
+            X | ctrl_modifier               otherwise
+
+     where
+         nomod(c) = c without modifiers
+	 mods(c)  = the modifiers of c
+         ascii_ctrl(c) = 127       if c = '?'
+                         c & 0x1f  otherwise
+  */
+  while (ncontrol > 0)
+    {
+      if ((chr >= '@' && chr <= '_') || (chr >= 'a' && chr <= 'z'))
+	chr &= 0x1f;
+      else if (chr == '?')
+	chr = 127;
+      else
+	modifiers |= ctrl_modifier;
+      ncontrol--;
+    }
+
+  return chr | modifiers;
 }
 
 /* Return the digit that CHARACTER stands for in the given BASE.
@@ -3014,7 +3265,7 @@ read_char_literal (Lisp_Object readcharfun)
     }
 
   if (ch == '\\')
-    ch = read_escape (readcharfun);
+    ch = read_char_escape (readcharfun, READCHAR);
 
   int modifiers = ch & CHAR_MODIFIER_MASK;
   ch &= ~CHAR_MODIFIER_MASK;
@@ -3080,8 +3331,7 @@ read_string_literal (Lisp_Object readcharfun)
 	      /* `\SPC' and `\LF' generate no characters at all.  */
 	      continue;
 	    default:
-	      UNREAD (ch);
-	      ch = read_escape (readcharfun);
+	      ch = read_char_escape (readcharfun, ch);
 	      break;
 	    }
 
@@ -3285,7 +3535,7 @@ bytecode_from_rev_list (Lisp_Object elems, Lisp_Object readcharfun)
 	     Convert them back to the original unibyte form.  */
 	  vec[COMPILED_BYTECODE] = Fstring_as_unibyte (vec[COMPILED_BYTECODE]);
 	}
-      // Bytecode must be immovable.
+      /* Bytecode must be immovable.  */
       pin_string (vec[COMPILED_BYTECODE]);
     }
 
@@ -3374,8 +3624,8 @@ read_bool_vector (Lisp_Object readcharfun)
 	    invalid_syntax ("#&", readcharfun);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (length, 10, &length)
-	  || INT_ADD_WRAPV (length, c - '0', &length))
+      if (ckd_mul (&length, length, 10)
+	  || ckd_add (&length, length, c - '0'))
 	invalid_syntax ("#&", readcharfun);
     }
 
@@ -3399,8 +3649,9 @@ read_bool_vector (Lisp_Object readcharfun)
 }
 
 /* Skip (and optionally remember) a lazily-loaded string
-   preceded by "#@".  */
-static void
+   preceded by "#@".  Return true if this was a normal skip,
+   false if we read #@00 (which skips to EOB/EOF).  */
+static bool
 skip_lazy_string (Lisp_Object readcharfun)
 {
   ptrdiff_t nskip = 0;
@@ -3420,15 +3671,15 @@ skip_lazy_string (Lisp_Object readcharfun)
 	    UNREAD (c);
 	  break;
 	}
-      if (INT_MULTIPLY_WRAPV (nskip, 10, &nskip)
-	  || INT_ADD_WRAPV (nskip, c - '0', &nskip))
+      if (ckd_mul (&nskip, nskip, 10)
+	  || ckd_add (&nskip, nskip, c - '0'))
 	invalid_syntax ("#@", readcharfun);
       digits++;
       if (digits == 2 && nskip == 0)
 	{
-	  /* #@00 means "skip to end" */
+	  /* #@00 means "read nil and skip to end" */
 	  skip_dyn_eof (readcharfun);
-	  return;
+	  return false;
 	}
     }
 
@@ -3457,7 +3708,7 @@ skip_lazy_string (Lisp_Object readcharfun)
 	  ss->string = xrealloc (ss->string, ss->size);
 	}
 
-      FILE *instream = infile->stream;
+      file_stream instream = infile->stream;
       ss->position = (file_tell (instream) - infile->lookahead);
 
       /* Copy that many bytes into the saved string.  */
@@ -3467,7 +3718,7 @@ skip_lazy_string (Lisp_Object readcharfun)
 	ss->string[i++] = c = infile->buf[--infile->lookahead];
       block_input ();
       for (; i < nskip && c >= 0; i++)
-	ss->string[i] = c = getc (instream);
+	ss->string[i] = c = file_get_char (instream);
       unblock_input ();
 
       ss->length = i;
@@ -3475,6 +3726,8 @@ skip_lazy_string (Lisp_Object readcharfun)
   else
     /* Skip that many bytes.  */
     skip_dyn_bytes (readcharfun, nskip);
+
+  return true;
 }
 
 /* Given a lazy-loaded string designator VAL, return the actual string.
@@ -3932,8 +4185,10 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 	    /* #@NUMBER is used to skip NUMBER following bytes.
 	       That's used in .elc files to skip over doc strings
 	       and function definitions that can be loaded lazily.  */
-	    skip_lazy_string (readcharfun);
-	    goto read_obj;
+	    if (skip_lazy_string (readcharfun))
+	      goto read_obj;
+	    obj = Qnil;	      /* #@00 skips to EOB/EOF and yields nil.  */
+	    break;
 
 	  case '$':
 	    /* #$ -- reference to lazy-loaded string */
@@ -3985,8 +4240,8 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 		    c = READCHAR;
 		    if (c < '0' || c > '9')
 		      break;
-		    if (INT_MULTIPLY_WRAPV (n, 10, &n)
-			|| INT_ADD_WRAPV (n, c - '0', &n))
+		    if (ckd_mul (&n, n, 10)
+			|| ckd_add (&n, n, c - '0'))
 		      invalid_syntax ("#", readcharfun);
 		  }
 		if (c == 'r' || c == 'R')
@@ -4469,10 +4724,17 @@ substitute_in_interval (INTERVAL interval, void *arg)
 }
 
 
+#if !IEEE_FLOATING_POINT
+/* Strings that stand in for +NaN, -NaN, respectively.  */
+static Lisp_Object not_a_number[2];
+#endif
+
 /* Convert the initial prefix of STRING to a number, assuming base BASE.
    If the prefix has floating point syntax and BASE is 10, return a
    nearest float; otherwise, if the prefix has integer syntax, return
-   the integer; otherwise, return nil.  If PLEN, set *PLEN to the
+   the integer; otherwise, return nil.  (On antique platforms that lack
+   support for NaNs, if the prefix has NaN syntax return a Lisp object that
+   will provoke an error if used as a number.)  If PLEN, set *PLEN to the
    length of the numeric prefix if there is one, otherwise *PLEN is
    unspecified.  */
 
@@ -4537,7 +4799,6 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
 		cp++;
 	      while ('0' <= *cp && *cp <= '9');
 	    }
-#if IEEE_FLOATING_POINT
 	  else if (cp[-1] == '+'
 		   && cp[0] == 'I' && cp[1] == 'N' && cp[2] == 'F')
 	    {
@@ -4550,12 +4811,17 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
 	    {
 	      state |= E_EXP;
 	      cp += 3;
+#if IEEE_FLOATING_POINT
 	      union ieee754_double u
 		= { .ieee_nan = { .exponent = 0x7ff, .quiet_nan = 1,
 				  .mantissa0 = n >> 31 >> 1, .mantissa1 = n }};
 	      value = u.d;
-	    }
+#else
+	      if (plen)
+		*plen = cp - string;
+	      return not_a_number[negative];
 #endif
+	    }
 	  else
 	    cp = ecp;
 	}
@@ -5698,6 +5964,14 @@ that are loaded before your customizations are read!  */);
   DEFSYM (Qbackquote, "`");
   DEFSYM (Qcomma, ",");
   DEFSYM (Qcomma_at, ",@");
+
+#if !IEEE_FLOATING_POINT
+  for (int negative = 0; negative < 2; negative++)
+    {
+      not_a_number[negative] = build_pure_c_string (&"-0.0e+NaN"[!negative]);
+      staticpro (&not_a_number[negative]);
+    }
+#endif
 
   DEFSYM (Qinhibit_file_name_operation, "inhibit-file-name-operation");
   DEFSYM (Qascii_character, "ascii-character");

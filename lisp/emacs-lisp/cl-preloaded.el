@@ -52,20 +52,20 @@
 
 (defconst cl--typeof-types
   ;; Hand made from the source code of `type-of'.
-  '((integer number number-or-marker atom)
+  '((integer number integer-or-marker number-or-marker atom)
     (symbol-with-pos symbol atom) (symbol atom) (string array sequence atom)
     (cons list sequence)
     ;; Markers aren't `numberp', yet they are accepted wherever integers are
     ;; accepted, pretty much.
-    (marker number-or-marker atom)
-    (overlay atom) (float number atom) (window-configuration atom)
-    (process atom) (window atom)
+    (marker integer-or-marker number-or-marker atom)
+    (overlay atom) (float number number-or-marker atom)
+    (window-configuration atom) (process atom) (window atom)
     ;; FIXME: We'd want to put `function' here, but that's only true
     ;; for those `subr's which aren't special forms!
     (subr atom)
     ;; FIXME: We should probably reverse the order between
     ;; `compiled-function' and `byte-code-function' since arguably
-    ;; `subr' and also "compiled functions" but not "byte code functions",
+    ;; `subr' is also "compiled functions" but not "byte code functions",
     ;; but it would require changing the value returned by `type-of' for
     ;; byte code objects, which risks breaking existing code, which doesn't
     ;; seem worth the trouble.
@@ -113,6 +113,7 @@ supertypes from the most specific to least specific.")
         (record 'cl-slot-descriptor
                 name initform type props)))
 
+;; In use by comp.el
 (defun cl--struct-get-class (name)
   (or (if (not (symbolp name)) name)
       (cl--find-class name)
@@ -158,7 +159,9 @@ supertypes from the most specific to least specific.")
   (cl-check-type name (satisfies cl--struct-name-p))
   (unless type
     ;; Legacy defstruct, using tagged vectors.  Enable backward compatibility.
-    (cl-old-struct-compat-mode 1))
+    (with-suppressed-warnings ((obsolete cl-old-struct-compat-mode))
+      (message "cl-old-struct-compat-mode is obsolete!")
+      (cl-old-struct-compat-mode 1)))
   (if (eq type 'record)
       ;; Defstruct using record objects.
       (setq type nil))
@@ -176,6 +179,7 @@ supertypes from the most specific to least specific.")
                        (i 0)
                        (offset (if type 0 1)))
                    (dolist (slot slots)
+                     (put (car slot) 'slot-name t)
                      (let* ((props (cl--plist-to-alist (cddr slot)))
                             (typep (assq :type props))
                             (type (if (null typep) t
@@ -328,6 +332,9 @@ supertypes from the most specific to least specific.")
                    (append classes
                            (cl--class-parents class)))))
     (nreverse parents)))
+
+(eval-and-compile
+  (cl-assert (null (cl--class-parents (cl--find-class 'cl-structure-object)))))
 
 ;; Make sure functions defined with cl-defsubst can be inlined even in
 ;; packages which do not require CL.  We don't put an autoload cookie

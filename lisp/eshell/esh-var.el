@@ -162,7 +162,15 @@ if they are quoted with a backslash."
     ("COLUMNS" ,(lambda () (window-body-width nil 'remap)) t t)
     ("LINES" ,(lambda () (window-body-height nil 'remap)) t t)
     ("INSIDE_EMACS" eshell-inside-emacs t)
+    ("PAGER" (,(lambda () (or comint-pager (getenv "PAGER")))
+              . ,(lambda (_ value)
+                   ;; When unsetting PAGER, be sure to clear its value
+                   ;; from `process-environment' too.
+                   (unless value (setenv "PAGER"))
+                   (setq comint-pager value)))
+     t t)
     ("UID" ,(lambda () (file-user-uid)) nil t)
+    ("GID" ,(lambda () (file-group-gid)) nil t)
 
     ;; for esh-ext.el
     ("PATH" (,(lambda () (string-join (eshell-get-path t) (path-separator)))
@@ -261,11 +269,13 @@ copied (a.k.a. \"exported\") to the environment of created subprocesses."
   ;; changing a variable will affect all of Emacs.
   (unless eshell-modify-global-environment
     (setq-local process-environment (eshell-copy-environment)))
+  (make-local-variable 'comint-pager)
   (setq-local eshell-subcommand-bindings
               (append
                '((process-environment (eshell-copy-environment))
                  (eshell-variable-aliases-list eshell-variable-aliases-list)
-                 (eshell-path-env-list eshell-path-env-list))
+                 (eshell-path-env-list eshell-path-env-list)
+                 (comint-pager comint-pager))
                eshell-subcommand-bindings))
 
   (setq-local eshell-special-chars-inside-quoting
@@ -286,43 +296,30 @@ copied (a.k.a. \"exported\") to the environment of created subprocesses."
 
 (defun eshell-handle-local-variables ()
   "Allow for the syntax `VAR=val <command> <args>'."
-  ;; strip off any null commands, which can only happen if a variable
-  ;; evaluates to nil, such as "$var x", where `var' is nil.  The
-  ;; command name in that case becomes `x', for compatibility with
-  ;; most regular shells (the difference is that they do an
-  ;; interpolation pass before the argument parsing pass, but Eshell
-  ;; does both at the same time).
-  (while (and (not eshell-last-command-name)
-	      eshell-last-arguments)
-    (setq eshell-last-command-name (car eshell-last-arguments)
-	  eshell-last-arguments (cdr eshell-last-arguments)))
+  ;; Eshell handles local variable settings (e.g. 'CFLAGS=-O2 make')
+  ;; by making the whole command into a subcommand, and calling
+  ;; `eshell-set-variable' immediately before the command is invoked.
+  ;; This means that 'FOO=x cd bar' won't work exactly as expected,
+  ;; but that is by no means a typical use of local environment
+  ;; variables.
   (let ((setvar "\\`\\([A-Za-z_][A-Za-z0-9_]*\\)=\\(.*\\)\\'")
-	(command (eshell-stringify eshell-last-command-name))
-	(args eshell-last-arguments))
-    ;; local variable settings (such as 'CFLAGS=-O2 make') are handled
-    ;; by making the whole command into a subcommand, and calling
-    ;; setenv immediately before the command is invoked.  This means
-    ;; that 'BLAH=x cd blah' won't work exactly as expected, but that
-    ;; is by no means a typical use of local environment variables.
-    (if (and command (string-match setvar command))
-	(throw
-	 'eshell-replace-command
-	 (list
-	  'eshell-as-subcommand
-	  (append
-	   (list 'progn)
-	   (let ((l (list t)))
-	     (while (string-match setvar command)
-	       (nconc
-		l (list
-                   (list 'eshell-set-variable
-                         (match-string 1 command)
-                         (match-string 2 command))))
-	       (setq command (eshell-stringify (car args))
-		     args (cdr args)))
-	     (cdr l))
-	   (list (list 'eshell-named-command
-		       command (list 'quote args)))))))))
+        (command eshell-last-command-name)
+        (args eshell-last-arguments))
+    (when (and (stringp command) (string-match setvar command))
+      (throw 'eshell-replace-command
+             `(eshell-as-subcommand
+               (progn
+                 ,@(let (locals)
+                     (while (and (stringp command)
+                                 (string-match setvar command))
+                       (push `(eshell-set-variable
+                               ,(match-string 1 command)
+                               ,(match-string 2 command))
+                             locals)
+                       (setq command (pop args)))
+                     (nreverse locals))
+                 (eshell-named-command ,command ,(list 'quote args)))
+              )))))
 
 (defun eshell-interpolate-variable ()
   "Parse a variable interpolation.
@@ -507,55 +504,56 @@ Possible variable references are:
   (cond
    ((eq (char-after) ?{)
     (let ((end (eshell-find-delimiter ?\{ ?\})))
-      (if (not end)
-          (throw 'eshell-incomplete "${")
-        (forward-char)
-        (prog1
-            `(eshell-apply-indices
-              (eshell-convert
-               (eshell-command-to-value
-                (eshell-as-subcommand
-                 ,(let ((subcmd (or (eshell-unescape-inner-double-quote end)
-                                    (cons (point) end)))
-                        (eshell-current-quoted nil))
-                    (eshell-parse-command subcmd))))
-               ;; If this is a simple double-quoted form like
-               ;; "${COMMAND}" (i.e. no indices after the subcommand
-               ;; and no `#' modifier before), ensure we convert to a
-               ;; single string.  This avoids unnecessary work
-               ;; (e.g. splitting the output by lines) when it would
-               ;; just be joined back together afterwards.
-               ,(when (and (not modifier-p) eshell-current-quoted)
-                  '(not indices)))
-              indices ,eshell-current-quoted)
-          (goto-char (1+ end))))))
+      (unless end
+        (throw 'eshell-incomplete "${"))
+      (forward-char)
+      (prog1
+          `(eshell-apply-indices
+            (eshell-convert
+             (eshell-command-to-value
+              (eshell-as-subcommand
+               ,(let ((subcmd (or (eshell-unescape-inner-double-quote end)
+                                  (cons (point) end)))
+                      (eshell-current-quoted nil))
+                  (eshell-parse-command subcmd))))
+             ;; If this is a simple double-quoted form like
+             ;; "${COMMAND}" (i.e. no indices after the subcommand and
+             ;; no `#' modifier before), ensure we convert to a single
+             ;; string.  This avoids unnecessary work (e.g. splitting
+             ;; the output by lines) when it would just be joined back
+             ;; together afterwards.
+             ,(when (and (not modifier-p) eshell-current-quoted)
+                '(not indices)))
+            indices ,eshell-current-quoted)
+        (goto-char (1+ end)))))
    ((eq (char-after) ?\<)
     (let ((end (eshell-find-delimiter ?\< ?\>)))
-      (if (not end)
-          (throw 'eshell-incomplete "$<")
-        (let* ((temp (make-temp-file temporary-file-directory))
-               (cmd (concat (buffer-substring (1+ (point)) end)
-                            " > " temp)))
-          (prog1
-              `(let ((eshell-current-handles
-                      (eshell-create-handles ,temp 'overwrite)))
-                 (progn
-                   (eshell-as-subcommand
-                    ,(let ((eshell-current-quoted nil))
-                       (eshell-parse-command cmd)))
-                   (ignore
-                    (nconc eshell-this-command-hook
-                           ;; Quote this lambda; it will be evaluated
-                           ;; by `eshell-do-eval', which requires very
-                           ;; particular forms in order to work
-                           ;; properly.  See bug#54190.
-                           (list (function
-                                  (lambda ()
-                                    (delete-file ,temp)
-                                    (when-let ((buffer (get-file-buffer ,temp)))
-                                      (kill-buffer buffer)))))))
-                   (eshell-apply-indices ,temp indices ,eshell-current-quoted)))
-            (goto-char (1+ end)))))))
+      (unless end
+        (throw 'eshell-incomplete "$<"))
+      (forward-char)
+      (let* ((temp (make-temp-file temporary-file-directory))
+             (subcmd (or (eshell-unescape-inner-double-quote end)
+                         (cons (point) end))))
+        (prog1
+            `(let ((eshell-current-handles
+                    (eshell-create-handles ,temp 'overwrite)))
+               (progn
+                 (eshell-as-subcommand
+                  ,(let ((eshell-current-quoted nil))
+                     (eshell-parse-command subcmd)))
+                 (ignore
+                  (nconc eshell-this-command-hook
+                         ;; Quote this lambda; it will be evaluated by
+                         ;; `eshell-do-eval', which requires very
+                         ;; particular forms in order to work
+                         ;; properly.  See bug#54190.
+                         (list (function
+                                (lambda ()
+                                  (delete-file ,temp)
+                                  (when-let ((buffer (get-file-buffer ,temp)))
+                                    (kill-buffer buffer)))))))
+                 (eshell-apply-indices ,temp indices ,eshell-current-quoted)))
+          (goto-char (1+ end))))))
    ((eq (char-after) ?\()
     (condition-case nil
         `(eshell-apply-indices

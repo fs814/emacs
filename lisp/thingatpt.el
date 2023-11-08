@@ -250,7 +250,8 @@ Prefer the enclosing string with fallback on sexp at point.
             (goto-char (nth 8 ppss))
             (cons (point) (progn (forward-sexp) (point))))
         ;; At the beginning of the string
-        (if (eq (char-syntax (char-after)) ?\")
+        (if (let ((ca (char-after)))
+              (and ca (eq (char-syntax ca) ?\")))
             (let ((bound (bounds-of-thing-at-point 'sexp)))
 	      (and bound
 	           (<= (car bound) (point)) (< (point) (cdr bound))
@@ -359,6 +360,10 @@ E.g.:
     (and (file-exists-p filename)
          filename)))
 
+(put 'existing-filename 'bounds-of-thing-at-point
+     (lambda ()
+       (and (thing-at-point 'existing-filename)
+            (bounds-of-thing-at-point 'filename))))
 (put 'existing-filename 'thing-at-point 'thing-at-point-file-at-point)
 
 ;; Faces
@@ -560,9 +565,9 @@ looks like an email address, \"ftp://\" if it starts with
 	 ;; If it looks like ftp.example.com. treat it as ftp.
 	 (if (string-match "\\`ftp\\." str)
 	     (setq str (concat "ftp://" str)))
-	 ;; If it looks like www.example.com. treat it as http.
+         ;; If it looks like www.example.com. treat it as https.
 	 (if (string-match "\\`www\\." str)
-	     (setq str (concat "http://" str)))
+             (setq str (concat "https://" str)))
 	 ;; Otherwise, it just isn't a URI.
 	 (setq str nil)))
       str)))
@@ -645,7 +650,7 @@ back from point."
 
 ;;   Email addresses
 (defvar thing-at-point-email-regexp
-  "<?[-+_.~a-zA-Z][-+_.~:a-zA-Z0-9]*@[-.a-zA-Z0-9]+>?"
+  "<?[-+_~a-zA-Z0-9][-+_.~:a-zA-Z0-9]*@[-a-zA-Z0-9]+[-.a-zA-Z0-9]*>?"
   "A regular expression probably matching an email address.
 This does not match the real name portion, only the address, optionally
 with angle brackets.")

@@ -32,7 +32,50 @@
 ;;; Code:
 
 (require 'compat nil 'noerror)
-(eval-when-compile (require 'cl-lib) (require 'url-parse))
+(eval-when-compile (require 'cl-lib))
+
+;; Except for the "erc-" namespacing, these two definitions should be
+;; continuously updated to match the latest upstream ones verbatim.
+;; Although they're pretty simple, it's likely not worth checking for
+;; and possibly deferring to the non-prefixed versions.
+;;
+;; BEGIN Compat macros
+
+;;;; Macros for extended compatibility function calls
+
+(defmacro erc-compat-function (fun)
+  "Return compatibility function symbol for FUN.
+
+If the Emacs version provides a sufficiently recent version of
+FUN, the symbol FUN is returned itself.  Otherwise the macro
+returns the symbol of a compatibility function which supports the
+behavior and calling convention of the current stable Emacs
+version.  For example Compat 29.1 will provide compatibility
+functions which implement the behavior and calling convention of
+Emacs 29.1.
+
+See also `compat-call' to directly call compatibility functions."
+  (let ((compat (intern (format "compat--%s" fun))))
+    `#',(if (fboundp compat) compat fun)))
+
+(defmacro erc-compat-call (fun &rest args)
+  "Call compatibility function or macro FUN with ARGS.
+
+A good example function is `plist-get' which was extended with an
+additional predicate argument in Emacs 29.1.  The compatibility
+function, which supports this additional argument, can be
+obtained via (compat-function plist-get) and called
+via (compat-call plist-get plist prop predicate).  It is not
+possible to directly call (plist-get plist prop predicate) on
+Emacs older than 29.1, since the original `plist-get' function
+does not yet support the predicate argument.  Note that the
+Compat library never overrides existing functions.
+
+See also `compat-function' to lookup compatibility functions."
+  (let ((compat (intern (format "compat--%s" fun))))
+    `(,(if (fboundp compat) compat fun) ,@args)))
+
+;; END Compat macros
 
 ;;;###autoload(autoload 'erc-define-minor-mode "erc-compat")
 (define-obsolete-function-alias 'erc-define-minor-mode
@@ -368,22 +411,14 @@ If START or END is negative, it counts from the end."
 
 ;;;; Misc 29.1
 
-(defmacro erc-compat--with-memoization (table &rest forms)
-  (declare (indent defun))
-  (cond
-   ((fboundp 'with-memoization)
-    `(with-memoization ,table ,@forms)) ; 29.1
-   ((fboundp 'cl--generic-with-memoization)
-    `(cl--generic-with-memoization ,table ,@forms))
-   (t `(progn ,@forms))))
-
 (defvar url-irc-function)
+(declare-function url-type "url-parse" (cl-x))
 
 (defun erc-compat--29-browse-url-irc (string &rest _)
   (require 'url-irc)
   (let* ((url (url-generic-parse-url string))
          (url-irc-function
-          (if (function-equal url-irc-function 'url-irc-erc)
+          (if (eq url-irc-function 'url-irc-erc)
               (lambda (host port chan user pass)
                 (erc-handle-irc-url host port chan user pass (url-type url)))
             url-irc-function)))
@@ -408,6 +443,22 @@ If START or END is negative, it counts from the end."
                             u r))
                  (cons '("\\`irc6?s?://" . erc-compat--29-browse-url-irc)
                        existing))))))
+
+;; We can't store (TICKS . HZ) style timestamps on 27 and 28 because
+;; `time-less-p' and friends do
+;;
+;;   message("obsolete timestamp with cdr ...", ...)
+;;   decode_lisp_time(_, WARN_OBSOLETE_TIMESTAMPS, ...)
+;;   lisp_time_struct(...)
+;;   time_cmp(...)
+;;
+;; which spams *Messages* (and stderr when running the test suite).
+(defmacro erc-compat--current-lisp-time ()
+  "Return `current-time' as a (TICKS . HZ) pair on 29+."
+  (if (>= emacs-major-version 29)
+      '(let (current-time-list) (current-time))
+    '(current-time)))
+
 
 (provide 'erc-compat)
 

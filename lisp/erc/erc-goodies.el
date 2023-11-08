@@ -29,30 +29,13 @@
 
 ;;; Code:
 
-;;; Imenu support
-
 (eval-when-compile (require 'cl-lib))
-(require 'erc-common)
+(require 'erc)
 
-(defvar erc-controls-highlight-regexp)
-(defvar erc-controls-remove-regexp)
-(defvar erc-input-marker)
-(defvar erc-insert-marker)
-(defvar erc-server-process)
-(defvar erc-modules)
-(defvar erc-log-p)
+(declare-function fringe-columns "fringe" (side &optional real))
+(declare-function pulse-available-p "pulse" nil)
+(declare-function pulse-momentary-highlight-overlay "pulse" (o &optional face))
 
-(declare-function erc-buffer-list "erc" (&optional predicate proc))
-(declare-function erc-error "erc" (&rest args))
-(declare-function erc-extract-command-from-line "erc" (line))
-(declare-function erc-beg-of-input-line "erc" nil)
-
-(defun erc-imenu-setup ()
-  "Setup Imenu support in an ERC buffer."
-  (setq-local imenu-create-index-function #'erc-create-imenu-index))
-
-(add-hook 'erc-mode-hook #'erc-imenu-setup)
-(autoload 'erc-create-imenu-index "erc-imenu" "Imenu index creation function")
 
 ;;; Automatically scroll to bottom
 (defcustom erc-input-line-position nil
@@ -61,27 +44,111 @@
 This should be an integer specifying the line of the buffer on which
 the input line should stay.  A value of \"-1\" would keep the input
 line positioned on the last line in the buffer.  This is passed as an
-argument to `recenter'."
+argument to `recenter', unless `erc-scrolltobottom-all' is
+`relaxed', in which case, ERC interprets it as additional lines
+to scroll down by per message insertion (minus one for the
+prompt)."
   :group 'erc-display
   :type '(choice integer (const nil)))
 
+(defcustom erc-scrolltobottom-all nil
+  "Whether to scroll all windows or just the selected one.
+ERC expects this option to be configured before module
+initialization.  A value of nil preserves pre-5.6 behavior, in
+which scrolling only affects the selected window.  A value of t
+means ERC attempts to recenter all visible windows whose point
+resides in the input area.
+
+A value of `relaxed' tells ERC to forgo forcing prompt to the
+bottom of the window.  When point is at the prompt, ERC scrolls
+the window up when inserting messages, making the prompt appear
+stationary.  Users who find this effect too \"stagnant\" can
+adjust the option `erc-input-line-position', borrowed here to
+express a scroll step offset.  Setting that value to zero lets
+the prompt drift toward the bottom by one line per message, which
+is generally slow enough not to distract while composing input.
+Of course, this doesn't apply when receiving a large influx of
+messages, such as after typing \"/msg NickServ help\".
+
+Note that users should consider this option's non-nil behavior to
+be experimental.  It currently only works with Emacs 28+."
+  :group 'erc-display
+  :package-version '(ERC . "5.6") ; FIXME sync on release
+  :type '(choice boolean (const relaxed)))
+
+;;;###autoload(autoload 'erc-scrolltobottom-mode "erc-goodies" nil t)
 (define-erc-module scrolltobottom nil
   "This mode causes the prompt to stay at the end of the window."
-  ((add-hook 'erc-mode-hook #'erc-add-scroll-to-bottom)
-   (add-hook 'erc-insert-done-hook #'erc-possibly-scroll-to-bottom)
-   (dolist (buffer (erc-buffer-list))
-     (with-current-buffer buffer
-       (erc-add-scroll-to-bottom))))
-  ((remove-hook 'erc-mode-hook #'erc-add-scroll-to-bottom)
-   (remove-hook 'erc-insert-done-hook #'erc-possibly-scroll-to-bottom)
-   (dolist (buffer (erc-buffer-list))
-     (with-current-buffer buffer
-       (remove-hook 'post-command-hook #'erc-scroll-to-bottom t)))))
+  ((add-hook 'erc-mode-hook #'erc--scrolltobottom-setup)
+   (when (and erc-scrolltobottom-all (< emacs-major-version 28))
+     (erc-button--display-error-notice-with-keys
+      "Option `erc-scrolltobottom-all' requires Emacs 28+. Disabling.")
+     (setopt erc-scrolltobottom-all nil))
+   (unless erc--updating-modules-p (erc-buffer-do #'erc--scrolltobottom-setup))
+   (if erc-scrolltobottom-all
+       (progn
+         (add-hook 'erc-insert-pre-hook #'erc--scrolltobottom-on-pre-insert 25)
+         (add-hook 'erc-pre-send-functions #'erc--scrolltobottom-on-pre-insert)
+         (add-hook 'erc-insert-done-hook #'erc--scrolltobottom-all)
+         (add-hook 'erc-send-completed-hook #'erc--scrolltobottom-all))
+     (add-hook 'erc-insert-done-hook #'erc-possibly-scroll-to-bottom)))
+  ((remove-hook 'erc-mode-hook #'erc--scrolltobottom-setup)
+   (erc-buffer-do #'erc--scrolltobottom-setup)
+   (remove-hook 'erc-insert-pre-hook #'erc--scrolltobottom-on-pre-insert)
+   (remove-hook 'erc-send-completed-hook #'erc--scrolltobottom-all)
+   (remove-hook 'erc-insert-done-hook #'erc--scrolltobottom-all)
+   (remove-hook 'erc-pre-send-functions #'erc--scrolltobottom-on-pre-insert)
+   (remove-hook 'erc-insert-done-hook #'erc-possibly-scroll-to-bottom)))
 
 (defun erc-possibly-scroll-to-bottom ()
   "Like `erc-add-scroll-to-bottom', but only if window is selected."
   (when (eq (selected-window) (get-buffer-window))
     (erc-scroll-to-bottom)))
+
+(defvar-local erc--scrolltobottom-window-info nil
+  "Alist with windows as keys and lists of window-related info as values.
+Values are lists containing the last window start position and
+the last \"window line\" of point.  The \"window line\", which
+may be nil, is the number of lines between `window-start' and
+`window-point', inclusive.")
+
+;; FIXME treat `end-of-buffer' specially and always recenter -1.
+;; FIXME make this work when `erc-scrolltobottom-all' is set to
+;; `relaxed'.
+(defvar erc--scrolltobottom-post-ignore-commands '(text-scale-adjust)
+  "Commands to skip instead of force-scroll on `post-command-hook'.")
+
+(defun erc--scrolltobottom-on-post-command ()
+  "Scroll selected window unless `this-command' is exempted."
+  (when (eq (selected-window) (get-buffer-window))
+    (unless (memq this-command erc--scrolltobottom-post-ignore-commands)
+      (setq erc--scrolltobottom-window-info nil)
+      (erc--scrolltobottom-confirm))))
+
+;; It may be desirable to also restore the relative line position of
+;; window point after changing dimensions.  Perhaps stashing the
+;; previous ratio of window line to body height and later recentering
+;; proportionally would achieve this.
+(defun erc--scrolltobottom-on-win-conf-change ()
+  "Scroll window to bottom when at prompt and using the minibuffer."
+  (setq erc--scrolltobottom-window-info nil)
+  (erc--scrolltobottom-confirm))
+
+(defun erc--scrolltobottom-all (&rest _)
+  "Maybe put prompt on last line in all windows displaying current buffer.
+Expect to run when narrowing is in effect, such as on insertion
+or send-related hooks.  When recentering has not been performed,
+attempt to restore last `window-start', if known."
+  (dolist (window (get-buffer-window-list nil nil 'visible))
+    (with-selected-window window
+      (when-let
+          ((erc--scrolltobottom-window-info)
+           (found (assq window erc--scrolltobottom-window-info))
+           ((not (erc--scrolltobottom-confirm (nth 2 found)))))
+        (set-window-start window (cadr found) 'no-force))))
+  ;; Necessary unless we're sure `erc--scrolltobottom-on-pre-insert'
+  ;; always runs between calls to this function.
+  (setq erc--scrolltobottom-window-info nil))
 
 (defun erc-add-scroll-to-bottom ()
   "A hook function for `erc-mode-hook' to recenter output at bottom of window.
@@ -89,14 +156,64 @@ argument to `recenter'."
 If you find that ERC hangs when using this function, try customizing
 the value of `erc-input-line-position'.
 
-This works whenever scrolling happens, so it's added to
-`window-scroll-functions' rather than `erc-insert-post-hook'."
+Note that the prior suggestion comes from a time when this
+function used `window-scroll-functions', which was replaced by
+`post-command-hook' in ERC 5.3."
+  (declare (obsolete erc--scrolltobottom-setup "30.1"))
   (add-hook 'post-command-hook #'erc-scroll-to-bottom nil t))
+
+(defun erc--scrolltobottom-setup ()
+  "Perform buffer-local setup for module `scrolltobottom'."
+  (if erc-scrolltobottom-mode
+      (if erc-scrolltobottom-all
+          (progn
+            (setq-local read-minibuffer-restore-windows nil)
+            (when (zerop scroll-conservatively)
+              (setq-local scroll-step 1))
+            (unless (eq erc-scrolltobottom-all 'relaxed)
+              (add-hook 'window-configuration-change-hook
+                        #'erc--scrolltobottom-on-win-conf-change 50 t)
+              (add-hook 'post-command-hook
+                        #'erc--scrolltobottom-on-post-command 50 t)))
+        (add-hook 'post-command-hook #'erc-scroll-to-bottom nil t))
+    (remove-hook 'post-command-hook #'erc-scroll-to-bottom t)
+    (remove-hook 'post-command-hook #'erc--scrolltobottom-on-post-command t)
+    (remove-hook 'window-configuration-change-hook
+                 #'erc--scrolltobottom-on-win-conf-change t)
+    (kill-local-variable 'read-minibuffer-restore-windows)
+    (kill-local-variable 'scroll-step)
+    (kill-local-variable 'erc--scrolltobottom-window-info)))
+
+(defun erc--scrolltobottom-on-pre-insert (_)
+  "Remember `window-start' before inserting a message."
+  (setq erc--scrolltobottom-window-info
+        (mapcar (lambda (w)
+                  (list w
+                        (window-start w)
+                        (and-let*
+                            (((eq erc-scrolltobottom-all 'relaxed))
+                             (c (count-screen-lines (window-start w)
+                                                    (point-max) nil w)))
+                          (if (= ?\n (char-before (point-max))) (1+ c) c))))
+                (get-buffer-window-list nil nil 'visible))))
+
+(defun erc--scrolltobottom-confirm (&optional scroll-to)
+  "Like `erc-scroll-to-bottom', but use `window-point'.
+Position current line (with `recenter') SCROLL-TO lines below
+window's top.  Return nil if point is not in prompt area or if
+prompt isn't ready."
+  (when erc-insert-marker
+    (let ((resize-mini-windows nil))
+      (save-restriction
+        (widen)
+        (when (>= (window-point) erc-input-marker)
+          (save-excursion
+            (goto-char (point-max))
+            (recenter (+ (or scroll-to 0) (or erc-input-line-position -1)))
+            t))))))
 
 (defun erc-scroll-to-bottom ()
   "Recenter WINDOW so that `point' is on the last line.
-
-This is added to `window-scroll-functions' by `erc-add-scroll-to-bottom'.
 
 You can control which line is recentered to by customizing the
 variable `erc-input-line-position'."
@@ -109,6 +226,7 @@ variable `erc-input-line-position'."
     (save-restriction
       (widen)
       (when (and erc-insert-marker
+                 (eq (current-buffer) (window-buffer))
 		 ;; we're editing a line. Scroll.
 		 (> (point) erc-insert-marker))
 	(save-excursion
@@ -116,10 +234,11 @@ variable `erc-input-line-position'."
 	  (recenter (or erc-input-line-position -1)))))))
 
 ;;; Make read only
+;;;###autoload(autoload 'erc-readonly-mode "erc-goodies" nil t)
 (define-erc-module readonly nil
   "This mode causes all inserted text to be read-only."
-  ((add-hook 'erc-insert-post-hook #'erc-make-read-only)
-   (add-hook 'erc-send-post-hook #'erc-make-read-only))
+  ((add-hook 'erc-insert-post-hook #'erc-make-read-only 70)
+   (add-hook 'erc-send-post-hook #'erc-make-read-only 70))
   ((remove-hook 'erc-insert-post-hook #'erc-make-read-only)
    (remove-hook 'erc-send-post-hook #'erc-make-read-only)))
 
@@ -131,12 +250,11 @@ Put this function on `erc-insert-post-hook' and/or `erc-send-post-hook'."
   (put-text-property (point-min) (point-max) 'rear-nonsticky t))
 
 ;;; Move to prompt when typing text
+;;;###autoload(autoload 'erc-move-to-prompt-mode "erc-goodies" nil t)
 (define-erc-module move-to-prompt nil
   "This mode causes the point to be moved to the prompt when typing text."
   ((add-hook 'erc-mode-hook #'erc-move-to-prompt-setup)
-   (dolist (buffer (erc-buffer-list))
-     (with-current-buffer buffer
-       (erc-move-to-prompt-setup))))
+   (unless erc--updating-modules-p (erc-buffer-do #'erc-move-to-prompt-setup)))
   ((remove-hook 'erc-mode-hook #'erc-move-to-prompt-setup)
    (dolist (buffer (erc-buffer-list))
      (with-current-buffer buffer
@@ -152,13 +270,175 @@ Put this function on `erc-insert-post-hook' and/or `erc-send-post-hook'."
 
 (defun erc-move-to-prompt-setup ()
   "Initialize the move-to-prompt module."
-  (add-hook 'pre-command-hook #'erc-move-to-prompt nil t))
+  (add-hook 'pre-command-hook #'erc-move-to-prompt 70 t))
 
 ;;; Keep place in unvisited channels
+;;;###autoload(autoload 'erc-keep-place-mode "erc-goodies" nil t)
 (define-erc-module keep-place nil
   "Leave point above un-viewed text in other channels."
-  ((add-hook 'erc-insert-pre-hook  #'erc-keep-place))
+  ((add-hook 'erc-insert-pre-hook  #'erc-keep-place 65))
   ((remove-hook 'erc-insert-pre-hook  #'erc-keep-place)))
+
+(defcustom erc-keep-place-indicator-style t
+  "Flavor of visual indicator applied to kept place.
+For use with the `keep-place-indicator' module.  A value of `arrow'
+displays an arrow in the left fringe or margin.  When it's
+`face', ERC adds the face `erc-keep-place-indicator-line' to the
+appropriate line.  A value of t does both."
+  :group 'erc
+  :package-version '(ERC . "5.6") ; FIXME sync on release
+  :type '(choice (const :tag "Use arrow" arrow)
+                 (const :tag "Use face" face)
+                 (const :tag "Use both arrow and face" t)))
+
+(defcustom erc-keep-place-indicator-buffer-type t
+  "ERC buffer type in which to display `keep-place-indicator'.
+A value of t means \"all\" ERC buffers."
+  :group 'erc
+  :package-version '(ERC . "5.6") ; FIXME sync on release
+  :type '(choice (const t) (const server) (const target)))
+
+(defcustom erc-keep-place-indicator-follow nil
+  "Whether to sync visual kept place to window's top when reading.
+For use with `erc-keep-place-indicator-mode'."
+  :group 'erc
+  :package-version '(ERC . "5.6") ; FIXME sync on release
+  :type 'boolean)
+
+(defface erc-keep-place-indicator-line
+  '((((class color) (min-colors 88) (background light)
+      (supports :underline (:style wave)))
+     (:underline (:color "PaleGreen3" :style wave)))
+    (((class color) (min-colors 88) (background dark)
+      (supports :underline (:style wave)))
+     (:underline (:color "PaleGreen1" :style wave)))
+    (t :underline t))
+  "Face for option `erc-keep-place-indicator-style'."
+  :group 'erc-faces)
+
+(defface erc-keep-place-indicator-arrow
+  '((((class color) (min-colors 88) (background light))
+     (:foreground "PaleGreen3"))
+    (((class color) (min-colors 88) (background dark))
+     (:foreground "PaleGreen1"))
+    (t :inherit fringe))
+  "Face for arrow value of option `erc-keep-place-indicator-style'."
+  :group 'erc-faces)
+
+(defvar-local erc--keep-place-indicator-overlay nil
+  "Overlay for `erc-keep-place-indicator-mode'.")
+
+(defun erc--keep-place-indicator-on-window-configuration-change ()
+  "Maybe sync `erc--keep-place-indicator-overlay'.
+Specifically, do so unless switching to or from another window in
+the active frame."
+  (when erc-keep-place-indicator-follow
+    (unless (or (minibuffer-window-active-p (minibuffer-window))
+                (eq (window-old-buffer) (current-buffer)))
+      (when (< (overlay-end erc--keep-place-indicator-overlay)
+               (window-start)
+               erc-insert-marker)
+        (erc-keep-place-move (window-start))))))
+
+(defun erc--keep-place-indicator-setup ()
+  "Initialize buffer for maintaining `erc--keep-place-indicator-overlay'."
+  (require 'fringe)
+  (erc--restore-initialize-priors erc-keep-place-indicator-mode
+    erc--keep-place-indicator-overlay (make-overlay 0 0))
+  (add-hook 'erc-keep-place-mode-hook
+            #'erc--keep-place-indicator-on-global-module nil t)
+  (add-hook 'window-configuration-change-hook
+            #'erc--keep-place-indicator-on-window-configuration-change nil t)
+  (when-let* (((memq erc-keep-place-indicator-style '(t arrow)))
+              (ov-property (if (zerop (fringe-columns 'left))
+                               'after-string
+                             'before-string))
+              (display (if (zerop (fringe-columns 'left))
+                           `((margin left-margin) ,overlay-arrow-string)
+                         '(left-fringe right-triangle
+                                       erc-keep-place-indicator-arrow)))
+              (bef (propertize " " 'display display)))
+    (overlay-put erc--keep-place-indicator-overlay ov-property bef))
+  (when (memq erc-keep-place-indicator-style '(t face))
+    (overlay-put erc--keep-place-indicator-overlay 'face
+                 'erc-keep-place-indicator-line)))
+
+;;;###autoload(put 'keep-place-indicator 'erc--feature 'erc-goodies)
+(define-erc-module keep-place-indicator nil
+  "Buffer-local `keep-place' with fringe arrow and/or highlighted face.
+Play nice with global module `keep-place' but don't depend on it.
+Expect that users may want different combinations of `keep-place'
+and `keep-place-indicator' in different buffers."
+  ((cond (erc-keep-place-mode)
+         ((memq 'keep-place erc-modules)
+          (erc-keep-place-mode +1))
+         ;; Enable a local version of `keep-place-mode'.
+         (t (add-hook 'erc-insert-pre-hook  #'erc-keep-place 65 t)))
+   (if (pcase erc-keep-place-indicator-buffer-type
+         ('target erc--target)
+         ('server (not erc--target))
+         ('t t))
+       (erc--keep-place-indicator-setup)
+     (erc-keep-place-indicator-mode -1)))
+  ((when erc--keep-place-indicator-overlay
+     (delete-overlay erc--keep-place-indicator-overlay))
+   (remove-hook 'window-configuration-change-hook
+                #'erc--keep-place-indicator-on-window-configuration-change t)
+   (remove-hook 'erc-keep-place-mode-hook
+                #'erc--keep-place-indicator-on-global-module t)
+   (remove-hook 'erc-insert-pre-hook  #'erc-keep-place t)
+   (kill-local-variable 'erc--keep-place-indicator-overlay))
+  'local)
+
+(defun erc--keep-place-indicator-on-global-module ()
+  "Ensure `keep-place-indicator' can cope with `erc-keep-place-mode'.
+That is, ensure the local module can survive a user toggling the
+global one."
+  (if erc-keep-place-mode
+      (remove-hook 'erc-insert-pre-hook  #'erc-keep-place t)
+    (add-hook 'erc-insert-pre-hook  #'erc-keep-place 65 t)))
+
+(defun erc-keep-place-move (pos)
+  "Move keep-place indicator to current line or POS.
+For use with `keep-place-indicator' module.  When called
+interactively, interpret POS as an offset.  Specifically, when
+POS is a raw prefix arg, like (4), move the indicator to the
+window's last line.  When it's the minus sign, put it on the
+window's first line.  Interpret an integer as an offset in lines."
+  (interactive
+   (progn
+     (unless erc-keep-place-indicator-mode
+       (user-error "`erc-keep-place-indicator-mode' not enabled"))
+     (list (pcase current-prefix-arg
+             ((and (pred integerp) v)
+              (save-excursion
+                (let ((inhibit-field-text-motion t))
+                  (forward-line v)
+                  (point))))
+             (`(,_) (1- (min erc-insert-marker (window-end))))
+             ('- (min (1- erc-insert-marker) (window-start)))))))
+  (save-excursion
+    (let ((inhibit-field-text-motion t))
+      (when pos
+        (goto-char pos))
+      (move-overlay erc--keep-place-indicator-overlay
+                    (line-beginning-position)
+                    (line-end-position)))))
+
+(defun erc-keep-place-goto ()
+  "Jump to keep-place indicator.
+For use with `keep-place-indicator' module."
+  (interactive
+   (prog1 nil
+     (unless erc-keep-place-indicator-mode
+       (user-error "`erc-keep-place-indicator-mode' not enabled"))
+     (deactivate-mark)
+     (push-mark)))
+  (goto-char (overlay-start erc--keep-place-indicator-overlay))
+  (recenter (truncate (* (window-height) 0.25)) t)
+  (require 'pulse)
+  (when (pulse-available-p)
+    (pulse-momentary-highlight-overlay erc--keep-place-indicator-overlay)))
 
 (defun erc-keep-place (_ignored)
   "Move point away from the last line in a non-selected ERC buffer."
@@ -168,6 +448,11 @@ Put this function on `erc-insert-post-hook' and/or `erc-send-post-hook'."
     (deactivate-mark)
     (goto-char (erc-beg-of-input-line))
     (forward-line -1)
+    (when erc-keep-place-indicator-mode
+      (unless (or (minibuffer-window-active-p (selected-window))
+                  (and (frame-visible-p (selected-frame))
+                       (get-buffer-window (current-buffer) (selected-frame))))
+        (erc-keep-place-move nil)))
     ;; if `switch-to-buffer-preserve-window-point' is set,
     ;; we cannot rely on point being saved, and must commit
     ;; it to window-prev-buffers.
@@ -193,12 +478,14 @@ Put this function on `erc-insert-post-hook' and/or `erc-send-post-hook'."
 If a command's function symbol is in this list, the typed command
 does not appear in the ERC buffer after the user presses ENTER.")
 
+;;;###autoload(autoload 'erc-noncommands-mode "erc-goodies" nil t)
 (define-erc-module noncommands nil
   "This mode distinguishes non-commands.
 Commands listed in `erc-insert-this' know how to display
 themselves."
-  ((add-hook 'erc-pre-send-functions #'erc-send-distinguish-noncommands))
-  ((remove-hook 'erc-pre-send-functions #'erc-send-distinguish-noncommands)))
+  ((add-hook 'erc--input-review-functions #'erc-send-distinguish-noncommands))
+  ((remove-hook 'erc--input-review-functions
+                #'erc-send-distinguish-noncommands)))
 
 (defun erc-send-distinguish-noncommands (state)
   "If STR is an ERC non-command, set `insertp' in STATE to nil."
@@ -249,6 +536,12 @@ The value `erc-interpret-controls-p' must also be t for this to work."
 (defface erc-inverse-face
   '((t :foreground "White" :background "Black"))
   "ERC inverse face."
+  :group 'erc-faces)
+
+(defface erc-spoiler-face
+  '((((background light)) :foreground "DimGray" :background "DimGray")
+    (((background dark)) :foreground "LightGray" :background "LightGray"))
+  "ERC spoiler face."
   :group 'erc-faces)
 
 (defface erc-underline-face '((t :underline t))
@@ -353,19 +646,38 @@ The value `erc-interpret-controls-p' must also be t for this to work."
   "ERC face."
   :group 'erc-faces)
 
+;; https://lists.gnu.org/archive/html/emacs-erc/2021-07/msg00005.html
+(defvar erc--controls-additional-colors
+  ["#470000" "#472100" "#474700" "#324700" "#004700" "#00472c"
+   "#004747" "#002747" "#000047" "#2e0047" "#470047" "#47002a"
+   "#740000" "#743a00" "#747400" "#517400" "#007400" "#007449"
+   "#007474" "#004074" "#000074" "#4b0074" "#740074" "#740045"
+   "#b50000" "#b56300" "#b5b500" "#7db500" "#00b500" "#00b571"
+   "#00b5b5" "#0063b5" "#0000b5" "#7500b5" "#b500b5" "#b5006b"
+   "#ff0000" "#ff8c00" "#ffff00" "#b2ff00" "#00ff00" "#00ffa0"
+   "#00ffff" "#008cff" "#0000ff" "#a500ff" "#ff00ff" "#ff0098"
+   "#ff5959" "#ffb459" "#ffff71" "#cfff60" "#6fff6f" "#65ffc9"
+   "#6dffff" "#59b4ff" "#5959ff" "#c459ff" "#ff66ff" "#ff59bc"
+   "#ff9c9c" "#ffd39c" "#ffff9c" "#e2ff9c" "#9cff9c" "#9cffdb"
+   "#9cffff" "#9cd3ff" "#9c9cff" "#dc9cff" "#ff9cff" "#ff94d3"
+   "#000000" "#131313" "#282828" "#363636" "#4d4d4d" "#656565"
+   "#818181" "#9f9f9f" "#bcbcbc" "#e2e2e2" "#ffffff"])
+
 (defun erc-get-bg-color-face (n)
   "Fetches the right face for background color N (0-15)."
   (if (stringp n) (setq n (string-to-number n)))
   (if (not (numberp n))
       (prog1 'default
         (erc-error "erc-get-bg-color-face: n is NaN: %S" n))
-    (when (> n 16)
+    (when (> n 99)
       (erc-log (format "   Wrong color: %s" n))
       (setq n (mod n 16)))
     (cond
      ((and (>= n 0) (< n 16))
       (intern (concat "bg:erc-color-face" (number-to-string n))))
-     (t (erc-log (format "   Wrong color: %s" n)) 'default))))
+     ((< 15 n 99)
+      (list :background (aref erc--controls-additional-colors (- n 16))))
+     (t (erc-log (format "   Wrong color: %s" n)) '(default)))))
 
 (defun erc-get-fg-color-face (n)
   "Fetches the right face for foreground color N (0-15)."
@@ -373,20 +685,44 @@ The value `erc-interpret-controls-p' must also be t for this to work."
   (if (not (numberp n))
       (prog1 'default
         (erc-error "erc-get-fg-color-face: n is NaN: %S" n))
-    (when (> n 16)
+    (when (> n 99)
       (erc-log (format "   Wrong color: %s" n))
       (setq n (mod n 16)))
     (cond
      ((and (>= n 0) (< n 16))
       (intern (concat "fg:erc-color-face" (number-to-string n))))
-     (t (erc-log (format "   Wrong color: %s" n)) 'default))))
+     ((< 15 n 99)
+      (list :foreground (aref erc--controls-additional-colors (- n 16))))
+     (t (erc-log (format "   Wrong color: %s" n)) '(default)))))
 
+;;;###autoload(autoload 'erc-irccontrols-mode "erc-goodies" nil t)
 (define-erc-module irccontrols nil
   "This mode enables the interpretation of IRC control chars."
   ((add-hook 'erc-insert-modify-hook #'erc-controls-highlight)
-   (add-hook 'erc-send-modify-hook #'erc-controls-highlight))
+   (add-hook 'erc-send-modify-hook #'erc-controls-highlight)
+   (erc--modify-local-map t "C-c C-c" #'erc-toggle-interpret-controls))
   ((remove-hook 'erc-insert-modify-hook #'erc-controls-highlight)
-   (remove-hook 'erc-send-modify-hook #'erc-controls-highlight)))
+   (remove-hook 'erc-send-modify-hook #'erc-controls-highlight)
+   (erc--modify-local-map nil "C-c C-c" #'erc-toggle-interpret-controls)))
+
+;; These patterns were moved here to circumvent compiler warnings but
+;; otherwise translated verbatim from their original string-literal
+;; definitions (minus a small bug fix to satisfy newly added tests).
+(defvar erc-controls-remove-regexp
+  (rx (or ?\C-b ?\C-\] ?\C-_ ?\C-v ?\C-g ?\C-o
+          (: ?\C-c (? (any "0-9")) (? (any "0-9"))
+             (? (group ?, (any "0-9") (? (any "0-9")))))))
+  "Regular expression matching control characters to remove.")
+
+;; Before the change to `rx', group 3 used to be a sibling of group 2.
+;; This was assumed to be a bug.  A few minor simplifications were
+;; also performed.  If incorrect, please admonish.
+(defvar erc-controls-highlight-regexp
+  (rx (group (or ?\C-b ?\C-\] ?\C-v ?\C-_ ?\C-g ?\C-o
+                 (: ?\C-c (? (group (** 1 2 (any "0-9")))
+                             (? (group ?, (group (** 1 2 (any "0-9")))))))))
+      (group (* (not (any ?\C-b ?\C-c ?\C-g ?\n ?\C-o ?\C-v ?\C-\] ?\C-_)))))
+  "Regular expression matching control chars to highlight.")
 
 (defun erc-controls-interpret (str)
    "Return a copy of STR after dealing with IRC control characters.
@@ -440,6 +776,7 @@ See `erc-interpret-controls-p' and `erc-interpret-mirc-color' for options."
                 s))
              (t s)))))
 
+;;;###autoload
 (defun erc-controls-strip (str)
   "Return a copy of STR with all IRC control characters removed."
   (when str
@@ -447,16 +784,6 @@ See `erc-interpret-controls-p' and `erc-interpret-mirc-color' for options."
       (while (string-match erc-controls-remove-regexp s)
         (setq s (replace-match "" nil nil s)))
       s)))
-
-(defvar erc-controls-remove-regexp
-  "\C-b\\|\C-]\\|\C-_\\|\C-v\\|\C-g\\|\C-o\\|\C-c[0-9]?[0-9]?\\(,[0-9][0-9]?\\)?"
-  "Regular expression which matches control characters to remove.")
-
-(defvar erc-controls-highlight-regexp
-  (concat "\\(\C-b\\|\C-]\\|\C-v\\|\C-_\\|\C-g\\|\C-o\\|"
-          "\C-c\\([0-9][0-9]?\\)?\\(,\\([0-9][0-9]?\\)\\)?\\)"
-          "\\([^\C-b\C-]\C-v\C-_\C-c\C-g\C-o\n]*\\)")
-  "Regular expression which matches control chars and the text to highlight.")
 
 (defun erc-controls-highlight ()
   "Highlight IRC control chars in the buffer.
@@ -514,6 +841,13 @@ Also see `erc-interpret-controls-p' and `erc-interpret-mirc-color'."
   "Prepend properties from IRC control characters between FROM and TO.
 If optional argument STR is provided, apply to STR, otherwise prepend properties
 to a region in the current buffer."
+  (if (and fg bg (equal fg bg))
+      (progn
+        (setq fg 'erc-spoiler-face
+              bg nil)
+        (put-text-property from to 'mouse-face 'erc-inverse-face str))
+    (when fg (setq fg (erc-get-fg-color-face fg)))
+    (when bg (setq bg (erc-get-bg-color-face bg))))
   (font-lock-prepend-text-property
    from
    to
@@ -531,10 +865,10 @@ to a region in the current buffer."
                '(erc-underline-face)
              nil)
            (if fg
-               (list (erc-get-fg-color-face fg))
+               (list fg)
              nil)
            (if bg
-               (list (erc-get-bg-color-face bg))
+               (list bg)
              nil))
    str)
   str)
@@ -553,6 +887,7 @@ Else interpretation is turned off."
            (if erc-interpret-controls-p "ON" "OFF")))
 
 ;; Smiley
+;;;###autoload(autoload 'erc-smiley-mode "erc-goodies" nil t)
 (define-erc-module smiley nil
   "This mode translates text-smileys such as :-) into pictures.
 This requires the function `smiley-region', which is defined in
@@ -569,6 +904,7 @@ This function should be used with `erc-insert-modify-hook'."
     (smiley-region (point-min) (point-max))))
 
 ;; Unmorse
+;;;###autoload(autoload 'erc-unmorse-mode "erc-goodies" nil t)
 (define-erc-module unmorse nil
   "This mode causes morse code in the current channel to be unmorsed."
   ((add-hook 'erc-insert-modify-hook #'erc-unmorse))
@@ -604,10 +940,12 @@ servers.  If called from a program, PROC specifies the server process."
    (list (read-string "Search for: ")
          (if current-prefix-arg
              nil erc-server-process)))
-  (if (fboundp 'multi-occur)
-      (multi-occur (erc-buffer-list nil proc) string)
-    (error "`multi-occur' is not defined as a function")))
+  (multi-occur (erc-buffer-list nil proc) string))
 
 (provide 'erc-goodies)
 
 ;;; erc-goodies.el ends here
+
+;; Local Variables:
+;; generated-autoload-file: "erc-loaddefs.el"
+;; End:

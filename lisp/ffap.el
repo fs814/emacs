@@ -174,7 +174,8 @@ Note this name may be omitted if it equals the default
   "\\`/\\(afs\\|net\\)/."
   ;; afs only: (and (file-exists-p "/afs") "\\`/afs/.")
   "Matching file names are treated as remote.  Use nil to disable."
-  :type 'regexp
+  :type '(choice (const :tag "Disable" nil)
+                 regexp)
   :group 'ffap)
 
 (defvar ffap-url-regexp
@@ -553,14 +554,10 @@ Looks at `ffap-ftp-default-user', returns \"\" for \"localhost\"."
     (concat "gopher://" mach "/"))
    ;; www.ncsa.uiuc.edu
    ((and (string-match "\\`w\\(ww\\|eb\\)[-.]" mach))
-    (concat "http://" mach "/"))
+    (concat "https://" mach "/"))
    ;; More cases?
    (ffap-ftp-regexp (ffap-host-to-filename mach))
    ))
-
-(defvaralias 'ffap-newsgroup-regexp 'thing-at-point-newsgroup-regexp)
-(defvaralias 'ffap-newsgroup-heads  'thing-at-point-newsgroup-heads)
-(defalias 'ffap-newsgroup-p 'thing-at-point-newsgroup-p)
 
 (defun ffap-url-p (string)
   "If STRING looks like an URL, return it (maybe improved), else nil."
@@ -733,6 +730,7 @@ This uses `ffap-file-exists-string', which may try adding suffixes from
 (defvar ffap-alist
   '(
     ("" . ffap-completable)		; completion, slow on some systems
+    ("" . ffap-in-project)		; maybe in the root of the project
     ("\\.info\\'" . ffap-info)		; gzip.info
     ("\\`info/" . ffap-info-2)		; info/emacs
     ("\\`[-[:lower:]]+\\'" . ffap-info-3) ; (emacs)Top [only in the parentheses]
@@ -795,6 +793,11 @@ to extract substrings.")
   (let* ((dir (or (file-name-directory name) default-directory))
 	 (cmp (file-name-completion (file-name-nondirectory name) dir)))
     (and cmp (concat dir cmp))))
+
+(declare-function project-root "project" (project))
+(defun ffap-in-project (name)
+  (when-let (project (project-current))
+    (file-name-concat (project-root project) name)))
 
 (defun ffap-home (name) (ffap-locate-file name t '("~")))
 
@@ -2143,6 +2146,10 @@ Of course if you do not like these bindings, just roll your own!")
   "Evaluate the forms in variable `ffap-bindings'."
   (interactive)
   (eval (cons 'progn ffap-bindings)))
+
+(define-obsolete-variable-alias 'ffap-newsgroup-regexp 'thing-at-point-newsgroup-regexp "30.1")
+(define-obsolete-variable-alias 'ffap-newsgroup-heads  'thing-at-point-newsgroup-heads "30.1")
+(define-obsolete-function-alias 'ffap-newsgroup-p #'thing-at-point-newsgroup-p "30.1")
 
 
 (provide 'ffap)

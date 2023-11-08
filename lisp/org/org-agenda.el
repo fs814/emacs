@@ -3348,7 +3348,7 @@ s   Search for keywords                 M   Like m, but only TODO entries
 	      (`agenda
 	       (call-interactively 'org-agenda-list))
 	      (`agenda*
-	       (funcall 'org-agenda-list nil nil t))
+	       (funcall 'org-agenda-list nil nil nil t))
 	      (`alltodo
 	       (call-interactively 'org-todo-list))
 	      (`search
@@ -6784,7 +6784,8 @@ scheduled items with an hour specification like [h]h:mm."
 		          (let ((deadline (time-to-days
                                            (when (org-element-property :deadline el)
                                              (org-time-string-to-time
-                                              (org-element-property :deadline el))))))
+                                              (org-element-interpret-data
+                                               (org-element-property :deadline el)))))))
 		            (and (<= schedule deadline) (> current deadline))))
 		         (`not-today pastschedp)
 		         (`t t)
@@ -7724,8 +7725,7 @@ The optional argument TYPE tells the agenda type."
                    (unless (string= org-agenda-todo-keyword-format "")
                      ;; Remove `display' property as the icon could leak
                      ;; on the white space.
-                     (org-add-props " " (org-plist-delete (text-properties-at 0 x)
-                                                          'display)))
+                     (apply #'propertize " " (org-plist-delete (text-properties-at 0 x) 'display)))
                    (substring x (match-end 3)))))))
       x)))
 

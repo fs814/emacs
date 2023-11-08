@@ -1,7 +1,6 @@
 ;;; sh-script.el --- shell-script editing commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1997, 1999, 2001-2023 Free Software Foundation,
-;; Inc.
+;; Copyright (C) 1993-2023 Free Software Foundation, Inc.
 
 ;; Author: Daniel Pfeiffer <occitan@esperanto.org>
 ;; Old-Version: 2.0f
@@ -157,10 +156,6 @@
 (autoload 'comint-send-string "comint")
 (autoload 'shell-command-completion "shell")
 (autoload 'shell-environment-variable-completion "shell")
-
-(defvar font-lock-comment-face)
-(defvar font-lock-set-defaults)
-(defvar font-lock-string-face)
 
 
 (defgroup sh nil
@@ -864,14 +859,17 @@ See `sh-feature'.")
 	   ("\\${?\\([[:alpha:]_][[:alnum:]_]*\\|[0-9]+\\|[$*_]\\)" 1
 	     font-lock-variable-name-face))
     (rpm sh-append rpm2
-	 ("%{?\\(\\sw+\\)"  1 font-lock-keyword-face))
+	 ("^\\s-*%\\(\\sw+\\)" 1 font-lock-keyword-face)
+	 ("%{?\\([!?]*[[:alpha:]_][[:alnum:]_]*\\|[0-9]+\\|[%*#]\\*?\\|!?-[[:alpha:]]\\*?\\)"
+	  1 font-lock-variable-name-face))
     (rpm2 sh-append shell
 	  ("^Summary:\\(.*\\)$" (1 font-lock-doc-face t))
-	  ("^\\(\\sw+\\):"  1 font-lock-variable-name-face)))
+	  ("^\\(\\sw+\\)\\((\\(\\sw+\\))\\)?:" (1 font-lock-variable-name-face)
+	   (3 font-lock-string-face nil t))))
   "Default expressions to highlight in Shell Script modes.  See `sh-feature'.")
 
 (defvar sh-font-lock-keywords-var-1
-  '((sh "[ \t]in\\>"))
+  '((sh "[ \t]\\(in\\|do\\)\\>"))
   "Subdued level highlighting for Shell Script modes.")
 
 (defvar sh-font-lock-keywords-var-2 ()
@@ -1489,6 +1487,7 @@ Return the name of the shell suitable for `sh-set-shell'."
         ((string-match "[.]t?csh\\(rc\\)?\\>" buffer-file-name) "csh")
         ((string-match "[.]zsh\\(rc\\|env\\)?\\>" buffer-file-name) "zsh")
 	((equal (file-name-nondirectory buffer-file-name) ".profile") "sh")
+	((equal (file-name-nondirectory buffer-file-name) "PKGBUILD") "bash")
         (t sh-shell-file)))
 
 ;;;###autoload
@@ -1539,13 +1538,7 @@ implementations.  Currently there are two: `sh-mode' and
               (lambda (terminator)
                 (if (eq terminator ?')
                     "'\\'"
-                  "\\")))
-  ;; Parse or insert magic number for exec, and set all variables depending
-  ;; on the shell thus determined.
-  (sh-set-shell (sh--guess-shell) nil nil)
-  (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
-  (add-hook 'hack-local-variables-hook
-            #'sh-after-hack-local-variables nil t))
+                  "\\"))))
 
 ;;;###autoload
 (define-derived-mode sh-mode sh-base-mode "Shell-script"
@@ -1605,7 +1598,13 @@ with your script for an edit-interpret-debug cycle."
           nil nil
           ((?/ . "w") (?~ . "w") (?. . "w") (?- . "w") (?_ . "w")) nil
           (font-lock-syntactic-face-function
-           . ,#'sh-font-lock-syntactic-face-function))))
+           . ,#'sh-font-lock-syntactic-face-function)))
+  ;; Parse or insert magic number for exec, and set all variables depending
+  ;; on the shell thus determined.
+  (sh-set-shell (sh--guess-shell) nil nil)
+  (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
+  (add-hook 'hack-local-variables-hook
+            #'sh-after-hack-local-variables nil t))
 
 ;;;###autoload
 (defalias 'shell-script-mode 'sh-mode)
@@ -1617,18 +1616,24 @@ This mode automatically falls back to `sh-mode' if the buffer is
 not written in Bash or sh."
   :syntax-table sh-mode-syntax-table
   (when (treesit-ready-p 'bash)
+    (sh-set-shell "bash" nil nil)
+    (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
+    (add-hook 'hack-local-variables-hook
+              #'sh-after-hack-local-variables nil t)
     (treesit-parser-create 'bash)
     (setq-local treesit-font-lock-feature-list
                 '(( comment function)
                   ( command declaration-command keyword string)
-                  ( builtin-variable constant heredoc number variable)
+                  ( builtin-variable constant heredoc number
+                    string-interpolation variable)
                   ( bracket delimiter misc-punctuation operator)))
     (setq-local treesit-font-lock-settings
                 sh-mode--treesit-settings)
-    (setq-local treesit-text-type-regexp
-                (regexp-opt '("comment"
-                              "heredoc_start"
-                              "heredoc_body")))
+    (setq-local treesit-thing-settings
+                `((bash
+                   (sentence ,(regexp-opt '("comment"
+                                            "heredoc_start"
+                                            "heredoc_body"))))))
     (setq-local treesit-defun-type-regexp "function_definition")
     (treesit-major-mode-setup)))
 
@@ -1804,8 +1809,8 @@ before the newline and in that case point should be just before the token."
   (concat "\\(?:^\\|[^\\]\\)\\(?:\\\\\\\\\\)*"
           "\\(" sh-smie--sh-operators-re "\\)"))
 
-(defun sh-smie--sh-keyword-in-p ()
-  "Assuming we're looking at \"in\", return non-nil if it's a keyword.
+(defun sh-smie--sh-keyword-in/do-p (tok)
+  "When looking at TOK (either \"in\" or \"do\"), non-nil if TOK is a keyword.
 Does not preserve point."
   (let ((forward-sexp-function nil)
         (words nil)                     ;We've seen words.
@@ -1827,7 +1832,10 @@ Does not preserve point."
        ((equal prev ";")
         (if words (setq newline t)
           (setq res 'keyword)))
-       ((member prev '("case" "for" "select")) (setq res 'keyword))
+       ((member prev (if (string= tok "in")
+                         '("case" "for" "select")
+                       '("for" "select")))
+        (setq res 'keyword))
        ((assoc prev smie-grammar) (setq res 'word))
        (t
         (if newline
@@ -1839,7 +1847,7 @@ Does not preserve point."
   "Non-nil if TOK (at which we're looking) really is a keyword."
   (cond
    ((looking-at "[[:alnum:]_]+=") nil)
-   ((equal tok "in") (sh-smie--sh-keyword-in-p))
+   ((member tok '("in" "do")) (sh-smie--sh-keyword-in/do-p tok))
    (t (sh-smie--keyword-p))))
 
 (defun sh-smie--default-forward-token ()
@@ -3300,6 +3308,12 @@ See `sh-mode--treesit-other-keywords' and
    :language 'bash
    '([(string) (raw_string)] @font-lock-string-face)
 
+   :feature 'string-interpolation
+   :language 'bash
+   :override t
+   '((command_substitution) @sh-quoted-exec
+     (string (expansion (variable_name) @font-lock-variable-use-face)))
+
    :feature 'heredoc
    :language 'bash
    '([(heredoc_start) (heredoc_body)] @sh-heredoc)
@@ -3363,7 +3377,7 @@ See `sh-mode--treesit-other-keywords' and
    :feature 'number
    :language 'bash
    `(((word) @font-lock-number-face
-      (:match "^[0-9]+$" @font-lock-number-face)))
+      (:match "\\`[0-9]+\\'" @font-lock-number-face)))
 
    :feature 'bracket
    :language 'bash

@@ -3,6 +3,7 @@
 ;; Copyright (C) 2023 Free Software Foundation, Inc.
 
 ;; Maintainer : 付禹安 (Yuan Fu) <casouri@gmail.com>
+;; Package    : emacs
 ;; Keywords   : c c++ java javascript rust languages tree-sitter
 
 ;; This file is part of GNU Emacs.
@@ -156,10 +157,12 @@ comment."
         (goto-char (match-beginning 1))
         (move-marker start-marker (point))
         (replace-match " " nil nil nil 1))
+
       ;; Include whitespaces before /*.
       (goto-char start)
       (beginning-of-line)
       (setq start (point))
+
       ;; Mask spaces before "*/" if it is attached at the end
       ;; of a sentence rather than on its own line.
       (goto-char end)
@@ -172,6 +175,7 @@ comment."
         (setq end-len (- (match-end 1) (match-beginning 1)))
         (replace-match (make-string end-len ?x)
                        nil nil nil 1))
+
       ;; If "*/" is on its own line, don't included it in the
       ;; filling region.
       (when (not end-marker)
@@ -180,13 +184,21 @@ comment."
           (backward-char 2)
           (skip-syntax-backward "-")
           (setq end (point))))
+
       ;; Let `fill-paragraph' do its thing.
       (goto-char orig-point)
       (narrow-to-region start end)
-      ;; We don't want to fill the region between START and
-      ;; START-MARKER, otherwise the filling function might delete
-      ;; some spaces there.
-      (fill-region start-marker end arg)
+      (let (para-start para-end)
+        (forward-paragraph 1)
+        (setq para-end (point))
+        (forward-paragraph -1)
+        (setq para-start (point))
+        ;; We don't want to fill the region between START and
+        ;; START-MARKER, otherwise the filling function might delete
+        ;; some spaces there.  Also, we only fill the current
+        ;; paragraph.
+        (fill-region (max start-marker para-start) (min end para-end) arg))
+
       ;; Unmask.
       (when start-marker
         (goto-char start-marker)

@@ -58,7 +58,8 @@
 
 (defcustom mouse-wheel-down-event
   (if (or (featurep 'w32-win) (featurep 'ns-win)
-          (featurep 'haiku-win) (featurep 'pgtk-win))
+          (featurep 'haiku-win) (featurep 'pgtk-win)
+          (featurep 'android-win))
       'wheel-up
     'mouse-4)
   "Event used for scrolling down."
@@ -79,7 +80,8 @@
 
 (defcustom mouse-wheel-up-event
   (if (or (featurep 'w32-win) (featurep 'ns-win)
-          (featurep 'haiku-win) (featurep 'pgtk-win))
+          (featurep 'haiku-win) (featurep 'pgtk-win)
+          (featurep 'android-win))
       'wheel-down
     'mouse-5)
   "Event used for scrolling up."
@@ -254,7 +256,8 @@ Also see `mouse-wheel-tilt-scroll'."
 
 (defvar mouse-wheel-left-event
   (if (or (featurep 'w32-win) (featurep 'ns-win)
-          (featurep 'haiku-win) (featurep 'pgtk-win))
+          (featurep 'haiku-win) (featurep 'pgtk-win)
+          (featurep 'android-win))
       'wheel-left
     'mouse-6)
   "Event used for scrolling left.")
@@ -268,7 +271,8 @@ Also see `mouse-wheel-tilt-scroll'."
 
 (defvar mouse-wheel-right-event
   (if (or (featurep 'w32-win) (featurep 'ns-win)
-          (featurep 'haiku-win) (featurep 'pgtk-win))
+          (featurep 'haiku-win) (featurep 'pgtk-win)
+          (featurep 'android-win))
       'wheel-right
     'mouse-7)
   "Event used for scrolling right.")
@@ -447,13 +451,12 @@ See also `text-scale-adjust'."
 This invokes `global-text-scale-adjust', which see."
   (interactive (list last-input-event))
   (let ((button (mwheel-event-button event)))
-    (unwind-protect
-        (cond ((memq button (list mouse-wheel-down-event
-                                  mouse-wheel-down-alternate-event))
-               (global-text-scale-adjust 1))
-              ((memq button (list mouse-wheel-up-event
-                                  mouse-wheel-up-alternate-event))
-               (global-text-scale-adjust -1))))))
+    (cond ((memq button (list mouse-wheel-down-event
+                              mouse-wheel-down-alternate-event))
+           (global-text-scale-adjust 1))
+          ((memq button (list mouse-wheel-up-event
+                              mouse-wheel-up-alternate-event))
+           (global-text-scale-adjust -1)))))
 
 (defun mouse-wheel--add-binding (key fun)
   "Bind mouse wheel button KEY to function FUN.

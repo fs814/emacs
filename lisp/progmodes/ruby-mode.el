@@ -516,7 +516,9 @@ is customizable via `ruby-encoding-magic-comment-style'.
 
 When set to `always-utf8' an utf-8 comment will always be added,
 even if it's not required."
-  :type 'boolean :group 'ruby)
+  :type '(choice (const :tag "Don't insert" nil)
+                 (const :tag "Insert utf-8 comment always" always-utf8)
+                 (const :tag "Insert only when required" t)))
 
 (defcustom ruby-encoding-magic-comment-style 'ruby
   "The style of the magic encoding comment to use."
@@ -1904,13 +1906,13 @@ See `add-log-current-defun-function'."
               (progn
                 (unless (string-equal "self" (car mn)) ; def self.foo
                   ;; def C.foo
-                  (let ((ml (nreverse mlist)))
+                  (let ((ml (reverse mlist)))
                     ;; If the method name references one of the
                     ;; containing modules, drop the more nested ones.
                     (while ml
                       (if (string-equal (car ml) (car mn))
                           (setq mlist (nreverse (cdr ml)) ml nil))
-                      (or (setq ml (cdr ml)) (nreverse mlist))))
+                      (setq ml (cdr ml))))
                   (if mlist
                       (setcdr (last mlist) (butlast mn))
                     (setq mlist (butlast mn))))
@@ -2697,18 +2699,18 @@ Currently there are `ruby-mode' and `ruby-ts-mode'."
 ;;;###autoload
 (add-to-list 'auto-mode-alist
              (cons (purecopy (concat "\\(?:\\.\\(?:"
-                                     "rbw?\\|ru\\|rake\\|thor"
+                                     "rbw?\\|ru\\|rake\\|thor\\|axlsx"
                                      "\\|jbuilder\\|rabl\\|gemspec\\|podspec"
                                      "\\)"
                                      "\\|/"
                                      "\\(?:Gem\\|Rake\\|Cap\\|Thor"
-                                     "\\|Puppet\\|Berks\\|Brew"
+                                     "\\|Puppet\\|Berks\\|Brew\\|Fast"
                                      "\\|Vagrant\\|Guard\\|Pod\\)file"
                                      "\\)\\'"))
                    'ruby-mode))
 
 ;;;###autoload
-(dolist (name (list "ruby" "rbx" "jruby" "ruby1.9" "ruby1.8"))
+(dolist (name (list "ruby" "rbx" "jruby" "j?ruby\\(?:[0-9.]+\\)"))
   (add-to-list 'interpreter-mode-alist (cons (purecopy name) 'ruby-mode)))
 
 (provide 'ruby-mode)

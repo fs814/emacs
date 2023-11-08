@@ -12,7 +12,7 @@
  (c-mode . ((c-file-style . "GNU")
             (c-noise-macro-names . ("INLINE" "NO_INLINE" "ATTRIBUTE_NO_SANITIZE_UNDEFINED"
                                     "UNINIT" "CALLBACK" "ALIGN_STACK" "ATTRIBUTE_MALLOC"
-                                    "ATTRIBUTE_DEALLOC_FREE"))
+                                    "ATTRIBUTE_DEALLOC_FREE" "ANDROID_EXPORT" "TEST_STATIC"))
             (electric-quote-comment . nil)
             (electric-quote-string . nil)
             (indent-tabs-mode . t)
@@ -21,6 +21,9 @@
                (electric-quote-comment . nil)
                (electric-quote-string . nil)
 	       (mode . bug-reference-prog)))
+ (c-ts-mode . ((c-ts-mode-indent-style . gnu)
+               (indent-tabs-mode . t)
+               (mode . bug-reference-prog)))
  (log-edit-mode . ((log-edit-font-lock-gnu-style . t)
                    (log-edit-setup-add-author . t)
 		   (vc-git-log-edit-summary-target-len . 50)))

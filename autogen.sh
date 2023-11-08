@@ -256,6 +256,19 @@ Please report any problems with this script to bug-gnu-emacs@gnu.org .'
   ## Let autoreconf figure out what, if anything, needs doing.
   ## Use autoreconf's -f option in case autoreconf itself has changed.
   autoreconf -fi -I m4 || exit
+
+  echo "Building 'aclocal.m4' in exec ..."
+
+  # Create a placeholder aclocal.m4 in exec, preventing autoreconf
+  # from running aclocal.
+
+  echo "" > exec/aclocal.m4
+
+  echo "Running 'autoreconf -fi' in exec ..."
+
+  # Now, run autoreconf inside the exec directory to generate its
+  # configure script.
+  autoreconf -fi exec || exit
 fi
 
 
@@ -340,7 +353,8 @@ git_config diff.texinfo.xfuncname \
 tailored_hooks=
 sample_hooks=
 
-for hook in commit-msg pre-commit prepare-commit-msg; do
+for hook in commit-msg pre-commit prepare-commit-msg post-commit \
+            pre-push commit-msg-files.awk; do
     cmp -- build-aux/git-hooks/$hook "$hooks/$hook" >/dev/null 2>&1 ||
 	tailored_hooks="$tailored_hooks $hook"
 done

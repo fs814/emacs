@@ -214,12 +214,14 @@ Must be greater than 1."
 	((file-readable-p "/usr/share/lib/dict/words")
 	 "/usr/share/lib/dict/words")
 	((file-readable-p "/sys/dict") "/sys/dict"))
-  "Alternate plain word-list dictionary for spelling help."
+  "Alternate plain word-list dictionary for spelling help.
+This is also used by `ispell-lookup-words' and `ispell-complete-word'."
   :type '(choice file (const :tag "None" nil)))
 
 (defcustom ispell-complete-word-dict nil
   "Plain word-list dictionary used for word completion if
-different from `ispell-alternate-dictionary'."
+different from `ispell-alternate-dictionary'.
+This is also used by `ispell-lookup-words' and `ispell-complete-word'."
   :type '(choice file (const :tag "None" nil)))
 
 (defcustom ispell-message-dictionary-alist nil
@@ -1745,6 +1747,7 @@ Ispell is then restarted because the local words could conflict.")
 
 (defvar-local ispell-buffer-session-localwords nil
   "List of words accepted for session in this buffer.")
+(put 'ispell-buffer-session-localwords 'safe-local-variable #'list-of-strings-p)
 
 (defvar ispell-parser 'use-mode-name
   "Indicates whether ispell should parse the current buffer as TeX Code.
@@ -2510,7 +2513,9 @@ Otherwise the variable `ispell-grep-command' contains the command
 
 Optional second argument contains the dictionary to use; the default is
 `ispell-alternate-dictionary', overridden by `ispell-complete-word-dict'
-if defined."
+if defined.  If none of LOOKUP-DICT, `ispell-alternate-dictionary',
+and `ispell-complete-word-dict' name an existing word-list file,
+this function signals an error."
   ;; We don't use the filter for this function, rather the result is written
   ;; into a buffer.  Hence there is no need to save the filter values.
   (if (null lookup-dict)
@@ -2519,9 +2524,9 @@ if defined."
 
   (if lookup-dict
       (unless (file-readable-p lookup-dict)
-	(error "lookup-words error: Unreadable or missing plain word-list %s."
+        (error "ispell-lookup-words: Unreadable or missing plain word-list %s"
 	       lookup-dict))
-    (error (concat "lookup-words error: No plain word-list found at system"
+    (error (concat "ispell-lookup-words: No plain word-list found at system"
                    "default locations.  "
                    "Customize `ispell-alternate-dictionary' to set yours.")))
 
@@ -3685,7 +3690,12 @@ If APPEND is non-nil, don't erase previous debugging output."
 If optional INTERIOR-FRAG is non-nil, then the word may be a character
 sequence inside of a word.
 
-Standard ispell choices are then available."
+Standard ispell choices are then available.
+
+This command uses a word-list file specified
+by `ispell-alternate-dictionary' or by `ispell-complete-word-dict';
+if none of those name an existing word-list file, this command
+signals an error."
   ;; FIXME: completion-at-point-function.
   (interactive "P")
   (let ((case-fold-search-val case-fold-search)

@@ -69,11 +69,12 @@ When nil, show candidates in full."
   :type 'boolean
   :version "24.4")
 
-(defvar icomplete-tidy-shadowed-file-names nil
+(defcustom icomplete-tidy-shadowed-file-names nil
   "If non-nil, automatically delete superfluous parts of file names.
 For example, if the user types ~/ after a long path name,
 everything preceding the ~/ is discarded so the interactive
-selection process starts again from the user's $HOME.")
+selection process starts again from the user's $HOME."
+  :type 'boolean)
 
 (defcustom icomplete-show-matches-on-no-input nil
   "When non-nil, show completions when first prompting for input.
@@ -137,10 +138,11 @@ See `icomplete-delay-completions-threshold'."
   "Maximum number of initial chars to apply `icomplete-compute-delay'."
   :type 'integer)
 
-(defvar icomplete-in-buffer nil
+(defcustom icomplete-in-buffer nil
   "If non-nil, also use Icomplete when completing in non-mini buffers.
 This affects commands like `completion-in-region', but not commands
-that use their own completions setup.")
+that use their own completions setup."
+  :type 'boolean)
 
 (defcustom icomplete-minibuffer-setup-hook nil
   "Icomplete-specific customization of minibuffer setup.
@@ -419,6 +421,19 @@ if that doesn't produce a completion match."
   "C-."     #'icomplete-forward-completions
   "C-,"     #'icomplete-backward-completions)
 
+(defun icomplete--fido-ccd ()
+  "Make value for `completion-category-defaults' prioritizing `flex'."
+  (cl-loop
+   for (cat . alist) in completion-category-defaults collect
+   `(,cat . ,(cl-loop
+              for entry in alist for (prop . val) = entry
+              if (and (eq prop 'styles)
+                      ;; Never step in front of 'external', as that
+                      ;; might lose us completions.
+                      (not (memq 'external val)))
+              collect `(,prop . (flex ,@(delq 'flex val)))
+              else collect entry))))
+
 (defun icomplete--fido-mode-setup ()
   "Setup `fido-mode''s minibuffer."
   (when (and icomplete-mode (icomplete-simple-completing-p))
@@ -430,6 +445,7 @@ if that doesn't produce a completion match."
                 icomplete-scroll (not (null icomplete-vertical-mode))
                 completion-styles '(flex)
                 completion-flex-nospace nil
+                completion-category-defaults (icomplete--fido-ccd)
                 completion-ignore-case t
                 read-buffer-completion-ignore-case t
                 read-file-name-completion-ignore-case t)))
@@ -706,7 +722,8 @@ See `icomplete-mode' and `minibuffer-setup-hook'."
              ;; Check if still in the right buffer (bug#61308)
              (or (window-minibuffer-p) completion-in-region--data)
              (icomplete-simple-completing-p)) ;Shouldn't be necessary.
-    (let ((saved-point (point)))
+    (let ((saved-point (point))
+          (completion-lazy-hilit t))
       (save-excursion
         (goto-char (icomplete--field-end))
         ;; Insert the match-status information:
@@ -885,7 +902,7 @@ by `group-function''s second \"transformation\" protocol."
                                 'icomplete-selected-match 'append comp)
      collect (concat prefix
                      (make-string (- max-prefix-len (length prefix)) ? )
-                     comp
+                     (completion-lazy-hilit comp)
                      (make-string (- max-comp-len (length comp)) ? )
                      suffix)
      into lines-aux
@@ -1051,7 +1068,8 @@ matches exist."
                   (if (< prospects-len prospects-max)
                       (push comp prospects)
                     (setq limit t)))
-                (setq prospects (nreverse prospects))
+                (setq prospects
+                      (nreverse (mapcar #'completion-lazy-hilit prospects)))
                 ;; Decorate first of the prospects.
                 (when prospects
                   (let ((first (copy-sequence (pop prospects))))

@@ -50,6 +50,14 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "w32heap.h"		/* for mmap_* */
 #endif
 
+/* Work around GCC bug 109847
+   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=109847
+   which causes GCC to mistakenly complain about
+   AUTO_STRING with "*scratch*".  */
+#if GNUC_PREREQ (13, 0, 0)
+# pragma GCC diagnostic ignored "-Wanalyzer-out-of-bounds"
+#endif
+
 /* This structure holds the default values of the buffer-local variables
    defined with DEFVAR_PER_BUFFER, that have special slots in each buffer.
    The default value occupies the same slot in this structure
@@ -1307,7 +1315,7 @@ buffer_local_value (Lisp_Object variable, Lisp_Object buffer)
  start:
   switch (sym->u.s.redirect)
     {
-    case SYMBOL_VARALIAS: sym = indirect_variable (sym); goto start;
+    case SYMBOL_VARALIAS: sym = SYMBOL_ALIAS (sym); goto start;
     case SYMBOL_PLAINVAL: result = SYMBOL_VAL (sym); break;
     case SYMBOL_LOCALIZED:
       { /* Look in local_var_alist.  */
@@ -2386,6 +2394,7 @@ Any narrowing restriction in effect (see `narrow-to-region') is removed,
 so the buffer is truly empty after this.  */)
   (void)
 {
+  labeled_restrictions_remove_in_current_buffer ();
   Fwiden ();
 
   del_range (BEG, ZE);
@@ -3334,7 +3343,7 @@ record_overlay_string (struct sortstrlist *ssl, Lisp_Object str,
   else
     nbytes = SBYTES (str);
 
-  if (INT_ADD_WRAPV (ssl->bytes, nbytes, &nbytes))
+  if (ckd_add (&nbytes, nbytes, ssl->bytes))
     memory_full (SIZE_MAX);
   ssl->bytes = nbytes;
 
@@ -3348,7 +3357,7 @@ record_overlay_string (struct sortstrlist *ssl, Lisp_Object str,
       else
 	nbytes = SBYTES (str2);
 
-      if (INT_ADD_WRAPV (ssl->bytes, nbytes, &nbytes))
+      if (ckd_add (&nbytes, nbytes, ssl->bytes))
 	memory_full (SIZE_MAX);
       ssl->bytes = nbytes;
     }
@@ -3420,7 +3429,7 @@ overlay_strings (ptrdiff_t pos, struct window *w, unsigned char **pstr)
       unsigned char *p;
       ptrdiff_t total;
 
-      if (INT_ADD_WRAPV (overlay_heads.bytes, overlay_tails.bytes, &total))
+      if (ckd_add (&total, overlay_heads.bytes, overlay_tails.bytes))
 	memory_full (SIZE_MAX);
       if (total > overlay_str_len)
 	overlay_str_buf = xpalloc (overlay_str_buf, &overlay_str_len,
@@ -4090,7 +4099,7 @@ report_overlay_modification (Lisp_Object start, Lisp_Object end, bool after,
 	    }
 	  /* Test for intersecting intervals.  This does the right thing
 	     for both insertion and deletion.  */
-	  if (! insertion || (end_arg > obegin && begin_arg < oend))
+	  if (end_arg > obegin && begin_arg < oend)
 	    {
 	      Lisp_Object prop = Foverlay_get (overlay, Qmodification_hooks);
 	      if (!NILP (prop))
@@ -4710,6 +4719,7 @@ init_buffer_once (void)
 #ifdef HAVE_TREE_SITTER
   XSETFASTINT (BVAR (&buffer_local_flags, ts_parser_list), idx); ++idx;
 #endif
+  XSETFASTINT (BVAR (&buffer_local_flags, text_conversion_style), idx); ++idx;
   XSETFASTINT (BVAR (&buffer_local_flags, cursor_in_non_selected_windows), idx); ++idx;
 
   /* buffer_local_flags contains no pointers, so it's safe to treat it
@@ -4781,6 +4791,7 @@ init_buffer_once (void)
 #ifdef HAVE_TREE_SITTER
   bset_ts_parser_list (&buffer_defaults, Qnil);
 #endif
+  bset_text_conversion_style (&buffer_defaults, Qnil);
   bset_cursor_in_non_selected_windows (&buffer_defaults, Qt);
 
   bset_enable_multibyte_characters (&buffer_defaults, Qt);
@@ -5124,33 +5135,38 @@ A list whose car is an integer is processed by processing the cadr of
  negative) to the width specified by that number.
 
 A string is printed verbatim in the mode line except for %-constructs:
-  %b -- print buffer name.      %f -- print visited file name.
-  %F -- print frame name.
-  %* -- print %, * or hyphen.   %+ -- print *, % or hyphen.
-	%& is like %*, but ignore read-only-ness.
-	% means buffer is read-only and * means it is modified.
-	For a modified read-only buffer, %* gives % and %+ gives *.
-  %s -- print process status.   %l -- print the current line number.
+  %b -- print buffer name.
   %c -- print the current column number (this makes editing slower).
         Columns are numbered starting from the left margin, and the
         leftmost column is displayed as zero.
         To make the column number update correctly in all cases,
-	`column-number-mode' must be non-nil.
+        `column-number-mode' must be non-nil.
   %C -- Like %c, but the leftmost column is displayed as one.
+  %e -- print error message about full memory.
+  %f -- print visited file name.
+  %F -- print frame name.
   %i -- print the size of the buffer.
   %I -- like %i, but use k, M, G, etc., to abbreviate.
+  %l -- print the current line number.
+  %n -- print Narrow if appropriate.
+  %o -- print percent of window travel through buffer, or Top, Bot or All.
   %p -- print percent of buffer above top of window, or Top, Bot or All.
   %P -- print percent of buffer above bottom of window, perhaps plus Top,
         or print Bottom or All.
-  %n -- print Narrow if appropriate.
-  %t -- visited file is text or binary (if OS supports this distinction).
+  %q -- print percent of buffer above both the top and the bottom of the
+        window, separated by ‘-’, or ‘All’.
+  %s -- print process status.
   %z -- print mnemonics of keyboard, terminal, and buffer coding systems.
   %Z -- like %z, but including the end-of-line format.
-  %e -- print error message about full memory.
-  %@ -- print @ or hyphen.  @ means that default-directory is on a
-        remote machine.
-  %[ -- print one [ for each recursive editing level.  %] similar.
-  %% -- print %.   %- -- print infinitely many dashes.
+  %& -- print * if the buffer is modified, otherwise hyphen.
+  %+ -- print *, % or hyphen (modified, read-only, neither).
+  %* -- print %, * or hyphen (read-only, modified, neither).
+        For a modified read-only buffer, %+ prints * and %* prints %.
+  %@ -- print @ if default-directory is on a remote machine, else hyphen.
+  %[ -- print one [ for each recursive editing level.
+  %] -- print one ] for each recursive editing level.
+  %- -- print enough dashes to fill the mode line.
+  %% -- print %.
 Decimal digits after the % specify field width to which to pad.  */);
 
   DEFVAR_PER_BUFFER ("major-mode", &BVAR (current_buffer, major_mode),
@@ -5851,6 +5867,26 @@ If t, displays a cursor related to the usual cursor type
 \(a solid box becomes hollow, a bar becomes a narrower bar).
 You can also specify the cursor type as in the `cursor-type' variable.
 Use Custom to set this variable and update the display.  */);
+
+  /* While this is defined here, each *term.c module must implement
+     the logic itself.  */
+
+  DEFVAR_PER_BUFFER ("text-conversion-style", &BVAR (current_buffer,
+						     text_conversion_style),
+		     Qnil,
+    doc: /* How the on screen keyboard's input method should insert in this buffer.
+When nil, the input method will be disabled and an ordinary keyboard
+will be displayed in its place.
+When the symbol `action', the input method will insert text directly, but
+will send `return' key events instead of inserting new line characters.
+Any other value means that the input method will insert text directly.
+
+If you need to make non-buffer local changes to this variable, use
+`overriding-text-conversion-style', which see.
+
+This variable does not take immediate effect when set; rather, it
+takes effect upon the next redisplay after the selected window or
+buffer changes.  */);
 
   DEFVAR_LISP ("kill-buffer-query-functions", Vkill_buffer_query_functions,
 	       doc: /* List of functions called with no args to query before killing a buffer.
