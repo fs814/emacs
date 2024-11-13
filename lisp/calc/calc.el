@@ -1,6 +1,6 @@
 ;;; calc.el --- the GNU Emacs calculator  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990-1993, 2001-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1990-1993, 2001-2024 Free Software Foundation, Inc.
 
 ;; Author: David Gillespie <daveg@synaptics.com>
 ;; Keywords: convenience, extensions
@@ -1285,6 +1285,8 @@ the trail buffer."
           (setq calc-trail-buffer nil)
           t))))
 
+(defvar touch-screen-display-keyboard)
+
 (defun calc-mode ()
   "Calculator major mode.
 
@@ -2182,7 +2184,7 @@ the United States."
 	(beginning-of-line)
 	(if (eobp)
             (forward-line -1))
-	(if (or (bobp) (eobp))
+	(if (and (bobp) (eobp))
 	    (setq overlay-arrow-position nil)   ; trail is empty
 	  (set-marker calc-trail-pointer (point) (current-buffer))
 	  (setq calc-trail-overlay (concat (buffer-substring (point)
@@ -2491,7 +2493,7 @@ the United States."
 (defun calcDigit-backspace ()
   (interactive)
   (cond ((eq last-command 'calcDigit-start)
-	 (erase-buffer))
+	 (delete-minibuffer-contents))
 	(t (with-suppressed-warnings ((interactive-only backward-delete-char))
              (backward-delete-char 1))))
   (if (= (calc-minibuffer-size) 0)

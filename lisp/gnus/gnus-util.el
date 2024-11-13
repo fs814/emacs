@@ -1,6 +1,6 @@
 ;;; gnus-util.el --- utility functions for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -1113,8 +1113,7 @@ sure of changing the value of `foo'."
     (setq gnus-info-buffer (current-buffer))
     (gnus-configure-windows 'info)))
 
-(defun gnus-not-ignore (&rest _args)
-  t)
+(defalias 'gnus-not-ignore #'always)
 
 (defvar gnus-directory-sep-char-regexp "/"
   "The regexp of directory separator character.

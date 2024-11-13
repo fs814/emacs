@@ -1,6 +1,6 @@
 ;;; gnus-sum.el --- summary mode commands for Gnus  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -3062,17 +3062,17 @@ the summary mode hooks are run.")
   "Major mode for reading articles.
 \\<gnus-summary-mode-map>
 Each line in this buffer represents one article.  To read an
-article, you can, for instance, type `\\[gnus-summary-next-page]'.  To move forwards
-and backwards while displaying articles, type `\\[gnus-summary-next-unread-article]' and `\\[gnus-summary-prev-unread-article]',
+article, you can, for instance, type \\[gnus-summary-next-page].  To move forwards
+and backwards while displaying articles, type \\[gnus-summary-next-unread-article] and \\[gnus-summary-prev-unread-article],
 respectively.
 
 You can also post articles and send mail from this buffer.  To
-follow up an article, type `\\[gnus-summary-followup]'.  To mail a reply to the author
-of an article, type `\\[gnus-summary-reply]'.
+follow up an article, type \\[gnus-summary-followup].  To mail a reply to the author
+of an article, type \\[gnus-summary-reply].
 
 There are approximately one gazillion commands you can execute in
 this buffer; read the Info manual for more
-information (`\\[gnus-info-find-node]').
+information (\\[gnus-info-find-node]).
 
 The following commands are available:
 
@@ -8501,7 +8501,7 @@ with MARKS.  MARKS can either be a string of marks or a list of marks.
 Returns how many articles were removed."
   (interactive
    (list
-    (completing-read "Marks:"
+    (completing-read "Marks: "
 		     (let ((mark-list '()))
 		       (mapc (lambda (datum)
 			       (cl-pushnew   (gnus-data-mark datum) mark-list))
@@ -8518,7 +8518,7 @@ list of marks.
 Returns how many articles were removed."
   (interactive
    (list
-    (completing-read "Marks:"
+    (completing-read "Marks: "
 		     (let ((mark-list '()))
 		       (mapc (lambda (datum)
 			       (cl-pushnew   (gnus-data-mark datum) mark-list))
@@ -8939,7 +8939,8 @@ The difference between N and the number of articles fetched is returned."
     (while (and (> n 0)
 		(not error))
       (setq header (gnus-summary-article-header))
-      (if (and (eq (mail-header-number header)
+      (if (and (null gnus-alter-header-function)
+               (eq (mail-header-number header)
 		   (cdr gnus-article-current))
 	       (equal gnus-newsgroup-name
 		      (car gnus-article-current)))
@@ -8947,7 +8948,8 @@ The difference between N and the number of articles fetched is returned."
 	  ;; displayed article, then we take a look at the actual
 	  ;; References header, since this is slightly more
 	  ;; reliable than the References field we got from the
-	  ;; server.
+          ;; server. But if we altered the header, we should prefer
+          ;; the version from the header vector.
 	  (with-current-buffer gnus-original-article-buffer
 	    (nnheader-narrow-to-headers)
 	    (unless (setq ref (message-fetch-field "references"))
@@ -8955,8 +8957,8 @@ The difference between N and the number of articles fetched is returned."
 		(setq ref (gnus-extract-message-id-from-in-reply-to ref))))
 	    (widen))
 	(setq ref
-	      ;; It's not the current article, so we take a bet on
-	      ;; the value we got from the server.
+              ;; It's not the current article, or we altered the header,
+              ;; so we use what's in the header vector.
 	      (mail-header-references header)))
       (if (and ref
 	       (not (equal ref "")))
@@ -9372,9 +9374,9 @@ The 1st element is the button named by `gnus-collect-urls-primary-text'."
   (let ((pt (point)) urls primary)
     (while (forward-button 1 nil nil t)
       (setq pt (point))
-      (when-let ((w (button-at pt))
-                 (u (or (button-get w 'shr-url)
-                        (get-text-property pt 'gnus-string))))
+      (when-let* ((w (button-at pt))
+                  (u (or (button-get w 'shr-url)
+                         (get-text-property pt 'gnus-string))))
 	(when (string-match-p "\\`[[:alpha:]]+://" u)
           (if (and gnus-collect-urls-primary-text (null primary)
                    (string= gnus-collect-urls-primary-text (button-label w)))
@@ -9402,7 +9404,7 @@ See `gnus-collect-urls'."
     (let* ((parsed (url-generic-parse-url url))
            (host (url-host parsed))
            (rest (concat (url-filename parsed)
-                         (when-let ((target (url-target parsed)))
+                         (when-let* ((target (url-target parsed)))
                            (concat "#" target)))))
       (concat host (string-truncate-left rest (- max (length host)))))))
 

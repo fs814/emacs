@@ -1,7 +1,7 @@
 ;;; eieio.el --- Enhanced Implementation of Emacs Interpreted Objects  -*- lexical-binding:t -*-
 ;;;              or maybe Eric's Implementation of Emacs Interpreted Objects
 
-;; Copyright (C) 1995-1996, 1998-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1995-1996, 1998-2024 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Version: 1.4
@@ -213,9 +213,8 @@ and reference them using the function `class-option'."
                    ,(internal--format-docstring-line
                      "Retrieve the slot `%S' from an object of class `%S'."
                      sname name)
-                   ;; FIXME: Why is this different from the :reader case?
-                   (if (slot-boundp this ',sname) (eieio-oref this ',sname)))
-                accessors)
+                   (slot-value this ',sname))
+                  accessors)
           (when (and eieio-backward-compatibility (eq alloc :class))
             ;; FIXME: How could I declare this *method* as obsolete.
             (push `(cl-defmethod ,acces ((this (subclass ,name)))
@@ -388,9 +387,9 @@ contents of field NAME is matched against PAT, or they can be of
         ,@(mapcar (lambda (field)
                     (pcase-exhaustive field
                       (`(,name ,pat)
-                       `(app (pcase--flip eieio-oref ',name) ,pat))
+                       `(app (eieio-oref _ ',name) ,pat))
                       ((pred symbolp)
-                       `(app (pcase--flip eieio-oref ',field) ,field))))
+                       `(app (eieio-oref _ ',field) ,field))))
                   fields)))
 
 ;;; Simple generators, and query functions.  None of these would do
@@ -450,7 +449,12 @@ If EXTRA, include that in the string returned to represent the symbol."
 (defun eieio-class-parents (class)
   ;; FIXME: What does "(overload of variable)" mean here?
   "Return parent classes to CLASS.  (overload of variable)."
-  (eieio--class-parents (eieio--full-class-object class)))
+  ;; (declare (obsolete cl--class-parents "30.1"))
+  (let ((parents (eieio--class-parents (eieio--full-class-object class))))
+    (if (and (null (cdr parents))
+             (eq (car parents) (cl--find-class 'eieio-default-superclass)))
+        nil
+      parents)))
 
 (define-obsolete-function-alias 'class-parents #'eieio-class-parents "24.4")
 
@@ -498,7 +502,7 @@ If EXTRA, include that in the string returned to represent the symbol."
         (setq class (eieio--class-object class))
         (cl-check-type class eieio--class)
         (while (and child (not (eq child class)))
-          (setq p (append p (eieio--class-parents child))
+          (setq p (append p (cl--class-parents child))
                 child (pop p)))
         (if child t))))
 
@@ -681,8 +685,7 @@ If SLOT is unbound, do nothing."
 (defclass eieio-default-superclass nil
   nil
   "Default parent class for classes with no specified parent class.
-Its slots are automatically adopted by classes with no specified parents.
-This class is not stored in the `parent' slot of a class vector."
+Its slots are automatically adopted by classes with no specified parents."
   :abstract t)
 
 (setq eieio-default-superclass (cl--find-class 'eieio-default-superclass))
@@ -766,10 +769,10 @@ dynamically set from ARGS."
       (let* ((slot (aref slots i))
              (slot-name (eieio-slot-descriptor-name slot))
              (initform (cl--slot-descriptor-initform slot)))
-        (unless (or (when-let ((initarg
-                                (car (rassq slot-name
-                                            (eieio--class-initarg-tuples
-                                             this-class)))))
+        (unless (or (when-let* ((initarg
+                                 (car (rassq slot-name
+                                             (eieio--class-initarg-tuples
+                                              this-class)))))
                       (plist-get initargs initarg))
                     ;; Those slots whose initform is constant already have
                     ;; the right value set in the default-object.

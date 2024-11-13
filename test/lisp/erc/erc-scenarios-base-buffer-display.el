@@ -1,6 +1,6 @@
 ;;; erc-scenarios-base-buffer-display.el --- Buffer display scenarios -*- lexical-binding: t -*-
 
-;; Copyright (C) 2023 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -193,7 +193,7 @@
 
      (lambda (_)
        (with-current-buffer "FooNet"
-         (should erc--server-reconnect-display-timer))
+         (erc-d-t-wait-for 1 erc--server-reconnect-display-timer))
 
        ;; A non-interactive JOIN command doesn't signal that we're
        ;; done auto-reconnecting.

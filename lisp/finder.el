@@ -1,6 +1,6 @@
 ;;; finder.el --- topic & keyword-based code finder  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1992-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2024 Free Software Foundation, Inc.
 
 ;; Author: Eric S. Raymond <esr@thyrsus.com>
 ;; Created: 16 Jun 1992
@@ -68,10 +68,10 @@
     (processes	. "processes, subshells, and compilation")
     (terminals	. "text terminals (ttys)")
     (tex	. "the TeX document formatter")
+    (text	. "editing text files")
     (tools	. "programming tools")
     (unix	. "UNIX feature interfaces and emulators")
-    (vc		. "version control")
-    (wp		. "word processing"))
+    (vc		. "version control"))
   "Association list of the standard \"Keywords:\" headers.
 Each element has the form (KEYWORD . DESCRIPTION).")
 

@@ -1,6 +1,6 @@
 /* String conversion support for graphics terminals.
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -100,7 +100,7 @@ struct textconv_callback_struct
      the end of the conversion.  */
   enum textconv_caret_direction direction;
 
-  /* The the number of times for which to repeat the scanning in order
+  /* The number of times for which to repeat the scanning in order
      to determine the starting position of the text to return.  */
   unsigned short factor;
 
@@ -155,6 +155,7 @@ extern char *get_surrounding_text (struct frame *, ptrdiff_t,
 extern bool conversion_disabled_p (void);
 extern void check_postponed_buffers (void);
 
+extern void get_conversion_field (struct frame *, ptrdiff_t *, ptrdiff_t *);
 extern void register_textconv_interface (struct textconv_interface *);
 
 #endif /* _TEXTCONV_H_ */

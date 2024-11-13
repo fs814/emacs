@@ -1,13 +1,12 @@
 ;;; seq.el --- Sequence manipulation functions  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2014-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2024 Free Software Foundation, Inc.
 
 ;; Author: Nicolas Petton <nicolas@petton.fr>
+;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: sequences
 ;; Version: 2.24
 ;; Package: seq
-
-;; Maintainer: emacs-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
 
@@ -362,8 +361,7 @@ the result.
 
 The result is a sequence of the same type as SEQUENCE."
   (seq-concatenate
-   (let ((type (type-of sequence)))
-     (if (eq type 'cons) 'list type))
+   (if (listp sequence) 'list (type-of sequence))
    (seq-subseq sequence 0 n)
    (seq-subseq sequence (1+ n))))
 
@@ -619,12 +617,12 @@ SEQUENCE must be a sequence of numbers or markers."
       (unless rest-marker
         (pcase name
           (`&rest
-           (progn (push `(app (pcase--flip seq-drop ,index)
+           (progn (push `(app (seq-drop _ ,index)
                               ,(seq--elt-safe args (1+ index)))
                         bindings)
                   (setq rest-marker t)))
           (_
-           (push `(app (pcase--flip seq--elt-safe ,index) ,name) bindings))))
+           (push `(app (seq--elt-safe _ ,index) ,name) bindings))))
       (setq index (1+ index)))
     bindings))
 

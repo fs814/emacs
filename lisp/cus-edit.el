@@ -1,6 +1,6 @@
 ;;; cus-edit.el --- tools for customizing Emacs and Lisp packages -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Maintainer: emacs-devel@gnu.org
@@ -175,16 +175,9 @@
   "Support for editing files."
   :group 'emacs)
 
-(defgroup wp nil
-  "Support for editing text files.
-Use group `text' for this instead.  This group is deprecated."
-  :group 'emacs)
-
 (defgroup text nil
   "Support for editing text files."
-  :group 'emacs
-  ;; Inherit from deprecated `wp' for compatibility, for now.
-  :group 'wp)
+  :group 'emacs)
 
 (defgroup data nil
   "Support for editing binary data files."
@@ -1060,6 +1053,11 @@ This is like `setq', but is meant for user options instead of
 plain variables.  This means that `setopt' will execute any
 `custom-set' form associated with VARIABLE.
 
+Note that `setopt' will emit a warning if the type of a VALUE
+does not match the type of the corresponding VARIABLE as
+declared by `defcustom'.  (VARIABLE will be assigned the value
+even if it doesn't match the type.)
+
 \(fn [VARIABLE VALUE]...)"
   (declare (debug setq))
   (unless (zerop (mod (length pairs) 2))
@@ -1077,9 +1075,10 @@ plain variables.  This means that `setopt' will execute any
 (defun setopt--set (variable value)
   (custom-load-symbol variable)
   ;; Check that the type is correct.
-  (when-let ((type (get variable 'custom-type)))
+  (when-let* ((type (get variable 'custom-type)))
     (unless (widget-apply (widget-convert type) :match value)
-      (warn "Value `%S' does not match type %s" value type)))
+      (warn "Value `%S' for variable `%s' does not match its type \"%s\""
+            value variable type)))
   (put variable 'custom-check-value (list value))
   (funcall (or (get variable 'custom-set) #'set-default) variable value))
 
@@ -1159,14 +1158,15 @@ argument or if the current major mode has no known group, prompt
 for the MODE to customize."
   (interactive
    (list
-    (let ((completion-regexp-list '("-mode\\'"))
-	  (group (custom-group-of-mode major-mode)))
+    (let ((group (custom-group-of-mode major-mode)))
       (if (and group (not current-prefix-arg))
 	  major-mode
 	(intern
 	 (completing-read (format-prompt "Mode" (and group major-mode))
 			  obarray
-			  'custom-group-of-mode
+			  (lambda (s)
+			    (and (string-match "-mode\\'" (symbol-name s))
+			         (custom-group-of-mode s)))
 			  t nil nil (if group (symbol-name major-mode))))))))
   (customize-group (custom-group-of-mode mode)))
 
@@ -1228,6 +1228,41 @@ If OTHER-WINDOW is non-nil, display in another window."
       (message "`%s' is an alias for `%s'" symbol basevar))))
 
 ;;;###autoload
+(defun customize-toggle-option (symbol)
+  "Toggle the value of boolean option SYMBOL for this session."
+  (interactive (let ((prompt "Toggle boolean option: ") opts)
+                 (mapatoms
+                  (lambda (sym)
+                    (when (eq (get sym 'custom-type) 'boolean)
+                      (push sym opts))))
+                 (list (intern (completing-read prompt opts nil nil nil nil
+                                                (symbol-at-point))))))
+  (let* ((setter (or (get symbol 'custom-set) #'set-default))
+         (getter (or (get symbol 'custom-get) #'symbol-value))
+         (value (condition-case nil
+                    (funcall getter symbol)
+                  (void-variable (error "`%s' is not bound" symbol))))
+         (type (get symbol 'custom-type)))
+    (cond
+     ((eq type 'boolean))
+     ((and (null type)
+           (yes-or-no-p
+            (format "`%s' doesn't have a type, and has the value %S.  \
+Proceed to toggle?" symbol value))))
+     ((yes-or-no-p
+       (format "`%s' is of type %s, and has the value %S.  \
+Proceed to toggle?"
+               symbol type value)))
+     ((error "Abort toggling of option `%s'" symbol)))
+    (message "%s user options `%s'."
+             (if (funcall setter symbol (not value))
+                 "Enabled" "Disabled")
+             symbol)))
+
+;;;###autoload
+(defalias 'toggle-option #'customize-toggle-option)
+
+;;;###autoload
 (defalias 'customize-variable-other-window 'customize-option-other-window)
 
 ;;;###autoload
@@ -1244,7 +1279,7 @@ Show the buffer in another window, but don't select it."
     (unless (eq symbol basevar)
       (message "`%s' is an alias for `%s'" symbol basevar))))
 
-(defvar customize-changed-options-previous-release "29.1"
+(defvar customize-changed-options-previous-release "30.1"
   "Version for `customize-changed' to refer back to by default.")
 
 ;; Packages will update this variable, so make it available.
@@ -2215,24 +2250,33 @@ and `face'."
 ;;; The `custom' Widget.
 
 (defface custom-button
-  '((((type x w32 ns haiku pgtk android) (class color))	; Like default mode line
+  '((((type x w32 ns haiku pgtk android) (class color)
+      (min-colors 88))	; Like default mode line
      :box (:line-width 2 :style released-button)
-     :background "lightgrey" :foreground "black"))
+     :background "lightgrey" :foreground "black")
+    (((type x w32 ns haiku pgtk android))
+     :box (:line-width 2 :style released-button)
+     :background "white" :foreground "black"))
   "Face for custom buffer buttons if `custom-raised-buttons' is non-nil."
-  :version "21.1"
+  :version "30.1"
   :group 'custom-faces)
 
 (defface custom-button-mouse
-  '((((type x w32 ns haiku pgtk android) (class color))
+  '((((type x w32 ns haiku pgtk android) (class color)
+      (min-colors 88))
      :box (:line-width 2 :style released-button)
      :background "grey90" :foreground "black")
+    (((type x w32 ns haiku pgtk android))
+     :box (:line-width 2 :style released-button)
+     ;; Either light gray or a stipple pattern.
+     :background "gray20" :foreground "black")
     (t
      ;; This is for text terminals that support mouse, like GPM mouse
      ;; or the MS-DOS terminal: inverse-video makes the button stand
      ;; out on mouse-over.
      :inverse-video t))
   "Mouse face for custom buffer buttons if `custom-raised-buttons' is non-nil."
-  :version "22.1"
+  :version "30.1"
   :group 'custom-faces)
 
 (defface custom-button-unraised
@@ -2248,12 +2292,16 @@ and `face'."
       (if custom-raised-buttons 'custom-button-mouse 'highlight))
 
 (defface custom-button-pressed
-  '((((type x w32 ns haiku pgtk android) (class color))
+  '((((type x w32 ns haiku pgtk android) (class color grayscale))
      :box (:line-width 2 :style pressed-button)
      :background "lightgrey" :foreground "black")
+    (((type x w32 ns haiku pgtk android))
+     :box (:line-width 2 :style pressed-button)
+     ;; Either light gray or a stipple pattern.
+     :background "gray20" :foreground "black")
     (t :inverse-video t))
   "Face for pressed custom buttons if `custom-raised-buttons' is non-nil."
-  :version "21.1"
+  :version "30.1"
   :group 'custom-faces)
 
 (defface custom-button-pressed-unraised
@@ -4921,10 +4969,17 @@ if only the first line of the docstring is shown."))
             ;; can cause problems when read back, so print them
             ;; readably.  (Bug#52554)
             (print-escape-control-characters t))
-        (atomic-change-group
-	  (custom-save-variables)
-	  (custom-save-faces)
-          (custom-save-icons)))
+        ;; Insert lexical cookie, but only if the buffer is empty.
+        (save-restriction
+          (widen)
+          (atomic-change-group
+            (when (eq (point-min) (point-max))
+              (save-excursion
+                (goto-char (point-min))
+                (insert ";;; -*- lexical-binding: t -*-\n")))
+	    (custom-save-variables)
+	    (custom-save-faces)
+            (custom-save-icons))))
       (let ((file-precious-flag t))
 	(save-buffer))
       (if old-buffer
@@ -5314,6 +5369,12 @@ If several parents are listed, go to the first of them."
     (setq-local widget-link-suffix ""))
   (setq show-trailing-whitespace nil))
 
+(defvar touch-screen-keyboard-function) ; In touch-screen.el.
+
+(defun Custom-display-on-screen-keyboard-p ()
+  "Return whether it is okay to display the virtual keyboard at point."
+  (get-char-property (point) 'field))
+
 (define-derived-mode Custom-mode nil "Custom"
   "Major mode for editing customization buffers.
 
@@ -5351,6 +5412,9 @@ if that value is non-nil."
   (setq-local custom--invocation-options nil
               custom--hidden-state 'hidden)
   (setq-local revert-buffer-function #'custom--revert-buffer)
+  (setq-local text-conversion-style 'action)
+  (setq-local touch-screen-keyboard-function
+              #'Custom-display-on-screen-keyboard-p)
   (make-local-variable 'custom-options)
   (make-local-variable 'custom-local-buffer)
   (custom--initialize-widget-variables)
@@ -5389,9 +5453,49 @@ The following properties have special meanings for this widget:
   :hidden-states '(standard)
   :action #'custom-icon-action
   :custom-set #'custom-icon-set
-  :custom-reset-current #'custom-redraw)
-  ;; Not implemented yet.
-  ;; :custom-reset-saved 'custom-icon-reset-saved)
+  :custom-mark-to-save #'custom-icon-mark-to-save
+  :custom-reset-current #'custom-redraw
+  :custom-reset-saved #'custom-icon-reset-saved
+  :custom-state-set-and-redraw #'custom-icon-state-set-and-redraw
+  :custom-reset-standard #'custom-icon-reset-standard
+  :custom-mark-to-reset-standard #'custom-icon-mark-to-reset-standard)
+
+(defun custom-icon-mark-to-save (widget)
+  "Mark user customization for icon edited by WIDGET to be saved later."
+  (let* ((icon (widget-value widget))
+         (value (custom--icons-widget-value
+                 (car (widget-get widget :children)))))
+    (custom-push-theme 'theme-icon icon 'user 'set value)))
+
+(defun custom-icon-reset-saved (widget)
+  "Restore icon customized by WIDGET to the icon's default attributes.
+
+If there's a theme value for the icon, resets to that.  Otherwise, resets to
+its standard value."
+  (let* ((icon (widget-value widget)))
+    (custom-push-theme 'theme-icon icon 'user 'reset)
+    (custom-icon-state-set widget)
+    (custom-redraw widget)))
+
+(defun custom-icon-state-set-and-redraw (widget)
+  "Set state of icon widget WIDGET and redraw it with up-to-date settings."
+  (custom-icon-state-set widget)
+  (custom-redraw-magic widget))
+
+(defun custom-icon-reset-standard (widget)
+  "Reset icon edited by WIDGET to its standard value."
+  (let* ((icon (widget-value widget))
+         (themes (get icon 'theme-icon)))
+    (dolist (theme themes)
+      (custom-push-theme 'theme-icon icon (car theme) 'reset))
+    (custom-save-all))
+  (widget-put widget :custom-state 'unknown)
+  (custom-redraw widget))
+
+(defun custom-icon-mark-to-reset-standard (widget)
+  "Reset icon edited by WIDGET to its standard value."
+  ;; Don't mark for now, there aren't that many icons.
+  (custom-icon-reset-standard widget))
 
 (defvar custom-icon-extended-menu
   (let ((map (make-sparse-keymap)))
@@ -5410,6 +5514,18 @@ The following properties have special meanings for this widget:
                   :enable (memq
                            (widget-get custom-actioned-widget :custom-state)
                            '(modified changed))))
+    (define-key-after map [custom-icon-reset-saved]
+      '(menu-item "Revert This Session's Customization"
+                  custom-icon-reset-saved
+                  :enable (memq
+                           (widget-get custom-actioned-widget :custom-state)
+                           '(modified set changed rogue))))
+    (when (or custom-file init-file-user)
+      (define-key-after map [custom-icon-reset-standard]
+        '(menu-item "Erase Customization" custom-icon-reset-standard
+                    :enable (memq
+                             (widget-get custom-actioned-widget :custom-state)
+                             '(modified set changed saved rogue)))))
     map)
   "A menu for `custom-icon' widgets.
 Used in `custom-icon-action' to show a menu to the user.")
@@ -5811,7 +5927,7 @@ The appropriate types are:
 
 (defun custom-dirlocals-maybe-update-cons ()
   "If focusing out from the first widget in a cons widget, update its value."
-  (when-let ((w (widget-at)))
+  (when-let* ((w (widget-at)))
     (when (widget-get w :custom-dirlocals-symbol)
       (widget-value-set (widget-get w :parent)
                         (cons (widget-value w) ""))
@@ -5902,7 +6018,7 @@ Moves point into the widget that holds the value."
 If at least an option doesn't validate, signals an error and moves point
 to the widget with the invalid value."
   (dolist (opt (custom-dirlocals-get-options))
-    (when-let ((w (widget-apply opt :validate)))
+    (when-let* ((w (widget-apply opt :validate)))
       (goto-char (widget-get w :from))
       (error "%s" (widget-get w :error))))
   t)

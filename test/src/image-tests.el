@@ -1,6 +1,6 @@
 ;;; image-tests.el --- Tests for image.c  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
 
 ;; Author: Stefan Kangas <stefankangas@gmail.com>
 
@@ -49,11 +49,11 @@
 
 (ert-deftest image-tests-image-mask-p/error-on-nongraphical-display ()
   (skip-when (display-images-p))
-  (should-error (image-mask-p (cdr (assq 'xpm image-tests--images)))))
+  (should-error (image-mask-p (cdr (assq 'xbm image-tests--images)))))
 
 (ert-deftest image-tests-image-metadata/error-on-nongraphical-display ()
   (skip-when (display-images-p))
-  (should-error (image-metadata (cdr (assq 'xpm image-tests--images)))))
+  (should-error (image-metadata (cdr (assq 'xbm image-tests--images)))))
 
 (ert-deftest image-tests-imagemagick-types ()
   (skip-unless (fboundp 'imagemagick-types))

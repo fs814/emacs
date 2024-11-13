@@ -1,6 +1,6 @@
 ;;; arc-mode.el --- simple editing of archives  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995, 1997-1998, 2001-2023 Free Software Foundation,
+;; Copyright (C) 1995, 1997-1998, 2001-2024 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Morten Welinder <terra@gnu.org>
@@ -563,6 +563,8 @@ Its value is an `archive--file-desc'.")
 (defvar-local archive-files nil
   "Vector of `archive--file-desc' objects.")
 
+(defvar tar-archive-from-tar nil)
+
 ;; -------------------------------------------------------------------------
 ;;; Section: Support functions.
 
@@ -754,7 +756,8 @@ archive.
 	;; on local filesystem.  Treat such archives as remote.
 	(or archive-remote
 	    (setq archive-remote
-		  (or (string-match archive-remote-regexp (buffer-file-name))
+		  (or tar-archive-from-tar ; was included in a tar archive
+                      (string-match archive-remote-regexp (buffer-file-name))
 		      (string-match file-name-invalid-regexp
 				    (buffer-file-name)))))
 
@@ -920,6 +923,9 @@ If FNAME can be uniquely created in DIR, it is returned unaltered.
 If FNAME is something our underlying filesystem can't grok, or if another
 file by that name already exists in DIR, a unique new name is generated
 using `make-temp-file', and the generated name is returned."
+  (if (file-name-absolute-p fname)
+      ;; We need a file name relative to the filesystem root.
+      (setq fname (substring fname (1+ (string-search "/" fname)))))
   (let ((fullname (expand-file-name fname dir))
 	(alien (string-match file-name-invalid-regexp fname))
 	(tmpfile
@@ -1069,7 +1075,7 @@ return nil.  Otherwise point is returned."
     (while (and (not found)
                 (not (eobp)))
       (forward-line 1)
-      (when-let ((descr (archive-get-descr t)))
+      (when-let* ((descr (archive-get-descr t)))
         (when (equal (archive--file-desc-ext-file-name descr) file)
           (setq found t))))
     (if (not found)
@@ -1091,7 +1097,7 @@ return nil.  Otherwise point is returned."
                          (beginning-of-line)
                          (bobp)))))
       (archive-next-line n)
-      (when-let ((descr (archive-get-descr t)))
+      (when-let* ((descr (archive-get-descr t)))
         (let ((candidate (archive--file-desc-ext-file-name descr))
               (buffer (current-buffer)))
           (when (and candidate
@@ -1179,6 +1185,9 @@ NEW-NAME."
          (buffer (get-buffer bufname))
          (just-created nil)
 	 (file-name-coding archive-file-name-coding-system))
+      (or archive-remote
+          (and (local-variable-p 'tar-archive-from-tar)
+               (setq archive-remote tar-archive-from-tar)))
       (if (and buffer
 	       (string= (buffer-file-name buffer) arcfilename))
           nil
@@ -2108,16 +2117,14 @@ This doesn't recover lost files, it just undoes changes in the buffer itself."
    (t
     (archive-extract-by-stdout
      archive
-     ;; unzip expands wildcards in NAME, so we need to quote it.  But
-     ;; not on DOS/Windows, since that fails extraction on those
-     ;; systems (unless w32-quote-process-args is nil), and file names
-     ;; with wildcards in zip archives don't work there anyway.
-     ;; FIXME: Does pkunzip need similar treatment?
-     (if (and (or (not (memq system-type '(windows-nt ms-dos)))
-		  (and (boundp 'w32-quote-process-args)
-		       (null w32-quote-process-args)))
-	      (equal (car archive-zip-extract) "unzip"))
-	 (shell-quote-argument name)
+     ;; unzip expands wildcard characters in NAME, so we need to quote
+     ;; wildcard characters in a special way: replace each such
+     ;; character C with a single-character alternative [C].  We
+     ;; cannot use 'shell-quote-argument' here because that doesn't
+     ;; protect wildcard characters from being expanded by unzip
+     ;; itself.
+     (if (equal (car archive-zip-extract) "unzip")
+         (replace-regexp-in-string "[[?*]" "[\\&]" name)
        name)
      archive-zip-extract))))
 

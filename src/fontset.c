@@ -1,6 +1,6 @@
 /* Fontset handler.
 
-Copyright (C) 2001-2023 Free Software Foundation, Inc.
+Copyright (C) 2001-2024 Free Software Foundation, Inc.
 Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
   2005, 2006, 2007, 2008, 2009, 2010, 2011
   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -266,19 +266,19 @@ font_def_new (Lisp_Object font_spec, Lisp_Object encoding,
 
 #define RFONT_DEF_FACE(rfont_def) AREF (rfont_def, 0)
 #define RFONT_DEF_SET_FACE(rfont_def, face_id)	\
-  ASET ((rfont_def), 0, make_fixnum (face_id))
+  ASET (rfont_def, 0, make_fixnum (face_id))
 #define RFONT_DEF_FONT_DEF(rfont_def) AREF (rfont_def, 1)
 #define RFONT_DEF_SPEC(rfont_def) FONT_DEF_SPEC (AREF (rfont_def, 1))
 #define RFONT_DEF_OBJECT(rfont_def) AREF (rfont_def, 2)
 #define RFONT_DEF_SET_OBJECT(rfont_def, object)	\
-  ASET ((rfont_def), 2, (object))
+  ASET (rfont_def, 2, object)
 /* Score of RFONT_DEF is an integer value; the lowest 8 bits represent
    the order of listing by font backends, the higher bits represents
    the order given by charset priority list.  The smaller value is
    preferable.  */
 #define RFONT_DEF_SCORE(rfont_def) XFIXNUM (AREF (rfont_def, 3))
 #define RFONT_DEF_SET_SCORE(rfont_def, score) \
-  ASET ((rfont_def), 3, make_fixnum (score))
+  ASET (rfont_def, 3, make_fixnum (score))
 #define RFONT_DEF_NEW(rfont_def, font_def)		\
   do {							\
     (rfont_def) = make_nil_vector (4);			\
@@ -295,7 +295,7 @@ font_def_new (Lisp_Object font_spec, Lisp_Object encoding,
 #define FONTSET_REF(fontset, c)		\
   (EQ (fontset, Vdefault_fontset)	\
    ? CHAR_TABLE_REF (fontset, c)	\
-   : fontset_ref ((fontset), (c)))
+   : fontset_ref (fontset, c))
 
 static Lisp_Object
 fontset_ref (Lisp_Object fontset, int c)
@@ -315,7 +315,7 @@ fontset_ref (Lisp_Object fontset, int c)
    specifying a range.  */
 
 #define FONTSET_SET(fontset, range, elt)	\
-  Fset_char_table_range ((fontset), (range), (elt))
+  Fset_char_table_range (fontset, range, elt)
 
 
 /* Modify the elements of FONTSET for characters in RANGE by replacing
@@ -329,7 +329,7 @@ fontset_ref (Lisp_Object fontset, int c)
    ? (NILP (range)							\
       ? set_fontset_fallback (fontset, make_vector (1, elt))		\
       : (void) Fset_char_table_range (fontset, range, make_vector (1, elt))) \
-   : fontset_add ((fontset), (range), (elt), (add)))
+   : fontset_add (fontset, range, elt, add))
 
 static void
 fontset_add (Lisp_Object fontset, Lisp_Object range, Lisp_Object elt, Lisp_Object add)
@@ -668,34 +668,8 @@ fontset_find_font (Lisp_Object fontset, int c, struct face *face,
 	  font_object = font_open_for_lface (f, font_entity, face->lface,
 					     FONT_DEF_SPEC (font_def));
 
-	  /* If the font registry is not the same as explicitly
-	     specified in the font spec, do not cache the font.
-	     TrueType fonts have contrived character map selection
-	     semantics which makes determining the repertory at font
-	     spec matching time unduly expensive.  */
-
-	  {
-	    Lisp_Object spec;
-
-	    spec = FONT_DEF_SPEC (font_def);
-
-	    if (!NILP (font_object)
-		&& !NILP (AREF (spec, FONT_REGISTRY_INDEX))
-		&& !NILP (AREF (font_object, FONT_REGISTRY_INDEX))
-		&& !EQ (AREF (spec, FONT_REGISTRY_INDEX),
-			AREF (font_object, FONT_REGISTRY_INDEX))
-		/* See sfntfont_registries_compatible_p in
-		   sfntfont.c.  */
-		&& !(EQ (AREF (spec, FONT_REGISTRY_INDEX),
-			 Qiso8859_1)
-		     && EQ (AREF (font_object, FONT_REGISTRY_INDEX),
-			    Qiso10646_1)))
-	      goto strangeness;
-	  }
-
 	  if (NILP (font_object))
 	    {
-	    strangeness:
 	      /* Something strange happened, perhaps because of a
 		 Font-backend problem.  To avoid crashing, record
 		 that this spec is unusable.  It may be better to find
@@ -1366,10 +1340,11 @@ free_realized_fontsets (Lisp_Object base)
       if (CHAR_TABLE_P (this) && EQ (FONTSET_BASE (this), base))
 	{
 	  Fclear_face_cache (Qt);
-	  /* This is in case some Lisp calls this function and then
-	     proceeds with calling some other function, like font-at,
-	     which needs the basic faces.  */
-	  recompute_basic_faces (XFRAME (FONTSET_FRAME (this)));
+	  if (FRAME_LIVE_P (XFRAME (FONTSET_FRAME (this))))
+	    /* This is in case some Lisp calls this function and then
+	       proceeds with calling some other function, like font-at,
+	       which needs the basic faces.  */
+	    recompute_basic_faces (XFRAME (FONTSET_FRAME (this)));
 	  break;
 	}
     }
@@ -1500,7 +1475,8 @@ CHARACTERS may be a script symbol.  In that case, use FONT-SPEC for
 all the characters that belong to the script.  See the variable
 `script-representative-chars' for the list of known scripts, and
 see the variable `char-script-table' for the script of any specific
-character.
+character.  Note: for the `symbol' script only, whether the FONTSET
+is actually used depends on the value of `use-default-font-for-symbols'.
 
 CHARACTERS may be a charset symbol.  In that case, use FONT-SPEC for
 all the characters in the charset.  See `list-character-sets' and
@@ -1526,7 +1502,16 @@ Optional 5th argument ADD, if non-nil, specifies how to add FONT-SPEC
 to the previously set font specifications for CHARACTERS.  If it is
 `prepend', FONT-SPEC is prepended to the existing font specifications.
 If it is `append', FONT-SPEC is appended.  By default, FONT-SPEC
-overwrites the previous settings.  */)
+overwrites the previous settings.
+
+For reliable results, this function should be called before any
+of CHARACTERS were displayed in the current Emacs session.  In
+particular, if some of CHARACTERS are displayed using character
+compositions, those compositions will be cached after they are first
+produced, and the cached values include the font used for displaying
+the composed characters -- calling this function will not affect the
+font recorded in the cache of compositions, thus they will continue
+to be shown using the fonts from before the call.  */)
   (Lisp_Object fontset, Lisp_Object characters, Lisp_Object font_spec,
    Lisp_Object frame, Lisp_Object add)
 {
@@ -1822,7 +1807,7 @@ fontset_from_font (Lisp_Object font_object)
   if (CONSP (val))
     return XFIXNUM (FONTSET_ID (XCDR (val)));
   if (num_auto_fontsets++ == 0)
-    alias = intern ("fontset-startup");
+    alias = Qfontset_startup;
   else
     {
       char temp[sizeof "fontset-auto" + INT_STRLEN_BOUND (ptrdiff_t)];
@@ -1866,7 +1851,7 @@ fontset_from_font (Lisp_Object font_object)
 
 /* Update auto_fontset_alist for FONTSET.  When an ASCII font of
    FONTSET is changed, we delete an entry of FONTSET if any from
-   auto_fontset_alist so that FONTSET is not re-used by
+   auto_fontset_alist so that FONTSET is not reused by
    fontset_from_font.  */
 
 static void
@@ -2173,6 +2158,7 @@ syms_of_fontset (void)
   Fput (Qfontset, Qchar_table_extra_slots, make_fixnum (8));
   DEFSYM (Qfontset_info, "fontset-info");
   Fput (Qfontset_info, Qchar_table_extra_slots, make_fixnum (1));
+  DEFSYM (Qfontset_startup, "fontset-startup");
 
   DEFSYM (Qappend, "append");
   DEFSYM (Qlatin, "latin");

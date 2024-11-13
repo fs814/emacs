@@ -1,6 +1,6 @@
 ;;; eshell-tests.el --- Eshell test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -35,6 +35,7 @@
                                                     default-directory))))
 
 (defvar eshell-test-value nil)
+(defvar eshell-command-output)
 
 ;;; Tests:
 
@@ -117,6 +118,46 @@ This test uses a pipeline for the command."
         (forward-line)
         (should (looking-at "hi\n"))))))
 
+(ert-deftest eshell-test/eshell-command/output-buffer/async-kill ()
+  "Test that the `eshell-command' function kills the old process when told to."
+  (skip-unless (executable-find "echo"))
+  (ert-with-temp-directory eshell-directory-name
+    (let ((orig-processes (process-list))
+          (eshell-history-file-name nil)
+          (eshell-command-async-buffer 'confirm-kill-process))
+      (eshell-command "sleep 5 | *echo hi &")
+      (cl-letf* ((result t)
+                 ;; Say "yes" only once: for the `confirm-kill-process'
+                 ;; prompt.  If there are any other prompts (e.g. from
+                 ;; `kill-buffer'), say "no" to make the test fail.
+                 ((symbol-function 'yes-or-no-p)
+                  (lambda (_prompt) (prog1 result (setq result nil)))))
+        (eshell-command "*echo bye &"))
+      (eshell-wait-for (lambda () (equal (process-list) orig-processes)))
+      (with-current-buffer "*Eshell Async Command Output*"
+        (goto-char (point-min))
+        (forward-line)
+        (should (looking-at "bye\n"))))))
+
+(ert-deftest eshell-test/eshell-command/output-file ()
+  "Test that `eshell-command' can write to a file."
+  (ert-with-temp-file temp-file :text "initial"
+    (eshell-command "echo more" temp-file)
+    (should (equal (eshell-test-file-string temp-file) "moreinitial"))))
+
+(ert-deftest eshell-test/eshell-command/output-symbol ()
+  "Test that `eshell-command' can write to a symbol."
+  (eshell-command "echo hi" 'eshell-command-output)
+  (should (equal eshell-command-output "hi")))
+
+(ert-deftest eshell-test/eshell-command/output-dev-null ()
+  "Test that the `eshell-command' function handles /dev/null properly."
+  (ert-with-temp-directory eshell-directory-name
+    (let ((eshell-history-file-name nil))
+      (with-temp-buffer
+        (eshell-command "echo hi" "/dev/null")
+        (should (equal (buffer-string) ""))))))
+
 (ert-deftest eshell-test/command-running-p ()
   "Modeline should show no command running"
   (with-temp-eshell
@@ -153,7 +194,7 @@ insert the queued one at the next prompt, and finally run it."
   "Test flushing of previous output"
   (with-temp-eshell
    (eshell-insert-command "echo alpha")
-   (eshell-kill-output)
+   (eshell-delete-output)
    (should (eshell-match-output
             (concat "^" (regexp-quote "*** output flushed ***\n") "$")))))
 

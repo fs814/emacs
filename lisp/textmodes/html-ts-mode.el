@@ -1,6 +1,6 @@
 ;;; html-ts-mode.el --- tree-sitter support for HTML  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2023 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 ;; Author     : Theodor Thornhill <theo@thornhill.no>
 ;; Maintainer : Theodor Thornhill <theo@thornhill.no>
@@ -92,7 +92,7 @@ Return nil if there is no name or if NODE is not a defun node."
   (unless (treesit-ready-p 'html)
     (error "Tree-sitter for HTML isn't available"))
 
-  (treesit-parser-create 'html)
+  (setq treesit-primary-parser (treesit-parser-create 'html))
 
   ;; Indent.
   (setq-local treesit-simple-indent-rules html-ts-mode--indent-rules)
@@ -121,7 +121,20 @@ Return nil if there is no name or if NODE is not a defun node."
   ;; Imenu.
   (setq-local treesit-simple-imenu-settings
               '(("Element" "\\`tag_name\\'" nil nil)))
+
+  ;; Outline minor mode.
+  (setq-local treesit-outline-predicate "\\`element\\'")
+  ;; `html-ts-mode' inherits from `html-mode' that sets
+  ;; regexp-based outline variables.  So need to restore
+  ;; the default values of outline variables to be able
+  ;; to use `treesit-outline-predicate' above.
+  (kill-local-variable 'outline-regexp)
+  (kill-local-variable 'outline-heading-end-regexp)
+  (kill-local-variable 'outline-level)
+
   (treesit-major-mode-setup))
+
+(derived-mode-add-parents 'html-ts-mode '(html-mode))
 
 (if (treesit-ready-p 'html)
     (add-to-list 'auto-mode-alist '("\\.html\\'" . html-ts-mode)))

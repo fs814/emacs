@@ -1,6 +1,6 @@
 ;;; face-remap.el --- Functions for managing `face-remapping-alist'  -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 2008-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2024 Free Software Foundation, Inc.
 ;;
 ;; Author: Miles Bader <miles@gnu.org>
 ;; Keywords: faces, face remapping, display, user commands
@@ -387,9 +387,10 @@ this are the `default' and `header-line' faces: they will both be
 scaled even if they have an explicit `:height' setting.
 
 See also the related command `global-text-scale-adjust'.  Unlike
-that command, which scales the font size with a increment,
-`text-scale-adjust' scales the font size with a factor,
-`text-scale-mode-step'.  With a small `text-scale-mode-step'
+that command, which scales the font size with a increment (and can
+also optionally resize frames to keep the same number of lines and
+characters per line), `text-scale-adjust' scales the font size with
+a factor, `text-scale-mode-step'.  With a small `text-scale-mode-step'
 factor, the two commands behave similarly."
   (interactive "p")
   (let ((ev last-command-event)

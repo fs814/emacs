@@ -1,6 +1,6 @@
 ;;; help.el --- help commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1993-1994, 1998-2023 Free Software
+;; Copyright (C) 1985-1986, 1993-1994, 1998-2024 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -114,6 +114,7 @@ buffer.")
   "R"    #'info-display-manual
   "s"    #'describe-syntax
   "t"    #'help-with-tutorial
+  "4 s"  #'help-find-source
   "v"    #'describe-variable
   "w"    #'where-is
   "x"    #'describe-command
@@ -151,7 +152,7 @@ buffer.")
     ("Mark & Kill"
      (set-mark-command . "mark")
      (kill-line . "kill line")
-     (kill-ring-save . "kill region")
+     (kill-region . "kill region")
      (yank . "yank")
      (exchange-point-and-mark . "swap"))
     ("Projects"
@@ -165,13 +166,30 @@ buffer.")
      (isearch-forward . "search")
      (isearch-backward . "reverse search")
      (query-replace . "search & replace")
-     (fill-paragraph . "reformat"))))
+     (fill-paragraph . "reformat")))
+  "Data structure for `help-quick'.
+Value should be a list of elements, each element should of the form
+
+  (GROUP-NAME (COMMAND . DESCRIPTION) (COMMAND . DESCRIPTION)...)
+
+where GROUP-NAME is the name of the group of the commands, COMMAND is
+the symbol of a command and DESCRIPTION is its short description, 10 to
+15 characters at most.  The bindings for COMMAND are looked up from the
+keymap specified in `help-quick-use-map'.")
+
+(defvar help-quick-use-map global-map
+  "Keymap that `help-quick' should use to lookup bindings.
+Avoid changing the global value of this variable.  Instead bind a
+different map dynamically.")
 
 (declare-function prop-match-value "text-property-search" (match))
 
 ;; Inspired by a mg fork (https://github.com/troglobit/mg)
 (defun help-quick ()
-  "Display a quick-help buffer."
+  "Display a quick-help buffer showing popular commands and their bindings.
+The window showing quick-help can be toggled using \\[help-quick-toggle].
+You can click on a key binding shown in the quick-help buffer to display
+the documentation of the command bound to that key sequence."
   (interactive)
   (with-current-buffer (get-buffer-create "*Quick Help*")
     (let ((inhibit-read-only t) (padding 2) blocks)
@@ -182,7 +200,7 @@ buffer.")
         (let ((max-key-len 0) (max-cmd-len 0) keys)
           (dolist (ent (reverse (cdr section)))
             (catch 'skip
-              (let* ((bind (where-is-internal (car ent) nil t))
+              (let* ((bind (where-is-internal (car ent) help-quick-use-map t))
                      (key (if bind
                               (propertize
                                (key-description bind)
@@ -246,10 +264,14 @@ buffer.")
       ;; ... and shrink it immediately.
       (fit-window-to-buffer))
     (message
-     (substitute-command-keys "Toggle the quick help buffer using \\[help-quick-toggle]."))))
+     (substitute-command-keys "Toggle display of quick-help buffer using \\[help-quick-toggle]."))))
 
 (defun help-quick-toggle ()
-  "Toggle the quick-help window."
+  "Toggle display of a window showing popular commands and their bindings.
+This toggles on and off the display of the quick-help buffer, which shows
+popular commands and their bindings as produced by `help-quick'.
+You can click on a key binding shown in the quick-help buffer to display
+the documentation of the command bound to that key sequence."
   (interactive)
   (if (and-let* ((window (get-buffer-window "*Quick Help*")))
         (quit-window t window))
@@ -286,6 +308,8 @@ Do not call this in the scope of `with-help-window'."
        (let ((first-message
 	      (cond ((or
 		      pop-up-frames
+		      ;; FIXME: `special-display-p' is obsolete since
+		      ;; the vars on which it depends are obsolete!
 		      (special-display-p (buffer-name standard-output)))
 		     (setq help-return-method (cons (selected-window) t))
 		     ;; If the help output buffer is a special display buffer,
@@ -367,9 +391,9 @@ Do not call this in the scope of `with-help-window'."
         (propertize title 'face 'help-for-help-header)
         "\n\n"
         (help--for-help-make-commands commands))))
-   sections ""))
+   sections))
 
-(defalias 'help 'help-for-help)
+(defalias 'help #'help-for-help)
 (make-help-screen help-for-help
   (purecopy "Type a help option: [abcCdefFgiIkKlLmnprstvw.] C-[cdefmnoptw] or ?")
   (concat
@@ -395,6 +419,7 @@ Do not call this in the scope of `with-help-window'."
         "Search documentation of functions, variables, and other items")
        ("describe-command" "Show help for command")
        ("describe-function" "Show help for function")
+       ("help-find-source" "Show the source for what's being described in *Help*")
        ("describe-variable" "Show help for variable")
        ("describe-symbol" "Show help for function or variable"))
       ("Manuals"
@@ -858,10 +883,13 @@ If INSERT (the prefix arg) is non-nil, insert the message in the buffer."
       (let ((otherstring (help--key-description-fontified untranslated)))
 	(if (equal string otherstring)
 	    string
-	  (format "%s (translated from %s)" string otherstring))))))
+          (if-let* ((char-name (and (length= string 1)
+                                    (char-to-name (aref string 0)))))
+              (format "%s '%s' (translated from %s)" string char-name otherstring)
+            (format "%s (translated from %s)" string otherstring)))))))
 
 (defun help--binding-undefined-p (defn)
-  (or (null defn) (integerp defn) (equal defn 'undefined)))
+  (or (null defn) (integerp defn) (equal defn #'undefined)))
 
 (defun help--analyze-key (key untranslated &optional buffer)
   "Get information about KEY its corresponding UNTRANSLATED events.
@@ -909,7 +937,9 @@ in the selected window."
      (let ((key-desc (help-key-description key untranslated)))
        (if (help--binding-undefined-p defn)
            (format "%s%s is undefined" key-desc mouse-msg)
-         (format "%s%s runs the command %S" key-desc mouse-msg defn)))
+         (format "%s%s runs the command %s" key-desc mouse-msg
+                 (if (symbolp defn) (prin1-to-string defn)
+                   (help-fns-function-name defn)))))
      defn event mouse-msg)))
 
 (defun help--filter-info-list (info-list i)
@@ -1024,6 +1054,9 @@ with `mouse-movement' events."
   (let ((enable-disabled-menus-and-buttons t)
         (cursor-in-echo-area t)
         (side-event nil)
+        ;; Showing the list of key sequences makes no sense when they
+        ;; asked about a key sequence.
+        (echo-keystrokes-help nil)
         saved-yank-menu)
     (unwind-protect
         (let (last-modifiers key-list)
@@ -1041,8 +1074,11 @@ with `mouse-movement' events."
                   ;; After a click, see if a double click is on the way.
                   (and (memq 'click last-modifiers)
                        (not (sit-for (/ (mouse-double-click-time) 1000.0) t))))
-            (let* ((seq (read-key-sequence "\
+            (let* ((prompt
+                    (propertize "\
 Describe the following key, mouse click, or menu item: "
+                                'face 'minibuffer-prompt))
+                   (seq (read-key-sequence prompt
                                            nil nil 'can-return-switch-frame))
                    (raw-seq (this-single-command-raw-keys))
                    (keyn (when (> (length seq) 0)
@@ -1169,7 +1205,7 @@ current buffer."
 	    (describe-function-1 defn)))))))
 
 (defun search-forward-help-for-help ()
-  "Search forward in the help-for-help window.
+  "Search forward in the `help-for-help' window.
 This command is meant to be used after issuing the \\[help-for-help] command."
   (interactive)
   (unless (get-buffer help-for-help-buffer-name)
@@ -1206,7 +1242,7 @@ appeared on the mode-line."
 (defun describe-minor-mode-completion-table-for-symbol ()
   ;; In order to list up all minor modes, minor-mode-list
   ;; is used here instead of minor-mode-alist.
-  (delq nil (mapcar 'symbol-name minor-mode-list)))
+  (delq nil (mapcar #'symbol-name minor-mode-list)))
 
 (defun describe-minor-mode-from-symbol (symbol)
   "Display documentation of a minor mode given as a symbol, SYMBOL."
@@ -1629,34 +1665,17 @@ Return nil if the key sequence is too long."
           (t value))))
 
 (defun help--describe-command (definition &optional translation)
-  (cond ((symbolp definition)
-         (if (and (fboundp definition)
-                  help-buffer-under-preparation)
-             (insert-text-button (symbol-name definition)
-                                 'type 'help-function
-                                 'help-args (list definition))
-           (insert (symbol-name definition)))
-         (insert "\n"))
-        ((or (stringp definition) (vectorp definition))
+  (cond ((or (stringp definition) (vectorp definition))
          (if translation
-             (insert (key-description definition nil) "\n")
+             (insert (concat (key-description definition nil)
+                             (when-let* ((char-name (char-to-name (aref definition 0))))
+                               (format "\t%s" char-name))
+                             "\n"))
+           ;; These should be rare nowadays, replaced by `kmacro's.
            (insert "Keyboard Macro\n")))
         ((keymapp definition)
          (insert "Prefix Command\n"))
-        ((byte-code-function-p definition)
-         (insert (format "[%s]\n"
-                         (buttonize "byte-code" #'disassemble definition))))
-        ((and (consp definition)
-              (memq (car definition) '(closure lambda)))
-         (insert (format "[%s]\n"
-                         (buttonize
-                          (symbol-name (car definition))
-                          (lambda (_)
-                            (pp-display-expression
-                             definition "*Help Source*" t))
-                          nil "View definition"))))
-        (t
-         (insert "??\n"))))
+        (t (insert (help-fns-function-name definition) "\n"))))
 
 (define-obsolete-function-alias 'help--describe-translation
   #'help--describe-command "29.1")
@@ -1996,8 +2015,8 @@ and some others."
   (if temp-buffer-resize-mode
       ;; `help-make-xrefs' may add a `back' button and thus increase the
       ;; text size, so `resize-temp-buffer-window' must be run *after* it.
-      (add-hook 'temp-buffer-show-hook 'resize-temp-buffer-window 'append)
-    (remove-hook 'temp-buffer-show-hook 'resize-temp-buffer-window)))
+      (add-hook 'temp-buffer-show-hook #'resize-temp-buffer-window 'append)
+    (remove-hook 'temp-buffer-show-hook #'resize-temp-buffer-window)))
 
 (defvar resize-temp-buffer-window-inhibit nil
   "Non-nil means `resize-temp-buffer-window' should not resize.")
@@ -2241,10 +2260,31 @@ The `temp-buffer-window-setup-hook' hook is called."
 ;; Don't print to *Help*; that would clobber Help history.
 (defun help-form-show ()
   "Display the output of a non-nil `help-form'."
-  (let ((msg (eval help-form)))
+  (let ((msg (eval help-form t)))
     (if (stringp msg)
 	(with-output-to-temp-buffer " *Char Help*"
 	  (princ msg)))))
+
+(defun help--append-keystrokes-help (str)
+  (let* ((keys (this-single-command-keys))
+         (bindings (delete nil
+                           (mapcar (lambda (map) (lookup-key map keys t))
+                                   (current-active-maps t)))))
+    (catch 'res
+      (dolist (val help-event-list)
+        (let ((key (vector (if (eql val 'help)
+                               help-char
+                             val))))
+          (unless (seq-find (lambda (map) (and (keymapp map) (lookup-key map key)))
+                            bindings)
+            (throw 'res
+                   (concat
+                    str
+                    (substitute-command-keys
+                     (format
+                      " (\\`%s' for help)"
+                      (key-description key))))))))
+      str)))
 
 
 (defun help--docstring-quote (string)
@@ -2323,9 +2363,8 @@ the same names as used in the original source code, when possible."
   ;; If definition is a macro, find the function inside it.
   (if (eq (car-safe def) 'macro) (setq def (cdr def)))
   (cond
-   ((and (byte-code-function-p def) (listp (aref def 0))) (aref def 0))
+   ((and (closurep def) (listp (aref def 0))) (aref def 0))
    ((eq (car-safe def) 'lambda) (nth 1 def))
-   ((eq (car-safe def) 'closure) (nth 2 def))
    ((and (featurep 'native-compile)
          (subrp def)
          (listp (subr-native-lambda-list def)))
@@ -2333,7 +2372,7 @@ the same names as used in the original source code, when possible."
    ((or (and (byte-code-function-p def) (integerp (aref def 0)))
         (subrp def) (module-function-p def))
     (or (when preserve-names
-          (let* ((doc (condition-case nil (documentation def) (error nil)))
+          (let* ((doc (condition-case nil (documentation def 'raw) (error nil)))
                  (docargs (if doc (car (help-split-fundoc doc nil))))
                  (arglist (if docargs
                               (cdar (read-from-string (downcase docargs)))))
@@ -2385,7 +2424,7 @@ the same names as used in the original source code, when possible."
                    (t arg)))
 		arglist)))
 
-(define-obsolete-function-alias 'help-make-usage 'help--make-usage "25.1")
+(define-obsolete-function-alias 'help-make-usage #'help--make-usage "25.1")
 
 (defun help--make-usage-docstring (fn arglist)
   (let ((print-escape-newlines t))

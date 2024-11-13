@@ -1,10 +1,10 @@
 ;;; fill.el --- fill commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994-1997, 1999, 2001-2023 Free
+;; Copyright (C) 1985-1986, 1992, 1994-1997, 1999, 2001-2024 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
-;; Keywords: wp
+;; Keywords: text
 ;; Package: emacs
 
 ;; This file is part of GNU Emacs.
@@ -1115,9 +1115,9 @@ The `justification' text-property can locally override this variable."
 		 (const right)
 		 (const full)
 		 (const center)
-		 (const none))
+                 (const none))
+  :local t
   :safe 'symbolp)
-(make-variable-buffer-local 'default-justification)
 
 (defun current-justification ()
   "How should we justify this line?

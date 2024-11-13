@@ -1,9 +1,8 @@
 ;;; newst-backend.el --- Retrieval backend for newsticker  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2003-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2024 Free Software Foundation, Inc.
 
 ;; Author:      Ulf Jasper <ulf.jasper@web.de>
-;; Filename:    newst-backend.el
 ;; URL:         https://www.nongnu.org/newsticker
 ;; Keywords:    News, RSS, Atom
 ;; Package:     newsticker
@@ -221,7 +220,7 @@ which apply for this feed only, overriding the value of
 (defcustom newsticker-retrieval-method
   'intern
   "Method for retrieving news from the web, either `intern' or `extern'.
-Default value `intern' uses Emacs' built-in asynchronous download
+Default value `intern' uses Emacs's built-in asynchronous download
 capabilities (`url-retrieve').  If set to `extern' the external
 program wget is used, see `newsticker-wget-name'."
   :type '(choice :tag "Method"

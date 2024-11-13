@@ -1,6 +1,6 @@
 ;;; gud.el --- Grand Unified Debugger mode for running GDB and other debuggers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-1996, 1998, 2000-2023 Free Software Foundation,
+;; Copyright (C) 1992-1996, 1998, 2000-2024 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Eric S. Raymond <esr@thyrsus.com>
@@ -243,7 +243,7 @@ Check it when `gud-running' is t")
      :visible (eq gud-minor-mode 'gdbmi)]
     ["Print Expression" gud-print
      :enable (not gud-running)]
-    ["Dump object-Derefenrece" gud-pstar
+    ["Dump object-Dereference" gud-pstar
      :label (if (eq gud-minor-mode 'jdb)
 	        "Dump object"
               "Print Dereference")
@@ -2949,11 +2949,19 @@ It is saved for when this flag is not set.")
   "Overlay created for `gud-highlight-current-line'.
 It is nil if not yet present.")
 
+(defun gud-hide-current-line-indicator(destroy-overlay)
+  "Stop displaying arrow and highlighting current line in a source file."
+  ;; Stop displaying an arrow in a source file.
+  (setq gud-overlay-arrow-position nil)
+  ;; And any highlight overlays.
+  (when gud-highlight-current-line-overlay
+    (delete-overlay gud-highlight-current-line-overlay)
+    (if destroy-overlay
+    (setq gud-highlight-current-line-overlay nil))))
+
 (defun gud-sentinel (proc msg)
   (cond ((null (buffer-name (process-buffer proc)))
 	 ;; buffer killed
-	 ;; Stop displaying an arrow in a source file.
-	 (setq gud-overlay-arrow-position nil)
 	 (set-process-buffer proc nil)
 	 (if (and (boundp 'speedbar-initial-expansion-list-name)
 		  (string-equal speedbar-initial-expansion-list-name "GUD"))
@@ -2963,12 +2971,9 @@ It is nil if not yet present.")
 	     (gdb-reset)
 	   (gud-reset)))
 	((memq (process-status proc) '(signal exit))
-	 ;; Stop displaying an arrow in a source file.
-	 (setq gud-overlay-arrow-position nil)
-         ;; And any highlight overlays.
-         (when gud-highlight-current-line-overlay
-           (delete-overlay gud-highlight-current-line-overlay)
-           (setq gud-highlight-current-line-overlay nil))
+
+         (gud-hide-current-line-indicator t)
+
 	 (if (eq (buffer-local-value 'gud-minor-mode gud-comint-buffer)
 		   'gdbmi)
 	     (gdb-reset)
@@ -3671,8 +3676,7 @@ Treats actions as defuns."
 	(remove-hook 'after-save-hook #'gdb-create-define-alist t))))
 
 (defcustom gud-tooltip-modes '( gud-mode c-mode c++-mode fortran-mode
-				python-mode c-ts-mode c++-ts-mode
-                                python-ts-mode)
+				python-mode)
   "List of modes for which to enable GUD tooltips."
   :type '(repeat (symbol :tag "Major mode"))
   :group 'tooltip)
@@ -3708,10 +3712,9 @@ only tooltips in the buffer containing the overlay arrow."
 	       #'gud-tooltip-activate-mouse-motions-if-enabled)
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
-      (if (and gud-tooltip-mode
-	       (memq major-mode gud-tooltip-modes))
-	  (gud-tooltip-activate-mouse-motions t)
-	(gud-tooltip-activate-mouse-motions nil)))))
+     (gud-tooltip-activate-mouse-motions
+      (and gud-tooltip-mode
+	       (derived-mode-p gud-tooltip-modes))))))
 
 (defvar gud-tooltip-mouse-motions-active nil
   "Locally t in a buffer if tooltip processing of mouse motion is enabled.")
@@ -3856,12 +3859,12 @@ so they have been disabled."))
 		expr))))))))
 
 
-;; 'gud-lldb-history' and 'gud-gud-lldb-command-name' are required
+;; 'gud-lldb-history' and 'gud-lldb-command-name' are required
 ;; because 'gud-symbol' uses their values if they are present.  Their
 ;; names are deduced from the minor-mode name.
 (defvar gud-lldb-history nil)
 
-(defcustom gud-gud-lldb-command-name "lldb"
+(defcustom gud-lldb-command-name "lldb"
   "Default command to invoke LLDB in order to debug a program with it."
   :type 'string
   :version "30.1")
@@ -3961,7 +3964,7 @@ so they have been disabled."))
 deb = lldb.debugger
 inst = deb.GetInstanceName()
 ff = deb.GetInternalVariableValue('frame-format', inst).GetStringAtIndex(0)
-ff = ff[:-1] + '!gud ${line.number}:${line.column}:${line.file.fullpath}\\\\n\"'
+ff = ff[:-1] + '!gud ${line.number}:{${line.column}}:${line.file.fullpath}\\\\n\"'
 _ = deb.SetInternalVariable('frame-format', ff, inst)
 def gud_complete(s, max):
     interpreter = lldb.debugger.GetCommandInterpreter()
@@ -3974,11 +3977,11 @@ def gud_complete(s, max):
         print(f'\"{string_list.GetStringAtIndex(i)}\" ')
     print(')##')
 "
-  "Python code sent to LLDB for gud-specific initialisation.")
+  "Python code sent to LLDB for gud-specific initialization.")
 
 (defun gud-lldb-fetch-completions (context command)
   "Return the data to complete the LLDB command before point.
-This is what the Python function we installed at initialzation
+This is what the Python function we installed at initialization
 time returns, as a Lisp list.
 Maximum number of completions requested from LLDB is controlled
 by `gud-lldb-max-completions', which see."
@@ -4057,17 +4060,8 @@ Please note that completion framework that complete while you
 type, like Corfu, do not work well with this mode.  You should
 consider to turn them off in this mode.
 
-This command runs functions from `lldb-mode-hook'. "
+This command runs functions from `lldb-mode-hook'."
   (interactive (list (gud-query-cmdline 'lldb)))
-
-  (when (and gud-comint-buffer
-	     (buffer-name gud-comint-buffer)
-	     (get-buffer-process gud-comint-buffer)
-	     (with-current-buffer gud-comint-buffer (eq gud-minor-mode 'gud-lldb)))
-    (gdb-restore-windows)
-    ;; FIXME: Copied from gud-gdb, but what does that even say?
-    (error "Multiple debugging requires restarting in text command mode"))
-
   (gud-common-init command-line nil 'gud-lldb-marker-filter)
   (setq-local gud-minor-mode 'lldb)
 
@@ -4076,7 +4070,7 @@ This command runs functions from `lldb-mode-hook'. "
            "\C-b"
            "Set breakpoint at current line.")
   (gud-def gud-tbreak
-           "_regexp-break %f:%l"
+           "_regexp-tbreak %f:%l"
            "\C-t"
 	   "Set temporary breakpoint at current line.")
   (gud-def gud-remove
@@ -4145,7 +4139,8 @@ This command runs functions from `lldb-mode-hook'. "
   (add-hook 'completion-at-point-functions
             #'gud-lldb-completion-at-point
             nil 'local)
-  (keymap-local-set "<tab>" #'completion-at-point)
+  ;; Bind TAB not <tab> so that it also works on ttys.
+  (keymap-local-set "TAB" #'completion-at-point)
 
   (gud-set-repeat-map-property 'gud-gdb-repeat-map)
   (setq comint-prompt-regexp (rx line-start "(lldb)" (0+ blank)))

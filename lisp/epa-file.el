@@ -1,6 +1,6 @@
 ;;; epa-file.el --- the EasyPG Assistant, transparent file encryption -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2024 Free Software Foundation, Inc.
 
 ;; Author: Daiki Ueno <ueno@unixuser.org>
 ;; Keywords: PGP, GnuPG
@@ -177,7 +177,7 @@ encryption is used."
 			(nth 3 error)))
 	     (let ((exists (file-exists-p local-file)))
 	       (when exists
-                 (if-let ((wrong-password (epa--wrong-password-p context)))
+                 (if-let* ((wrong-password (epa--wrong-password-p context)))
                      ;; Don't display the *error* buffer if we just
                      ;; have a wrong password; let the later error
                      ;; handler notify the user.
@@ -267,7 +267,14 @@ encryption is used."
   (setq file (expand-file-name file))
   (let* ((coding-system (or coding-system-for-write
 			    (if (fboundp 'select-safe-coding-system)
-			        (let ((buffer-file-name file))
+                                ;; This is needed because
+                                ;; `auto-coding-alist' has
+                                ;; `no-conversion' for *.gpg files,
+                                ;; which would otherwise force
+                                ;; `select-safe-coding-system' return
+                                ;; `no-conversion'.
+			        (let ((buffer-file-name
+                                       (file-name-sans-extension file)))
 				  (select-safe-coding-system
 				   (point-min) (point-max)))
 			      buffer-file-coding-system)))

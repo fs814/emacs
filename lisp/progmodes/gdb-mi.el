@@ -1,6 +1,6 @@
 ;;; gdb-mi.el --- User Interface for running GDB  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2007-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2024 Free Software Foundation, Inc.
 
 ;; Author: Nick Roberts <nickrob@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -817,6 +817,42 @@ NOARG must be t when this macro is used outside `gud-def'."
 
 (defvar gdb-control-level 0)
 
+(defun gdb-load-history ()
+  "Load GDB history from a history file.
+The name of the history file is given by environment variable GDBHISTFILE,
+falling back to \".gdb_history\" and \".gdbinit\"."
+  (when (ring-empty-p comint-input-ring) ; cf shell-mode
+    (let ((hfile (expand-file-name (or (getenv "GDBHISTFILE")
+				       (if (eq system-type 'ms-dos)
+					   "_gdb_history"
+					 ".gdb_history"))))
+	  ;; gdb defaults to 256, but we'll default to comint-input-ring-size.
+	  (hsize (getenv "HISTSIZE")))
+      (dolist (file (append '("~/.gdbinit")
+			    (unless (string-equal (expand-file-name ".")
+                                                  (expand-file-name "~"))
+			      '(".gdbinit"))))
+	(if (file-readable-p (setq file (expand-file-name file)))
+	    (with-temp-buffer
+	      (insert-file-contents file)
+	      ;; TODO? check for "set history save\\(  *on\\)?" and do
+	      ;; not use history otherwise?
+	      (while (re-search-forward
+		      "^ *set history \\(filename\\|size\\)  *\\(.*\\)" nil t)
+		(cond ((string-equal (match-string 1) "filename")
+		       (setq hfile (expand-file-name
+				    (match-string 2)
+				    (file-name-directory file))))
+		      ((string-equal (match-string 1) "size")
+		       (setq hsize (match-string 2))))))))
+      (and (stringp hsize)
+	   (integerp (setq hsize (string-to-number hsize)))
+	   (> hsize 0)
+           (setq-local comint-input-ring-size hsize))
+      (if (stringp hfile)
+          (setq-local comint-input-ring-file-name hfile))
+      (comint-read-input-ring t))))
+
 ;;;###autoload
 (defun gdb (command-line)
   "Run gdb passing it COMMAND-LINE as arguments.
@@ -902,37 +938,8 @@ detailed description of this mode.
   (setq-local gud-minor-mode 'gdbmi)
   (setq-local gdb-control-level 0)
   (setq comint-input-sender 'gdb-send)
-  (when (ring-empty-p comint-input-ring) ; cf shell-mode
-    (let ((hfile (expand-file-name (or (getenv "GDBHISTFILE")
-				       (if (eq system-type 'ms-dos)
-					   "_gdb_history"
-					 ".gdb_history"))))
-	  ;; gdb defaults to 256, but we'll default to comint-input-ring-size.
-	  (hsize (getenv "HISTSIZE")))
-      (dolist (file (append '("~/.gdbinit")
-			    (unless (string-equal (expand-file-name ".")
-                                                  (expand-file-name "~"))
-			      '(".gdbinit"))))
-	(if (file-readable-p (setq file (expand-file-name file)))
-	    (with-temp-buffer
-	      (insert-file-contents file)
-	      ;; TODO? check for "set history save\\(  *on\\)?" and do
-	      ;; not use history otherwise?
-	      (while (re-search-forward
-		      "^ *set history \\(filename\\|size\\)  *\\(.*\\)" nil t)
-		(cond ((string-equal (match-string 1) "filename")
-		       (setq hfile (expand-file-name
-				    (match-string 2)
-				    (file-name-directory file))))
-		      ((string-equal (match-string 1) "size")
-		       (setq hsize (match-string 2))))))))
-      (and (stringp hsize)
-	   (integerp (setq hsize (string-to-number hsize)))
-	   (> hsize 0)
-           (setq-local comint-input-ring-size hsize))
-      (if (stringp hfile)
-          (setq-local comint-input-ring-file-name hfile))
-      (comint-read-input-ring t)))
+  (gdb-load-history)
+
   (gud-def gud-tbreak "tbreak %f:%l" "\C-t"
 	   "Set temporary breakpoint at current line." t)
   (gud-def gud-jump
@@ -1006,9 +1013,10 @@ detailed description of this mode.
   (gud-def gud-pp
 	   (gud-call
 	    (concat
-	     "pp " (if (eq (buffer-local-value
-			    'major-mode (window-buffer)) 'speedbar-mode)
-		       (gdb-find-watch-expression) "%e")) arg)
+	     "pp " (if (eq (buffer-local-value 'major-mode (window-buffer))
+			   'speedbar-mode)
+		       (gdb-find-watch-expression) "%e"))
+	    arg)
 	   nil   "Print the Emacs s-expression.")
 
   (define-key gud-minor-mode-map [left-margin mouse-1]
@@ -1277,8 +1285,8 @@ no input, and GDB is waiting for input."
 (defun gdb-mouse-until (event)
   "Continue running until a source line past the current line.
 The destination source line can be selected either by clicking
-with mouse-3 on the fringe/margin or dragging the arrow
-with mouse-1 (default bindings)."
+with \\`mouse-3' on the fringe/margin or dragging the arrow
+with \\`mouse-1' (default bindings)."
   (interactive "e")
   (let ((start (event-start event))
 	(end (event-end event)))
@@ -1294,8 +1302,8 @@ with mouse-1 (default bindings)."
 
 (defun gdb-mouse-jump (event)
   "Set execution address/line.
-The destination source line can be selected either by clicking with C-mouse-3
-on the fringe/margin or dragging the arrow with C-mouse-1 (default bindings).
+The destination source line can be selected either by clicking with \\`C-mouse-3'
+on the fringe/margin or dragging the arrow with \\`C-mouse-1' (default bindings).
 Unlike `gdb-mouse-until' the destination address can be before the current
 line, and no execution takes place."
   (interactive "e")
@@ -1872,7 +1880,8 @@ this trigger is subscribed to `gdb-buf-publisher' and called with
 
 (defun gdb-clear-inferior-io ()
   (with-current-buffer (gdb-get-buffer-create 'gdb-inferior-io)
-    (erase-buffer)))
+    (let ((inhibit-read-only t))
+      (erase-buffer))))
 
 
 (defconst breakpoint-xpm-data
@@ -2690,7 +2699,8 @@ Sets `gdb-thread-number' to new id."
   (gdb-force-mode-line-update
    (propertize gdb-inferior-status 'face font-lock-type-face))
   (setq gdb-active-process t)
-  (setq gud-running t))
+  (setq gud-running t)
+  (gud-hide-current-line-indicator nil))
 
 ;; -break-insert -t didn't give a reason before gdb 6.9
 
@@ -2858,7 +2868,8 @@ current thread and update GDB buffers."
 
 (defun gdb-clear-partial-output ()
   (with-current-buffer (gdb-get-buffer-create 'gdb-partial-output-buffer)
-    (erase-buffer)))
+    (let ((inhibit-read-only t))
+      (erase-buffer))))
 
 ;; Parse GDB/MI result records: this process converts
 ;;  list      [...]      ->  list
@@ -3231,7 +3242,7 @@ See `def-gdb-auto-update-handler'."
       ;; Add the breakpoint/header row to the table.
       (gdb-breakpoints--add-breakpoint-row table breakpoint)
       ;; If this breakpoint has multiple locations, add them as well.
-      (when-let ((locations (gdb-mi--field breakpoint 'locations)))
+      (when-let* ((locations (gdb-mi--field breakpoint 'locations)))
         (dolist (loc locations)
           (add-to-list 'gdb-breakpoints-list
                        (cons (gdb-mi--field loc 'number) loc))
@@ -4586,7 +4597,8 @@ left-to-right display order of the properties."
                            (gdb-set-window-buffer
                             (gdb-get-buffer-create
                              'gdb-registers-buffer
-                             gdb-thread-number) t)))
+                             gdb-thread-number)
+                            t)))
     map))
 
 (define-derived-mode gdb-locals-mode gdb-parent-mode "Locals"
@@ -4706,7 +4718,8 @@ executes FUNCTION."
                            (gdb-set-window-buffer
                             (gdb-get-buffer-create
                              'gdb-locals-buffer
-                             gdb-thread-number) t)))
+                             gdb-thread-number)
+                            t)))
     (define-key map "f" #'gdb-registers-toggle-filter)
     map))
 
@@ -4817,7 +4830,7 @@ overlay arrow in source buffer."
     (when frame
       (setq gdb-selected-frame (gdb-mi--field frame 'func))
       (setq gdb-selected-file
-            (when-let ((full (gdb-mi--field frame 'fullname)))
+            (when-let* ((full (gdb-mi--field frame 'fullname)))
               (file-local-name full)))
       (setq gdb-frame-number (gdb-mi--field frame 'level))
       (setq gdb-frame-address (gdb-mi--field frame 'addr))
@@ -5106,11 +5119,11 @@ Function buffers are locals buffer, registers buffer, etc, but
 not including main command buffer (the one where you type GDB
 commands) or source buffers (that display program source code)."
   (with-current-buffer buffer
-    (derived-mode-p 'gdb-parent-mode 'gdb-inferior-io-mode)))
+    (derived-mode-p '(gdb-parent-mode gdb-inferior-io-mode))))
 
 (defun gdb--buffer-type (buffer)
   "Return the type of BUFFER if it is a function buffer.
-Buffer type is like `gdb-registers-type', `gdb-stack-buffer'.
+Buffer type is like `gdb-registers-buffer', `gdb-stack-buffer'.
 These symbols are used by `gdb-get-buffer-create'.
 
 Return nil if BUFFER is not a GDB function buffer."

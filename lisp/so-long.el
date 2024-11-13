@@ -1,6 +1,6 @@
 ;;; so-long.el --- Say farewell to performance problems with minified code.  -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 2015-2016, 2018-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2016, 2018-2024 Free Software Foundation, Inc.
 
 ;; Author: Phil Sainty <psainty@orcon.net.nz>
 ;; Maintainer: Phil Sainty <psainty@orcon.net.nz>
@@ -783,8 +783,7 @@ an example."
   :package-version '(so-long . "1.0"))
 (make-variable-buffer-local 'so-long-file-local-mode-function)
 
-;; `provided-mode-derived-p' was added in 26.1
-(unless (fboundp 'provided-mode-derived-p)
+(unless (fboundp 'provided-mode-derived-p) ;Only in Emacs≥26.1
   (defun provided-mode-derived-p (mode &rest modes)
     "Non-nil if MODE is derived from one of MODES.
 Uses the `derived-mode-parent' property of the symbol to trace backwards.
@@ -1717,7 +1716,7 @@ major mode is a member (or derivative of a member) of `so-long-target-modes'.
        (not so-long--inhibited)
        (not so-long--calling)
        (or (eq so-long-target-modes t)
-           (apply #'derived-mode-p so-long-target-modes))
+           (derived-mode-p so-long-target-modes))
        (setq so-long-detected-p (funcall so-long-predicate))
        ;; `so-long' should be called; but only if and when the buffer is
        ;; displayed in a window.  Long lines in invisible buffers are generally

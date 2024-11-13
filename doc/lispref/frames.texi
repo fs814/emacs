@@ -1,6 +1,6 @@
 @c -*-texinfo-*-
 @c This is part of the GNU Emacs Lisp Reference Manual.
-@c Copyright (C) 1990--1995, 1998--1999, 2001--2023 Free Software
+@c Copyright (C) 1990--1995, 1998--1999, 2001--2024 Free Software
 @c Foundation, Inc.
 @c See the file elisp.texi for copying conditions.
 @node Frames
@@ -589,7 +589,7 @@ The @dfn{external border} is part of the decorations supplied by the
 window manager.  It is typically used for resizing the frame with the
 mouse and is therefore not shown on ``fullboth'' and maximized frames
 (@pxref{Size Parameters}).  Its width is determined by the window
-manager and cannot be changed by Emacs' functions.
+manager and cannot be changed by Emacs's functions.
 
 External borders don't exist on text terminal frames.  For graphical
 frames, their display can be suppressed by setting the
@@ -1944,10 +1944,16 @@ integer).  @xref{Line Height}, for more information.
 @vindex no-special-glyphs@r{, a frame parameter}
 @item no-special-glyphs
 If this is non-@code{nil}, it suppresses the display of any truncation
-and continuation glyphs (@pxref{Truncation}) for all buffers displayed
-by this frame.  This is useful to eliminate such glyphs when fitting a
-frame to its buffer via @code{fit-frame-to-buffer} (@pxref{Resizing
-Windows}).
+(@pxref{Truncation}) and continuation glyphs for all the buffers
+displayed by this frame.  This is useful to eliminate such glyphs when
+fitting a frame to its buffer via @code{fit-frame-to-buffer}
+(@pxref{Resizing Windows}).  This frame parameter has effect only for
+GUI frames shown on graphical displays, and only if the fringes are
+disabled.  This parameter is intended as a purely-presentation
+feature, and in particular should not be used for frames where the
+user can interactively insert text, or more generally where the cursor
+is shown.  A notable example of frames where this is used is tooltip
+frames (@pxref{Tooltips}).
 @end table
 
 
@@ -2277,7 +2283,7 @@ it on an undecorated frame.
 If non-@code{nil}, this means that this is an @dfn{override redirect}
 frame---a frame not handled by window managers under X@.  Override
 redirect frames have no window manager decorations, can be positioned
-and resized only via Emacs' positioning and resizing functions and are
+and resized only via Emacs's positioning and resizing functions and are
 usually drawn on top of all other frames.  Setting this parameter has
 no effect on MS-Windows.
 
@@ -2341,9 +2347,9 @@ Display a horizontal bar @var{height} pixels high.
 @end table
 
 @vindex cursor-type
-The @code{cursor-type} frame parameter may be overridden by the
-variables @code{cursor-type} and
-@code{cursor-in-non-selected-windows}:
+The @code{cursor-type} frame parameter may be overridden by
+@code{set-window-cursor-type} (@pxref{Window Point}), and by the
+variables @code{cursor-type} and @code{cursor-in-non-selected-windows}:
 
 @defopt cursor-type
 This buffer-local variable controls how the cursor looks in a selected
@@ -2441,7 +2447,8 @@ off color support.
 
 If the parameter's value is a symbol, it specifies a number through
 the value of @code{tty-color-mode-alist}, and the associated number is
-used instead.
+used instead.  This parameter supports dynamic changes during a running
+Emacs session (but not on MS-Windows and MS-DOS).
 
 @vindex screen-gamma@r{, a frame parameter}
 @item screen-gamma
@@ -2754,6 +2761,43 @@ With the prefix argument @var{iconify}, the frames are iconified rather
 than deleted.
 @end deffn
 
+The following function checks whether a frame can be safely deleted.  It
+is useful to avoid that a subsequent call of @code{delete-frame} throws
+an error.
+
+@defun frame-deletable-p &optional frame
+This function returns non-@code{nil} if the frame specified by
+@var{frame} can be safely deleted.  @var{frame} must be a live frame and
+defaults to the selected frame.
+
+A frame cannot be safely deleted in the following cases:
+
+@itemize @bullet
+@item
+It is the only visible or iconified frame (@pxref{Visibility of
+Frames}).
+
+@item
+It hosts the active minibuffer window and minibuffer windows do not
+follow the selected frame (@pxref{Basic Minibuffer,,, emacs}).
+
+@item
+All other visible or iconified frames are either child frames
+(@pxref{Child Frames}) or have a non-@code{nil} @code{delete-before}
+parameter.
+
+@item
+The frame or one of its descendants hosts the minibuffer window of a
+frame that is not a descendant of the frame (@pxref{Child Frames}).
+@end itemize
+
+These conditions cover most cases where @code{delete-frame} might fail
+when called from top-level.  They do not catch some special cases like,
+for example, deleting a frame during a drag-and-drop operation
+(@pxref{Drag and Drop}).  In any such case, it will be better to wrap
+the @code{delete-frame} call in a @code{condition-case} form.
+@end defun
+
 
 @node Finding All Frames
 @section Finding All Frames
@@ -2774,7 +2818,7 @@ visible, even though only the selected one is actually displayed.
 @end defun
 
 @defun frame-list-z-order &optional display
-This function returns a list of Emacs' frames, in Z (stacking) order
+This function returns a list of Emacs's frames, in Z (stacking) order
 (@pxref{Raising and Lowering}).  The optional argument @var{display}
 specifies which display to poll.  @var{display} should be either a frame
 or a display name (a string).  If omitted or @code{nil}, that stands for
@@ -2822,6 +2866,18 @@ direction.
 
   See also @code{next-window} and @code{previous-window}, in @ref{Cyclic
 Window Ordering}.
+
+  Some Lisp programs need to find one or more frames that satisfy a
+given criteria.  The function @code{filtered-frame-list} is provided for
+this purpose.
+
+@defun filtered-frame-list predicate
+This function returns the list of all the live frames which satisfy the
+specified @var{predicate}.  The argument @var{predicate} must be a
+function of one argument, a frame to be tested against the filtering
+criteria, and should return non-@code{nil} if the frame satisfies the
+criteria.
+@end defun
 
 @node Minibuffers and Frames
 @section Minibuffers and Frames
@@ -3139,7 +3195,7 @@ A frame on a graphical display may be @dfn{visible}, @dfn{invisible}, or
 usual manner.  If it is iconified, its contents are not displayed, but
 there is a little icon somewhere to bring the frame back into view (some
 window managers refer to this state as @dfn{minimized} rather than
-@dfn{iconified}, but from Emacs' point of view they are the same thing).
+@dfn{iconified}, but from Emacs's point of view they are the same thing).
 If a frame is invisible, it is not displayed at all.
 
 @cindex mapped frame
@@ -4014,7 +4070,7 @@ storing their own data; however, only three are commonly used: the
 selection}.  @xref{Cut and Paste,, Cut and Paste, emacs, The GNU Emacs
 Manual}, for Emacs commands that make use of these selections.  This
 section documents the low-level functions for reading and setting
-window-system selections; @xref{Accessing Selections} for
+window-system selections; @xref{Accessing Selections}, for
 documentation concerning selection types and data formats under
 particular window systems.
 
@@ -4052,8 +4108,8 @@ programs.  It takes two optional arguments, @var{type} and
 
 The @var{data-type} argument specifies the form of data conversion to
 use, to convert the raw data obtained from another program into Lisp
-data.  @xref{X Selections} for an enumeration of data types valid
-under X, and @xref{Other Selections} for those elsewhere.
+data.  @xref{X Selections}, for an enumeration of data types valid under
+X, and @pxref{Other Selections} for those elsewhere.
 @end defun
 
 @defopt selection-coding-system
@@ -4078,7 +4134,7 @@ the very rare cases when the information provided by the clipboard
 data is unusable for some reason.
 
 The default value of this variable is the system code page under
-MS-Windows 95, 98 or Me, @code{utf-16le-dos} on Windows
+MS-Windows 98 or Me, @code{utf-16le-dos} on Windows
 NT/W2K/XP/Vista/7/8/10/11, @code{iso-latin-1-dos} on MS-DOS, and
 @code{nil} elsewhere.
 @end defopt
@@ -4160,7 +4216,7 @@ code, for it's only meant to abet synchronization between the X
 server, owner and requestor.
 @end itemize
 
-  The selection owner responds by tranferring to the requestor a
+  The selection owner responds by transferring to the requestor a
 series of bytes, 16 bit words, or 32 bit words, along with another
 atom identifying the type of those words.  After requesting a
 selection, Emacs then applies its own interpretation of the data
@@ -4514,7 +4570,7 @@ bounds of the selection data in the buffer @var{buf}.
   Selections under such window systems as MS-Windows, Nextstep, Haiku
 and Android are not aligned with those under X@.  Each of these window
 system improvises its own selection mechanism without employing the
-``selection converter'' mechanism illustrated in the preceeding node.
+``selection converter'' mechanism illustrated in the preceding node.
 Only the @code{PRIMARY}, @code{CLIPBOARD}, and @code{SECONDARY}
 selections are generally supported, with the @code{XdndSelection}
 selection that records drag-and-drop data also available under
@@ -4660,7 +4716,7 @@ A unibyte string containing data in a certain MIME type.
 @end table
 @end defvar
 
-  A call to @code{gui-get-selection} generally returns the the data
+  A call to @code{gui-get-selection} generally returns the data
 named @var{data-type} within the selection message, albeit with
 @var{data-type} replaced by an alternative name should it be one of
 the following X selection targets:
@@ -4701,15 +4757,16 @@ to encoding or decoding by any coding system.
 
 @node Yanking Media
 @section Yanking Media
+@cindex yank media from window-system selections
 
-  Data saved within window system selections is not restricted to
-plain text.  It is possible for selection data to encompass images or
-other binary data of the like, as well as rich text content instanced
-by HTML, and also PostScript.  Since the selection data types incident
-to this data are at variance with those for plain text, the insertion
-of such data is facilitated by a set of functions dubbed
-@dfn{yank-media handlers}, which are registered by each major mode
-undertaking its insertion and called where warranted upon the
+  Data saved within window system selections and the MS-Windows
+clipboard is not restricted to plain text.  It is possible for selection
+data to encompass images or other binary data of the like, as well as
+rich text content instanced by HTML, and also PostScript.  Since the
+selection data types incident to this data are at variance with those
+for plain text, the insertion of such data is facilitated by a set of
+functions dubbed @dfn{yank-media handlers}, which are registered by each
+major mode undertaking its insertion and called where warranted upon the
 execution of the @code{yank-media} command.
 
 @defun yank-media-handler types handler
@@ -4852,7 +4909,7 @@ is the selection data itself (@pxref{Accessing Selections}).
 sometimes distinct from those provided by the ICCCM and conforming
 clipboard or primary selection owners.  Frequently, the name of a MIME
 type, such as @code{"text/plain;charset=utf-8"} (with discrepant
-capitalization of the ``utf-8''), is substitued for a standard X
+capitalization of the ``utf-8''), is substituted for a standard X
 selection name such as @code{UTF8_STRING}.
 
 @cindex XDS

@@ -1,6 +1,6 @@
 ;;; dnd.el --- drag and drop support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2024 Free Software Foundation, Inc.
 
 ;; Author: Jan Djärv <jan.h.d@swipnet.se>
 ;; Maintainer: emacs-devel@gnu.org
@@ -151,8 +151,13 @@ Windows."
                 (with-selected-window window
                   (scroll-down 1))))))))
       (when dnd-indicate-insertion-point
-        (ignore-errors
-          (goto-char (posn-point posn)))))))
+        (let ((pos (posn-point posn)))
+          ;; We avoid errors here, since on some systems this runs
+          ;; when waiting_for_input is non-zero, and that aborts on
+          ;; error.
+          (if (and pos (<= (point-min) pos (point-max)))
+              (goto-char pos)
+            pos))))))
 
 (defun dnd-handle-one-url (window action url)
   "Handle one dropped url by calling the appropriate handler.
@@ -265,8 +270,8 @@ for it will be modified."
       ;; assigned their own handlers.
       (dolist (leftover urls)
         (setq return-value 'private)
-        (if-let ((handler (browse-url-select-handler leftover
-                                                     'internal)))
+        (if-let* ((handler (browse-url-select-handler leftover
+                                                      'internal)))
             (funcall handler leftover action)
           (dnd-insert-text window action leftover)))
       (or return-value 'private))))
@@ -453,7 +458,10 @@ on FRAME itself.
 
 This function might return immediately if no mouse buttons are
 currently being held down.  It should only be called upon a
-`down-mouse-1' (or similar) event."
+`down-mouse-1' (or similar) event.
+
+This function is only supported on X Windows, macOS/GNUstep, and Haiku;
+on all other platforms it will signal an error."
   (unless (fboundp 'x-begin-drag)
     (error "Dragging text from Emacs is not supported by this window system"))
   (gui-set-selection 'XdndSelection text)
@@ -513,7 +521,10 @@ nil, any drops on FRAME itself will be ignored.
 
 This function might return immediately if no mouse buttons are
 currently being held down.  It should only be called upon a
-`down-mouse-1' (or similar) event."
+`down-mouse-1' (or similar) event.
+
+This function is only supported on X Windows, macOS/GNUstep, and Haiku;
+on all other platforms it will signal an error."
   (unless (fboundp 'x-begin-drag)
     (error "Dragging files from Emacs is not supported by this window system"))
   (dnd-remove-last-dragged-remote-file)
@@ -580,7 +591,10 @@ FRAME, ACTION and ALLOW-SAME-FRAME mean the same as in
 
 FILES is a list of files that will be dragged.  If the drop
 target doesn't support dropping multiple files, the first file in
-FILES will be dragged."
+FILES will be dragged.
+
+This function is only supported on X Windows, macOS/GNUstep, and Haiku;
+on all other platforms it will signal an error."
   (unless (fboundp 'x-begin-drag)
     (error "Dragging files from Emacs is not supported by this window system"))
   (dnd-remove-last-dragged-remote-file)

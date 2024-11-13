@@ -1,6 +1,6 @@
 ;;; esh-arg-tests.el --- esh-arg test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2022-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2022-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -60,12 +60,16 @@ chars."
                                 "he\\\\llo\n")))
 
 (ert-deftest esh-arg-test/escape/newline ()
-  "Test that an escaped newline is equivalent to the empty string.
-When newlines are *nonspecial*, an escaped newline should be
-treated as just a newline."
+  "Test that an escaped newline is equivalent to the empty string."
   (with-temp-eshell
    (eshell-match-command-output "echo hi\\\nthere"
                                 "hithere\n")))
+
+(ert-deftest esh-arg-test/escape/trailing-newline ()
+  "Test that an escaped newline is equivalent to the empty string."
+  (with-temp-eshell
+   (eshell-match-command-output "echo hi\\\n"
+                                "hi\n")))
 
 (ert-deftest esh-arg-test/escape/newline-conditional ()
   "Test invocation of an if/else statement using line continuations."
@@ -95,9 +99,7 @@ chars."
                                 "\\\"hi\\\\\n")))
 
 (ert-deftest esh-arg-test/escape-quoted/newline ()
-  "Test that an escaped newline is equivalent to the empty string.
-When newlines are *nonspecial*, an escaped newline should be
-treated literally, as a backslash and a newline."
+  "Test that an escaped newline is equivalent to the empty string."
   (with-temp-eshell
    (eshell-match-command-output "echo \"hi\\\nthere\""
                                 "hithere\n")))
@@ -177,6 +179,19 @@ treated literally, as a backslash and a newline."
      (should (equal eshell-test-value marker))
      (eshell-insert-command
       "setq eshell-test-value #<marker 1 #<buffer (buffer-name)>>")
+     (should (equal eshell-test-value marker)))))
+
+(ert-deftest esh-arg-test/special-reference/command-form ()
+  "Test that command forms inside special references work."
+  (with-temp-eshell
+   (let ((marker (make-marker))
+         eshell-test-value)
+     (set-marker marker 1 (current-buffer))
+     (eshell-insert-command
+      "setq eshell-test-value #<marker 1 {current-buffer}>")
+     (should (equal eshell-test-value marker))
+     (eshell-insert-command
+      "setq eshell-test-value #<marker 1 #<buffer {buffer-name}>>")
      (should (equal eshell-test-value marker)))))
 
 (ert-deftest esh-arg-test/special-reference/special-characters ()

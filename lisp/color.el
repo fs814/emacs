@@ -1,6 +1,6 @@
 ;;; color.el --- Color manipulation library -*- lexical-binding:t -*-
 
-;; Copyright (C) 2010-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2024 Free Software Foundation, Inc.
 
 ;; Authors: Julien Danjou <julien@danjou.info>
 ;;          Drew Adams <drew.adams@oracle.com>
@@ -29,7 +29,8 @@
 ;;
 ;; Supported color representations include RGB (red, green, blue), HSV
 ;; (hue, saturation, value), HSL (hue, saturation, luminance), sRGB,
-;; CIE XYZ, and CIE L*a*b* color components.
+;; CIE XYZ, CIE L*a*b* color components, and the Oklab perceptual color
+;; space.
 
 ;;; Code:
 
@@ -54,6 +55,7 @@ If FRAME cannot display COLOR, return nil."
   (let ((valmax (float (car (color-values "#ffffffffffff")))))
     (mapcar (lambda (x) (/ x valmax)) (color-values color frame))))
 
+;;;###autoload
 (defun color-rgb-to-hex  (red green blue &optional digits-per-component)
   "Return hexadecimal #RGB notation for the color specified by RED GREEN BLUE.
 RED, GREEN, and BLUE should be numbers between 0.0 and 1.0, inclusive.
@@ -73,6 +75,23 @@ components (e.g. \"#ffff1212ecec\")."
     (list (- 1.0 (nth 0 color))
           (- 1.0 (nth 1 color))
           (- 1.0 (nth 2 color)))))
+
+;;;###autoload
+(defun color-blend (a b &optional alpha)
+  "Blend the two colors A and B in linear space with ALPHA.
+A and B should be lists (RED GREEN BLUE), where each element is
+between 0.0 and 1.0, inclusive.  ALPHA controls the influence A
+has on the result and should be between 0.0 and 1.0, inclusive.
+
+For instance:
+
+   (color-blend \\='(1 0.5 1) \\='(0 0 0) 0.75)
+      => (0.75 0.375 0.75)"
+  (setq alpha (or alpha 0.5))
+  (let (blend)
+    (dotimes (i 3)
+      (push (+ (* (nth i a) alpha) (* (nth i b) (- 1 alpha))) blend))
+    (nreverse blend)))
 
 (defun color-gradient (start stop step-number)
   "Return a list with STEP-NUMBER colors from START to STOP.
@@ -368,6 +387,44 @@ returned by `color-srgb-to-lab' or `color-xyz-to-lab'."
                  (expt (/ ΔH′ (* Sh kH)) 2.0)
                  (* Rt (/ ΔC′ (* Sc kC)) (/ ΔH′ (* Sh kH)))))))
 
+(defun color-oklab-to-xyz (l a b)
+  "Convert the OkLab color represented by L A B to CIE XYZ.
+Oklab is a perceptual color space created by Björn Ottosson
+<https://bottosson.github.io/posts/oklab/>.  It has the property that
+changes in the hue and saturation of a color can be made while maintaining
+the same perceived lightness."
+  (let ((ll (expt (+ (* 1.0 l) (* 0.39633779 a) (* 0.21580376 b)) 3))
+        (mm (expt (+ (* 1.00000001 l) (* -0.10556134 a) (* -0.06385417 b)) 3))
+        (ss (expt (+ (* 1.00000005 l) (* -0.08948418 a) (* -1.29148554 b)) 3)))
+    (list (+ (* ll 1.22701385) (* mm -0.55779998) (* ss 0.28125615))
+          (+ (* ll -0.04058018) (* mm 1.11225687) (* ss -0.07167668))
+          (+ (* ll -0.07638128) (* mm -0.42148198) (* ss 1.58616322)))))
+
+(defun color-xyz-to-oklab (x y z)
+  "Convert the CIE XYZ color represented by X Y Z to Oklab."
+  (let ((ll (+ (* x 0.8189330101) (* y 0.3618667424) (* z -0.1288597137)))
+        (mm (+ (* x 0.0329845436) (* y 0.9293118715) (* z 0.0361456387)))
+        (ss (+ (* x 0.0482003018) (* y 0.2643662691) (* z 0.6338517070))))
+    (let*
+        ((cube-root (lambda (f)
+                      (if (< f 0)
+	                  (- (expt (- f) (/ 1.0 3.0)))
+                        (expt f (/ 1.0 3.0)))))
+         (lll (funcall cube-root ll))
+         (mmm (funcall cube-root mm))
+         (sss (funcall cube-root ss)))
+      (list (+ (* lll 0.2104542553) (* mmm 0.7936177850) (* sss -0.0040720468))
+            (+ (* lll 1.9779984951) (* mmm -2.4285922050) (* sss 0.4505937099))
+            (+ (* lll 0.0259040371) (* mmm 0.7827717662) (* sss -0.8086757660))))))
+
+(defun color-oklab-to-srgb (l a b)
+  "Convert the Oklab color represented by L A B to sRGB."
+  (apply #'color-xyz-to-srgb (color-oklab-to-xyz l a b)))
+
+(defun color-srgb-to-oklab (r g b)
+  "Convert the sRGB color R G B to Oklab."
+  (apply #'color-xyz-to-oklab (color-srgb-to-xyz r g b)))
+
 (defun color-clamp (value)
   "Make sure VALUE is a number between 0.0 and 1.0 inclusive."
   (min 1.0 (max 0.0 value)))
@@ -407,7 +464,11 @@ See `color-desaturate-hsl'."
 Given a color defined in terms of hue, saturation, and luminance
 \(arguments H, S, and L), return a color that is PERCENT lighter.
 Returns a list (HUE SATURATION LUMINANCE)."
-  (list H S (color-clamp (+ L (* L (/ percent 100.0))))))
+  (let ((p (/ percent 100.0)))
+    (if (> p 0.0)
+        (setq L (* L (- 1.0 p)))
+      (setq p (- (* L (abs p)))))
+    (list H S (color-clamp (+ L p)))))
 
 (defun color-lighten-name (name percent)
   "Make a color with a specified NAME lighter by PERCENT.

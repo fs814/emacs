@@ -10,7 +10,7 @@
 @copying
 This manual is for Eglot, the Emacs LSP client.
 
-Copyright @copyright{} 2022--2023 Free Software Foundation, Inc.
+Copyright @copyright{} 2022--2024 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -123,14 +123,16 @@ Here's how to start using Eglot with your programming project:
 @item
 Select and install a language server.
 
-Eglot comes pre-configured with many popular language servers, see the
-value of @code{eglot-server-programs}.  If the server(s) mentioned
-there satisfy your needs for the programming language(s) with which
-you want to use Eglot, you just need to make sure those servers are
-installed on your system.  Alternatively, install one or more servers
-of your choice and add them to the value of
+Eglot comes pre-configured for many popular language servers, see the
+value of @code{eglot-server-programs}.  If the server(s) mentioned there
+satisfy your needs for the programming language(s) with which you want
+to use Eglot, you just need to make sure those servers are installed on
+your system and Eglot can find them.
+
+Alternatively, install one or more servers of your choice and tell Eglot
+where to find them.  To do that, you may add to the value of
 @code{eglot-server-programs}, as described in @ref{Setting Up LSP
-Servers}.
+Servers} or have Eglot prompt you about it (@pxref{Eglot Commands}).
 
 @item
 Turn on Eglot for your project.
@@ -138,17 +140,19 @@ Turn on Eglot for your project.
 To start using Eglot for a project, type @kbd{M-x eglot @key{RET}} in
 a buffer visiting any file that belongs to the project.  This starts
 the language server configured for the programming language of that
-buffer, and causes Eglot to start managing all the files of the
-project which use the same programming language.  The notion of a
-``project'' used by Eglot is the same Emacs uses (@pxref{Projects,,,
-emacs, GNU Emacs Manual}): in the simplest case, the ``project'' is
-the single file you are editing, but it can also be all the files in a
-single directory or a directory tree under some version control
-system, such as Git.
+buffer, and causes Eglot to start @dfn{managing} file-visiting buffers
+related to that programming language.  This includes files that are
+already visited at the time the @code{eglot} command is invoked, as
+well as any files visited after this invocation.
 
-Alternatively, you can start Eglot automatically from the major-mode
-hook of the mode used for the programming language; see @ref{Starting
-Eglot}.
+The notion of a ``project'' used by Eglot is the same Emacs uses
+(@pxref{Projects,,, emacs, GNU Emacs Manual}): in the simplest case,
+the ``project'' is the single file you are editing, but it can also be
+all the files in a single directory or a directory tree under some
+version control system, such as Git.
+
+There are alternate ways of starting Eglot; see @ref{Starting Eglot}
+for details.
 
 @item
 Use Eglot.
@@ -195,7 +199,7 @@ particular server(s) you want to install.
 
 To use a language server, Eglot must know how to start it and which
 programming languages each server supports.  This information is
-provided by the variable @code{eglot-server-programs}.
+commonly provided by the variable @code{eglot-server-programs}.
 
 @defvar eglot-server-programs
 This variable associates major modes with names and command-line
@@ -344,6 +348,12 @@ starting an Eglot session is non-interactive, so it should be used
 only when you are confident that Eglot can be started reliably for any
 file which may be visited with the major-mode in question.
 
+Note that it's often difficult to establish this confidence fully, so
+it may be wise to use the interactive command @code{eglot} instead.
+You only need to invoke it once per project, as all other files
+visited within the same project will automatically be managed with no
+further user intervention needed.
+
 When Eglot connects to a language server for the first time in an
 Emacs session, it runs the hook @code{eglot-connect-hook}
 (@pxref{Eglot Variables}).
@@ -396,11 +406,13 @@ commands and variables.
 @section Eglot Features
 @cindex features in buffers supported by Eglot
 
-Once Eglot is enabled in a buffer, it uses LSP and the language-server
-capabilities to activate, enable, and enhance modern IDE features in
-Emacs.  The features themselves are usually provided via other Emacs
-packages.  Here's the list of the main features that Eglot enables and
-provides:
+While Eglot is enabled in a buffer, it is said to be @dfn{managing}
+it, using LSP and the specific capabilities of the language server to
+activate and enhance modern IDE features in Emacs.  Some of these
+features are provided via other Emacs packages, and some via Eglot
+directly (@pxref{Eglot Commands}).
+
+Here's an overview of the main features that Eglot provides:
 
 @itemize @bullet
 @item
@@ -413,10 +425,11 @@ allows major modes to provide extensive help and documentation about
 the program identifiers.
 
 @item
-On-the-fly diagnostic annotations with server-suggested fixes, via the
-Flymake package (@pxref{Top,,, flymake, GNU Flymake manual}).  This
-improves and enhances the Flymake diagnostics, replacing the other
-Flymake backends.
+On-the-fly diagnostic annotations, via the Flymake package
+(@pxref{Top,,, flymake, GNU Flymake manual}).  Eglot's Flymake backend
+replaces other Flymake backends while it is managing a buffer, and
+enhances diagnostics with interactive server-suggested fixes
+(so-called @dfn{code actions}, @pxref{Eglot Commands})
 
 @item
 Finding definitions and uses of identifiers, via Xref (@pxref{Xref,,,
@@ -475,9 +488,17 @@ with @kbd{eglot-code-actions}.  @xref{Eglot Commands}.
 
 Not all servers support the full set of LSP capabilities, but most of
 them support enough to enable the basic set of features mentioned
-above.  Conversely, some servers offer capabilities for which no
-equivalent Emacs package exists yet, and so Eglot cannot (yet) expose
-these capabilities to Emacs users.
+above.
+
+Conversely, some servers offer capabilities for which no equivalent
+Emacs package exists yet, and so Eglot cannot (yet) expose these
+capabilities to Emacs users.  However, @xref{Extending Eglot}.
+
+Finally, it's worth noting that, by default, Eglot generally turns on
+all features that it @emph{can} turn on.  It's possible to opt out of
+some features via user options (@pxref{Customizing Eglot}) and a hook
+that runs after Eglot starts managing a buffer (@pxref{Eglot and
+Buffers}).
 
 @node Eglot and Buffers
 @section Buffers, Projects, and Eglot
@@ -581,7 +602,7 @@ user, but automatically, as the result of starting an Eglot session
 for the buffer.  However, this minor mode provides a hook variable
 @code{eglot-managed-mode-hook} that can be used to customize the Eglot
 management of the buffer.  This hook is run both when the minor mode
-is turned on and when it's turned off; use the variable
+is turned on and when it's turned off; use the function
 @code{eglot-managed-p} to tell if current buffer is still being
 managed or not.  When Eglot stops managing the buffer, this minor mode
 is turned off, and all the settings that Eglot changed are restored to
@@ -683,12 +704,12 @@ This command reformats the current buffer, in the same manner as
 These commands allow you to invoke the so-called @dfn{code actions}:
 requests for the language server to provide editing commands for
 correcting, refactoring or beautifying your code.  These commands may
-affect more than one visited file belong to the project.
+affect more than one visited file belonging to the project.
 
-The command @code{eglot-code-actions} asks the server if there any
+The command @code{eglot-code-actions} asks the server if there are any
 code actions for any point in the buffer or contained in the active
-region.  If there are, you the choice to execute one of them via the
-minibuffer.
+region.  If there are, you have the choice to execute one of them via
+the minibuffer.
 
 A common use of code actions is fixing the Flymake error diagnostics
 issued by Eglot (@pxref{Top,,, flymake, GNU Flymake manual}).
@@ -817,13 +838,13 @@ in the background.  The value of @code{t} means block during the whole
 waiting period.  The value of @code{nil} or @code{0} means don't block at
 all during the waiting period.
 
-@item eglot-events-buffer-size
-This determines the size of the Eglot events buffer.  @xref{Eglot
-Commands, eglot-events-buffer}, for how to display that buffer.  If
-the value is changed, for it to take effect the connection should be
-restarted using @kbd{M-x eglot-reconnect}.
+@item eglot-events-buffer-config
+This configures the size and format of the Eglot events buffer.
+@xref{Eglot Commands, eglot-events-buffer}, for how to access that
+buffer.  If the value is changed, the connection should be restarted
+using @kbd{M-x eglot-reconnect} for the new value to take effect.
 @c FIXME: Shouldn't the defcustom do this by itself using the :set
-@c attribute?
+@c attribute?  Maybe not because reconnecting is a complex task.
 @xref{Troubleshooting Eglot}, for when this could be useful.
 
 @item eglot-autoshutdown
@@ -920,12 +941,16 @@ to @w{@code{(disallow-non-standard-keys enforce-required-keys)}}.
 
 @vindex eglot-server-initialized-hook
 @item eglot-server-initialized-hook
-A hook run after the server object is successfully initialized.
+A hook run after the server object is successfully initialized (which
+includes launching the process) but before any LSP communication is
+attempted.  Each function receives a @code{eglot-lsp-server} instance as
+argument.
 
 @vindex eglot-connect-hook
 @item eglot-connect-hook
-A hook run after connection to the server is successfully
-established.  @xref{Starting Eglot}.
+A hook run after the LSP connection to the server is successfully
+established.  Each function receives a @code{eglot-lsp-server} instance
+as argument.  @xref{Starting Eglot}.
 
 @item eglot-managed-mode-hook
 A hook run after Eglot started or stopped managing a buffer.
@@ -1088,8 +1113,8 @@ To apply this to Eglot, and assuming you chose the
                                              :fuzzy t)
                            :pylint (:enabled :json-false)))
          :gopls (:usePlaceholders t)))))
- (python-mode . ((indent-tabs-mode . nil)))
- (go-mode     . ((indent-tabs-mode . t))))
+ (python-base-mode . ((indent-tabs-mode . nil)))
+ (go-mode          . ((indent-tabs-mode . t))))
 @end lisp
 
 @noindent
@@ -1104,7 +1129,7 @@ plists are used inside the value of
 This following form may also be used:
 
 @lisp
-((python-mode
+((python-base-mode
   . ((eglot-workspace-configuration
       . (:pylsp (:plugins (:jedi_completion (:include_params t
                                              :fuzzy t)
@@ -1119,7 +1144,7 @@ This following form may also be used:
 @noindent
 This sets up the value of @code{eglot-workspace-configuration}
 separately depending on the major mode of each of that project's
-buffers.  @code{python-mode} buffers will have the variable set to
+buffers.  @code{python-base-mode} buffers will have the variable set to
 @code{(:pylsp (:plugins ...))}.  @code{go-mode} buffers will have the
 variable set to @code{(:gopls (:usePlaceholders t))}.
 
@@ -1130,7 +1155,7 @@ want to set a different option for @code{gopls.usePlaceholders} , you
 may use something like:
 
 @lisp
-((python-mode
+((python-base-mode
   . ((eglot-workspace-configuration
       . (:pylsp (:plugins (:jedi_completion (:include_params t
                                              :fuzzy t)
@@ -1213,7 +1238,7 @@ in @ref{Project-specific configuration}.  Here is an example:
 @end lisp
 
 Note that the global value of @code{eglot-workspace-configuration} is
-always overriden if a directory-local value is detected.
+always overridden if a directory-local value is detected.
 
 @node JSONRPC objects in Elisp
 @section JSONRPC objects in Elisp
@@ -1294,7 +1319,7 @@ based on compile-time information.
 
 The language server reports the regions by periodically sending a
 @code{textDocument/inactiveRegions} notification for each managed
-buffer (@pxref{Eglot and Buffers}). Normally, unknown server
+buffer (@pxref{Eglot and Buffers}).  Normally, unknown server
 notifications are ignored by Eglot, but we're going change that.
 
 Both the announcement of the client capability and the handling of the
@@ -1334,7 +1359,7 @@ called @code{eglot-clangd}, so that the method would be simplified:
 However, this would require that users tweak
 @code{eglot-server-program} to tell Eglot instantiate such sub-classes
 instead of the generic @code{eglot-lsp-server} (@pxref{Setting Up LSP
-Servers}). For the purposes of this particular demonstration, we're
+Servers}).  For the purposes of this particular demonstration, we're
 going to use the more hacky regexp route which doesn't require that.
 
 Note, however, that detecting server versions before announcing new
@@ -1386,8 +1411,6 @@ The remainder of the implementation consists of standard Elisp
 techniques to loop over arrays, manage buffers and overlays.
 
 @lisp
-(defvar-local eglot-clangd-inactive-region-overlays '())
-
 (cl-defmethod eglot-handle-notification
   (_server (_method (eql textDocument/inactiveRegions))
            &key regions textDocument &allow-other-keys)
@@ -1395,14 +1418,14 @@ techniques to loop over arrays, manage buffers and overlays.
                                      (cl-getf textDocument :uri))))
             (buffer (find-buffer-visiting path)))
       (with-current-buffer buffer
-        (mapc #'delete-overlay eglot-clangd-inactive-region-overlays)
+        (remove-overlays nil nil 'inactive-code t)
         (cl-loop
          for r across regions
          for (beg . end) = (eglot-range-region r)
          for ov = (make-overlay beg end)
          do
          (overlay-put ov 'face 'shadow)
-         (push ov eglot-clangd-inactive-region-overlays)))))
+         (overlay-put ov 'inactive-code t)))))
 @end lisp
 
 @end itemize
@@ -1436,12 +1459,14 @@ indicate the problems or at least provide a hint.
 @node Performance
 @section Performance
 @cindex performance problems, with Eglot
-A common and easy-to-fix cause of performance problems is the length
-of the Eglot events buffer because it represent additional work that
-Eglot must do.  After verifying Eglot is operating correctly but
-slowly, try to customize the variable @code{eglot-events-buffer-size}
-(@pxref{Eglot Variables}) to 0.  This will disable any debug logging
-and may speed things up.
+A common and easy-to-fix cause of performance problems in Eglot
+(especially in older versions) is its events buffer, since it
+represents additional work that Eglot must do (@pxref{Eglot Commands,
+eglot-events-buffer}).  If you find Eglot is operating correctly but
+slowly, try to customize the variable
+@code{eglot-events-buffer-config} (@pxref{Eglot Variables}) and set
+its @code{:size} property to 0.  This will disable recording any
+events and may speed things up.
 
 In other situations, the cause of poor performance lies in the
 language server itself.  Servers use aggressive caching and other

@@ -1,6 +1,6 @@
 /* Support for embedding graphical components in a buffer.
 
-Copyright (C) 2011-2023 Free Software Foundation, Inc.
+Copyright (C) 2011-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -22,7 +22,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include "buffer.h"
 #include "coding.h"
 #include "xwidget.h"
-
 #include "lisp.h"
 #include "blockinput.h"
 #include "buffer.h"
@@ -419,12 +418,12 @@ fails.  */)
                 related_view);
             }
 
-          /* Enable the developer extras.  */
-          settings = webkit_web_view_get_settings (
-            WEBKIT_WEB_VIEW (xw->widget_osr));
-          g_object_set (G_OBJECT (settings),
-                        "enable-developer-extras", TRUE, NULL);
-        }
+	  /* Enable the developer extras.  */
+	  settings = webkit_web_view_get_settings (WEBKIT_WEB_VIEW (xw->widget_osr));
+	  g_object_set (G_OBJECT (settings), "enable-developer-extras", TRUE, NULL);
+	  g_object_set (G_OBJECT (settings), "enable-javascript",
+		        (gboolean) (!xwidget_webkit_disable_javascript), NULL);
+	}
 
       gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr),
                                    xw->width, xw->height);
@@ -563,10 +562,7 @@ On X11, modifier keys will not be processed if FRAME is nil and the
 selected frame is not an X-Windows frame.  */)
 (Lisp_Object xwidget, Lisp_Object event, Lisp_Object frame)
 {
-  struct xwidget *xw;
   struct frame *f = NULL;
-  int character = -1, keycode = -1;
-  int modifiers = 0;
 
 #ifdef USE_GTK
   GdkEvent *xg_event;
@@ -580,7 +576,6 @@ selected frame is not an X-Windows frame.  */)
 #endif
 
   CHECK_LIVE_XWIDGET (xwidget);
-  xw = XXWIDGET (xwidget);
 
   if (!NILP (frame))
     f = decode_window_system_frame (frame);
@@ -588,6 +583,10 @@ selected frame is not an X-Windows frame.  */)
     f = SELECTED_FRAME ();
 
 #ifdef USE_GTK
+  int character = -1, keycode = -1;
+  int modifiers = 0;
+  struct xwidget *xw = XXWIDGET (xwidget);
+
 #ifdef HAVE_XINPUT2
   /* XI2 GDK devices crash if we try this without an embedder set.  */
   if (!f)
@@ -2397,9 +2396,11 @@ store_xwidget_download_callback_event (struct xwidget *xw,
   EVENT_INIT (event);
   event.kind = XWIDGET_EVENT;
   event.frame_or_window = Qnil;
-  event.arg
-    = list5 (intern ("download-callback"), xwl, build_string (url),
-             build_string (mimetype), build_string (filename));
+  event.arg = list5 (Qdownload_callback,
+                     xwl,
+                     build_string (url),
+                     build_string (mimetype),
+                     build_string (filename));
   kbd_buffer_store_event (&event);
 }
 
@@ -2413,8 +2414,7 @@ store_xwidget_js_callback_event (struct xwidget *xw, Lisp_Object proc,
   EVENT_INIT (event);
   event.kind = XWIDGET_EVENT;
   event.frame_or_window = Qnil;
-  event.arg
-    = list4 (intern ("javascript-callback"), xwl, proc, argument);
+  event.arg = list4 (Qjavascript_callback, xwl, proc, argument);
   kbd_buffer_store_event (&event);
 }
 
@@ -4481,6 +4481,13 @@ syms_of_xwidget (void)
                : /* List of all xwidget views.  */);
   Vxwidget_view_list = Qnil;
 
+  DEFVAR_BOOL ("xwidget-webkit-disable-javascript", xwidget_webkit_disable_javascript,
+    doc: /* If non-nil, disable execution of JavaScript in xwidget WebKit widgets.
+Modifications to this setting do not take effect in existing WebKit
+widgets; kill all xwidget-webkit buffers for changes in this setting
+to take effect.  */);
+  xwidget_webkit_disable_javascript = false;
+
   Fprovide (intern ("xwidget-internal"), Qnil);
 
   id_to_xwidget_map
@@ -4502,6 +4509,8 @@ syms_of_xwidget (void)
   staticpro (&dummy_tooltip_string);
 #endif
 #endif
+  DEFSYM (Qdownload_callback, "download-callback");
+  DEFSYM (Qjavascript_callback, "javascript-callback");
 }
 
 /* Value is non-zero if OBJECT is a valid Lisp xwidget specification.

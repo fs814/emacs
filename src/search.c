@@ -1,6 +1,6 @@
 /* String search routines for GNU Emacs.
 
-Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2023 Free Software
+Copyright (C) 1985-1987, 1993-1994, 1997-1999, 2001-2024 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -20,6 +20,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 
 #include <config.h>
+
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "lisp.h"
 #include "character.h"
@@ -281,7 +284,7 @@ looking_at_1 (Lisp_Object string, bool posix, bool modify_data)
   struct regexp_cache *cache_entry = compile_pattern (
     string,
     modify_match_data ? &search_regs : NULL,
-    (!NILP (BVAR (current_buffer, case_fold_search))
+    (!NILP (Vcase_fold_search)
      ? BVAR (current_buffer, case_canon_table) : Qnil),
     posix,
     !NILP (BVAR (current_buffer, enable_multibyte_characters)));
@@ -402,7 +405,7 @@ string_match_1 (Lisp_Object regexp, Lisp_Object string, Lisp_Object start,
   struct regexp_cache *cache_entry
     = compile_pattern (regexp,
 		       modify_match_data ? &search_regs : NULL,
-		       (!NILP (BVAR (current_buffer, case_fold_search))
+		       (!NILP (Vcase_fold_search)
 			? BVAR (current_buffer, case_canon_table)
 			: Qnil),
 		       posix,
@@ -1068,10 +1071,10 @@ search_command (Lisp_Object string, Lisp_Object bound, Lisp_Object noerror,
 			 BVAR (current_buffer, case_eqv_table));
 
   np = search_buffer (string, PT, PT_BYTE, lim, lim_byte, n, RE,
-		      (!NILP (BVAR (current_buffer, case_fold_search))
+		      (!NILP (Vcase_fold_search)
 		       ? BVAR (current_buffer, case_canon_table)
 		       : Qnil),
-		      (!NILP (BVAR (current_buffer, case_fold_search))
+		      (!NILP (Vcase_fold_search)
 		       ? BVAR (current_buffer, case_eqv_table)
 		       : Qnil),
 		      posix);
@@ -2276,7 +2279,7 @@ The optional second argument BOUND is a buffer position that bounds
   value of nil means search to the end of the accessible portion of
   the buffer.
 The optional third argument NOERROR indicates how errors are handled
-  when the search fails.  If it is nil or omitted, emit an error; if
+  when the search fails: if it is nil or omitted, emit an error; if
   it is t, simply return nil and do nothing; if it is neither nil nor
   t, move to the limit of search and return nil.
 The optional fourth argument COUNT is a number that indicates the
@@ -2759,6 +2762,7 @@ since only regular expressions have distinguished subexpressions.  */)
 
   /* Replace the old text with the new in the cleanest possible way.  */
   replace_range (sub_start, sub_end, newtext, 1, 0, 1, true, true);
+  signal_after_change (sub_start, sub_end - sub_start, SCHARS (newtext));
 
   if (case_action == all_caps)
     Fupcase_region (make_fixnum (search_regs.start[sub]),
@@ -2768,22 +2772,11 @@ since only regular expressions have distinguished subexpressions.  */)
     Fupcase_initials_region (make_fixnum (search_regs.start[sub]),
 			     make_fixnum (newpoint), Qnil);
 
-  /* The replace_range etc. functions can trigger modification hooks
-     (see signal_before_change and signal_after_change).  Try to error
-     out if these hooks clobber the match data since clobbering can
-     result in confusing bugs.  We used to check for changes in
-     search_regs start and end, but that fails if modification hooks
-     remove or add text earlier in the buffer, so just check num_regs
-     now. */
-  if (search_regs.num_regs != num_regs)
-    error ("Match data clobbered by buffer modification hooks");
-
   /* Put point back where it was in the text, if possible.  */
   TEMP_SET_PT (clip_to_bounds (BEGV, opoint + (opoint <= 0 ? ZV : 0), ZV));
   /* Now move point "officially" to the end of the inserted replacement.  */
   move_if_not_intangible (newpoint);
 
-  signal_after_change (sub_start, sub_end - sub_start, SCHARS (newtext));
   update_compositions (sub_start, newpoint, CHECK_BORDER);
 
   return Qnil;
@@ -2809,11 +2802,12 @@ match_limit (Lisp_Object num, bool beginningp)
 
 DEFUN ("match-beginning", Fmatch_beginning, Smatch_beginning, 1, 1, 0,
        doc: /* Return position of start of text matched by last search.
-SUBEXP, a number, specifies which parenthesized expression in the last
-  regexp.
-Value is nil if SUBEXPth pair didn't match, or there were less than
-  SUBEXP pairs.
-Zero means the entire text matched by the whole regexp or whole string.
+SUBEXP, a number, specifies the parenthesized subexpression in the last
+  regexp for which to return the start position.
+Value is nil if SUBEXPth subexpression didn't match, or there were fewer
+  than SUBEXP subexpressions.
+SUBEXP zero means the entire text matched by the whole regexp or whole
+  string.
 
 Return value is undefined if the last search failed.  */)
   (Lisp_Object subexp)
@@ -2823,11 +2817,12 @@ Return value is undefined if the last search failed.  */)
 
 DEFUN ("match-end", Fmatch_end, Smatch_end, 1, 1, 0,
        doc: /* Return position of end of text matched by last search.
-SUBEXP, a number, specifies which parenthesized expression in the last
-  regexp.
-Value is nil if SUBEXPth pair didn't match, or there were less than
-  SUBEXP pairs.
-Zero means the entire text matched by the whole regexp or whole string.
+SUBEXP, a number, specifies the parenthesized subexpression in the last
+  regexp for which to return the start position.
+Value is nil if SUBEXPth subexpression didn't match, or there were fewer
+  than SUBEXP subexpressions.
+SUBEXP zero means the entire text matched by the whole regexp or whole
+  string.
 
 Return value is undefined if the last search failed.  */)
   (Lisp_Object subexp)
@@ -3140,11 +3135,25 @@ update_search_regs (ptrdiff_t oldstart, ptrdiff_t oldend, ptrdiff_t newend)
   ptrdiff_t change = newend - oldend;
   ptrdiff_t i;
 
+  /* When replacing subgroup 3 in a match for regexp '\(\)\(\(\)\)\(\)'
+     start[i] should ideally stay unchanged for all but i=4 and end[i]
+     should move for all but i=1.
+     We don't have enough info here to distinguish those different subgroups
+     (except for subgroup 0), so instead we lean towards leaving the start[i]s
+     unchanged and towards moving the end[i]s.  */
+
   for (i = 0; i < search_regs.num_regs; i++)
     {
-      if (search_regs.start[i] >= oldend)
+      if (search_regs.start[i] <= oldstart)
+        /* If the subgroup that 'replace-match' is modifying encloses the
+           subgroup 'i', then its 'start' position should stay unchanged.
+           That's always true for subgroup 0.
+           For other subgroups it depends on details we don't have, so
+           we optimistically assume that it also holds for them.  */
+        ;
+      else if (search_regs.start[i] >= oldend)
         search_regs.start[i] += change;
-      else if (search_regs.start[i] > oldstart)
+      else
         search_regs.start[i] = oldstart;
       if (search_regs.end[i] >= oldend)
         search_regs.end[i] += change;
@@ -3386,9 +3395,10 @@ DEFUN ("re--describe-compiled", Fre__describe_compiled, Sre__describe_compiled,
 If RAW is non-nil, just return the actual bytecode.  */)
   (Lisp_Object regexp, Lisp_Object raw)
 {
+  CHECK_STRING (regexp);
   struct regexp_cache *cache_entry
     = compile_pattern (regexp, NULL,
-                       (!NILP (BVAR (current_buffer, case_fold_search))
+                       (!NILP (Vcase_fold_search)
                         ? BVAR (current_buffer, case_canon_table) : Qnil),
                        false,
                        !NILP (BVAR (current_buffer,

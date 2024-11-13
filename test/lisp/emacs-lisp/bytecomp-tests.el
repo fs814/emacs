@@ -1,6 +1,6 @@
 ;;; bytecomp-tests.el --- Tests for bytecomp.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2008-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2024 Free Software Foundation, Inc.
 
 ;; Author: Shigeru Fukaya <shigeru.fukaya@gmail.com>
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
@@ -643,6 +643,16 @@ inner loops respectively."
       (funcall (car f) 3)
       (list a b))
 
+    (let ((x (list 1)))
+      (let ((y x)
+            (z (setq x (vector x))))
+        (list x y z)))
+
+    (let ((x (list 1)))
+      (let* ((y x)
+             (z (setq x (vector x))))
+        (list x y z)))
+
     (cond)
     (mapcar (lambda (x) (cond ((= x 0)))) '(0 1))
 
@@ -707,7 +717,7 @@ inner loops respectively."
       (set (make-local-variable 'bytecomp-tests--xx) 2)
       bytecomp-tests--xx)
 
-    ;; Check for-effect optimisation of `condition-case' body form.
+    ;; Check for-effect optimization of `condition-case' body form.
     ;; With `condition-case' in for-effect context:
     (let ((x (bytecomp-test-identity ?A))
           (r nil))
@@ -787,9 +797,12 @@ inner loops respectively."
     (let ((x 0))
       (list (= (setq x 1))
             x))
-    ;; Aristotelian identity optimisation
+    ;; Aristotelian identity optimization
     (let ((x (bytecomp-test-identity 1)))
       (list (eq x x) (eql x x) (equal x x)))
+
+    ;; Legacy single-arg `apply' call
+    (apply '(* 2 3))
     )
   "List of expressions for cross-testing interpreted and compiled code.")
 
@@ -837,6 +850,22 @@ byte-compiled.  Run with dynamic binding."
       (ert-info ((prin1-to-string form) :prefix "form: ")
         (should (equal (bytecomp-tests--eval-interpreted form)
                        (bytecomp-tests--eval-compiled form)))))))
+
+(ert-deftest bytecomp--fun-value-as-head ()
+  ;; Check that (FUN-VALUE ...) is a valid call, for compatibility (bug#68931).
+  ;; (There is also a warning but this test does not check that.)
+  (dolist (lb '(nil t))
+    (ert-info ((prin1-to-string lb) :prefix "lexical-binding: ")
+      (let* ((lexical-binding lb)
+             (s-int '(lambda (x) (1+ x)))
+             (s-comp (byte-compile s-int))
+             (v-int (lambda (x) (1+ x)))
+             (v-comp (byte-compile v-int))
+             (comp (lambda (f) (funcall (byte-compile `(lambda () (,f 3)))))))
+        (should (equal (funcall comp s-int) 4))
+        (should (equal (funcall comp s-comp) 4))
+        (should (equal (funcall comp v-int) 4))
+        (should (equal (funcall comp v-comp) 4))))))
 
 (defmacro bytecomp-tests--with-fresh-warnings (&rest body)
   `(let ((macroexp--warned            ; oh dear
@@ -1106,7 +1135,7 @@ byte-compiled.  Run with dynamic binding."
                             "var.*foo.*lacks a prefix")
 
 (bytecomp--define-warning-file-test "warn-format.el"
-                            "called with 2 args to fill 1 format field")
+                            "called with 2 arguments to fill 1 format field")
 
 (bytecomp--define-warning-file-test "warn-free-setq.el"
                             "free.*foo")
@@ -1319,12 +1348,14 @@ byte-compiled.  Run with dynamic binding."
               (string-search
                "file has no `lexical-binding' directive on its first line"
                (bytecomp-tests--log-from-compilation source))))
-    (let ((some-code "(defun my-fun () 12)\n"))
-      (should-not (cookie-warning
-                   (concat ";;; -*-lexical-binding:t-*-\n" some-code)))
-      (should-not (cookie-warning
-                   (concat ";;; -*-lexical-binding:nil-*-\n" some-code)))
-      (should (cookie-warning some-code)))))
+    (dolist (lb '(t nil))
+      (let ((lexical-binding lb)
+            (some-code "(defun my-fun () 12)\n"))
+        (should-not (cookie-warning
+                     (concat ";;; -*-lexical-binding:t-*-\n" some-code)))
+        (should-not (cookie-warning
+                     (concat ";;; -*-lexical-binding:nil-*-\n" some-code)))
+        (should (cookie-warning some-code))))))
 
 (ert-deftest bytecomp-tests--unescaped-char-literals ()
   "Check that byte compiling warns about unescaped character
@@ -1954,6 +1985,47 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
      (dc 'integerp))
     ))
 
+(ert-deftest bytecomp-test-defcustom-local ()
+  (cl-flet ((dc (local) `(defcustom mytest nil "doc" :type 'sexp :local ',local :group 'test)))
+    (bytecomp--with-warning-test
+     (rx ":local keyword does not accept 'symbol") (dc 'symbol))
+    (bytecomp--with-warning-test
+     (rx ":local keyword does not accept \"string\"") (dc "string"))
+    (bytecomp--without-warning-test (dc t))
+    (bytecomp--without-warning-test (dc 'permanent))
+    (bytecomp--without-warning-test (dc 'permanent-only))
+    ))
+
+(ert-deftest bytecomp-test-defface-spec ()
+  (cl-flet ((df (spec) `(defface mytest ',spec "doc" :group 'test)))
+    (bytecomp--with-warning-test
+     (rx "Bad face display condition `max-colors'")
+     (df '((((class color grayscale) (max-colors 75) (background light))
+            :foreground "cyan"))))
+    (bytecomp--with-warning-test
+     (rx "Bad face display `defualt'")
+     (df '((defualt :foreground "cyan"))))
+    (bytecomp--with-warning-test
+     (rx "`:inverse' is not a valid face attribute keyword")
+     (df '((t :background "blue" :inverse t))))
+    (bytecomp--with-warning-test
+     (rx "`:inverse' is not a valid face attribute keyword")
+     (df '((t (:background "blue" :inverse t)))))  ; old attr list syntax
+    (bytecomp--with-warning-test
+     (rx "Face attribute `:reverse-video' has been removed;"
+         " use `:inverse-video' instead")
+     (df '((t :background "red" :reverse-video t))))
+    (bytecomp--with-warning-test
+     (rx "Value for face attribute `:inherit' should not be quoted")
+     (df '((t :inherit 'other))))
+    (bytecomp--with-warning-test
+     (rx "Missing face attribute `:extend' value")
+     (df '((t :foundry "abc" :extend))))
+    (bytecomp--with-warning-test
+     (rx "Non-keyword in face attribute list: `\"green\"'")
+     (df '((t :foreground "white" "green"))))
+    ))
+
 (ert-deftest bytecomp-function-attributes ()
   ;; Check that `byte-compile' keeps the declarations, interactive spec and
   ;; doc string of the function (bug#55830).
@@ -2077,18 +2149,12 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
 
 (defun bytecomp-tests--error-frame (fun args)
   "Call FUN with ARGS.  Return result or (ERROR . BACKTRACE-FRAME)."
-  (let* ((debugger
-          (lambda (&rest args)
-            ;; Make sure Emacs doesn't think our debugger is buggy.
-            (cl-incf num-nonmacro-input-events)
-            (throw 'bytecomp-tests--backtrace
-                   (cons args (cadr (backtrace-get-frames debugger))))))
-         (debug-on-error t)
-         (backtrace-on-error-noninteractive nil)
-         (debug-on-quit t)
-         (debug-ignored-errors nil))
+  (letrec ((handler (lambda (e)
+                      (throw 'bytecomp-tests--backtrace
+                             (cons e (cadr (backtrace-get-frames handler)))))))
     (catch 'bytecomp-tests--backtrace
-      (apply fun args))))
+      (handler-bind ((error handler))
+        (apply fun args)))))
 
 (defconst bytecomp-tests--byte-op-error-cases
   '(((car a) (wrong-type-argument listp a))
@@ -2110,7 +2176,7 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
     ))
 
 (ert-deftest bytecomp--byte-op-error-backtrace ()
-  "Check that signalling byte ops show up in the backtrace."
+  "Check that signaling byte ops show up in the backtrace."
   (dolist (case bytecomp-tests--byte-op-error-cases)
     (ert-info ((prin1-to-string case) :prefix "case: ")
       (let* ((call (nth 0 case))
@@ -2133,7 +2199,7 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
                               `(lambda ,formals (,fun-sym ,@formals)))))))
                    (error-frame (bytecomp-tests--error-frame fun actuals)))
               (should (consp error-frame))
-              (should (equal (car error-frame) (list 'error expected-error)))
+              (should (equal (car error-frame) expected-error))
               (let ((frame (cdr error-frame)))
                 (should (equal (type-of frame) 'backtrace-frame))
                 (should (equal (cons (backtrace-frame-fun frame)
@@ -2141,7 +2207,7 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
                                call))))))))))
 
 (ert-deftest bytecomp--eq-symbols-with-pos-enabled ()
-  ;; Verify that we don't optimise away a binding of
+  ;; Verify that we don't optimize away a binding of
   ;; `symbols-with-pos-enabled' around an application of `eq' (bug#65017).
   (let* ((sym-with-pos1 (read-positioning-symbols "sym"))
          (sym-with-pos2 (read-positioning-symbols " sym"))  ; <- space!

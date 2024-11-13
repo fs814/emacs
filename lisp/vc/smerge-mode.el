@@ -1,6 +1,6 @@
 ;;; smerge-mode.el --- Minor mode to resolve diff3 conflicts -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: vc, tools, revision control, merge, diff3, cvs, conflict
@@ -81,7 +81,7 @@ Used in `smerge-diff-base-upper' and related functions."
     (((class color) (min-colors 88) (background dark))
      :background "#553333" :extend t)
     (((class color))
-     :foreground "red" :extend))
+     :foreground "red" :extend t))
   "Face for the `upper' version of a conflict.")
 (define-obsolete-face-alias 'smerge-mine 'smerge-upper "26.1")
 (defvar smerge-upper-face 'smerge-upper)
@@ -92,7 +92,7 @@ Used in `smerge-diff-base-upper' and related functions."
     (((class color) (min-colors 88) (background dark))
      :background "#335533" :extend t)
     (((class color))
-     :foreground "green" :extend))
+     :foreground "green" :extend t))
   "Face for the `lower' version of a conflict.")
 (define-obsolete-face-alias 'smerge-other 'smerge-lower "26.1")
 (defvar smerge-lower-face 'smerge-lower)
@@ -167,6 +167,10 @@ Used in `smerge-diff-base-upper' and related functions."
 		 (const :tag "C-c ^" "\C-c^")
 		 (const :tag "none"  "")
 		 string))
+
+;; Make it so `C-c ^ n' doesn't insert `n' but just signals an error
+;; when SMerge mode is not enabled (bug#73544).
+;;;###autoload (global-set-key "\C-c^" (make-sparse-keymap))
 
 (defvar-keymap smerge-mode-map
   (key-description smerge-command-prefix) smerge-basic-map)
@@ -1240,7 +1244,7 @@ spacing of the \"Lower\" chunk."
     (write-region beg2 end2 file2 nil 'nomessage)
     (unwind-protect
 	(save-current-buffer
-          (if-let (buffer (get-buffer smerge-diff-buffer-name))
+          (if-let* ((buffer (get-buffer smerge-diff-buffer-name)))
               (set-buffer buffer)
             (set-buffer (get-buffer-create smerge-diff-buffer-name))
             (setq buffer-read-only t))

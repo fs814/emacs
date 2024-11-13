@@ -1,8 +1,9 @@
 ;;; icalendar.el --- iCalendar implementation -*- lexical-binding: t -*-
 
-;; Copyright (C) 2002-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2024 Free Software Foundation, Inc.
 
 ;; Author:         Ulf Jasper <ulf.jasper@web.de>
+;; Maintainer:     emacs-devel@gnu.org
 ;; Created:        August 2002
 ;; Keywords:       calendar
 ;; Human-Keywords: calendar, diary, iCalendar, vCalendar
@@ -894,8 +895,8 @@ it uses the current calendar date style."
     (save-match-data
       (cond ( ;; iso-style numeric date
              (string-match (concat "\\s-*"
-                                   "\\([0-9]\\{4\\}\\)[ \t/]\\s-*"
-                                   "0?\\([1-9][0-9]?\\)[ \t/]\\s-*"
+                                   "\\([0-9]\\{4\\}\\)[ \t/-]\\s-*"
+                                   "0?\\([1-9][0-9]?\\)[ \t/-]\\s-*"
                                    "0?\\([1-9][0-9]?\\)")
                            datestring)
              (setq year (read (substring datestring (match-beginning 1)

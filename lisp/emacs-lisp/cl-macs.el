@@ -1,6 +1,6 @@
 ;;; cl-macs.el --- Common Lisp macros  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993, 2001-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 2001-2024 Free Software Foundation, Inc.
 
 ;; Author: Dave Gillespie <daveg@synaptics.com>
 ;; Old-Version: 2.02
@@ -2247,15 +2247,35 @@ Like `cl-flet' but the definitions can refer to previous ones.
                       . ,optimized-body))
              ,retvar)))))))
 
+(defun cl--self-tco-on-form (var form)
+  ;; Apply self-tco to the function returned by FORM, assuming that
+  ;; it will be bound to VAR.
+  (pcase form
+    (`(function (lambda ,fargs . ,ebody)) form
+     (pcase-let* ((`(,decls . ,body) (macroexp-parse-body ebody))
+                  (`(,ofargs . ,obody) (cl--self-tco var fargs body)))
+       `(function (lambda ,ofargs ,@decls . ,obody))))
+    (`(let ,bindings ,form)
+     `(let ,bindings ,(cl--self-tco-on-form var form)))
+    (`(if ,cond ,exp1 ,exp2)
+     `(if ,cond ,(cl--self-tco-on-form var exp1)
+        ,(cl--self-tco-on-form var exp2)))
+    (`(oclosure--fix-type ,exp1 ,exp2)
+     `(oclosure--fix-type ,exp1 ,(cl--self-tco-on-form var exp2)))
+    (_ form)))
+
 ;;;###autoload
 (defmacro cl-labels (bindings &rest body)
   "Make local (recursive) function definitions.
-+BINDINGS is a list of definitions of the form (FUNC ARGLIST BODY...) where
+BINDINGS is a list of definitions of the form either (FUNC EXP)
+where EXP is a form that should return the function to bind to the
+function name FUNC, or (FUNC ARGLIST BODY...) where
 FUNC is the function name, ARGLIST its arguments, and BODY the
-forms of the function body.  FUNC is defined in any BODY, as well
+forms of the function body.  FUNC is in scope in any BODY or EXP, as well
 as FORM, so you can write recursive and mutually recursive
-function definitions.  See info node `(cl) Function Bindings' for
-details.
+function definitions, with the caveat that EXPs are evaluated in sequence
+and you cannot call a FUNC before its EXP has been evaluated.
+See info node `(cl) Function Bindings' for details.
 
 \(fn ((FUNC ARGLIST BODY...) ...) FORM...)"
   (declare (indent 1) (debug cl-flet))
@@ -2273,18 +2293,16 @@ details.
     (unless (assq 'function newenv)
       (push (cons 'function #'cl--labels-convert) newenv))
     ;; Perform self-tail call elimination.
-    (setq binds (mapcar
-                 (lambda (bind)
-                   (pcase-let*
-                       ((`(,var ,sargs . ,sbody) bind)
-                        (`(function (lambda ,fargs . ,ebody))
-                         (macroexpand-all `(cl-function (lambda ,sargs . ,sbody))
-                                          newenv))
-                        (`(,ofargs . ,obody)
-                         (cl--self-tco var fargs ebody)))
-                     `(,var (function (lambda ,ofargs . ,obody)))))
-                 (nreverse binds)))
-    `(letrec ,binds
+    `(letrec ,(mapcar
+               (lambda (bind)
+                 (pcase-let* ((`(,var ,sargs . ,sbody) bind))
+                   `(,var ,(cl--self-tco-on-form
+                            var (macroexpand-all
+                                 (if (null sbody)
+                                     sargs ;A (FUNC EXP) definition.
+                                   `(cl-function (lambda ,sargs . ,sbody)))
+                                 newenv)))))
+               (nreverse binds))
        . ,(macroexp-unprogn
            (macroexpand-all
             (macroexp-progn body)
@@ -2505,7 +2523,7 @@ by EXPANSION, and (setq NAME ...) will act like (setf EXPANSION ...).
 (defmacro cl-once-only (names &rest body)
   "Generate code to evaluate each of NAMES just once in BODY.
 
-This macro helps with writing other macros.  Each of names is
+This macro helps with writing other macros.  Each of NAMES is
 either (NAME FORM) or NAME, which latter means (NAME NAME).
 During macroexpansion, each NAME is bound to an uninterned
 symbol.  The expansion evaluates each FORM and binds it to the
@@ -3010,6 +3028,7 @@ To see the documentation for a defined struct type, use
              ;; All the above is for the following def-form.
              &rest &or symbolp (symbolp &optional def-form &rest sexp))))
   (let* ((name (if (consp struct) (car struct) struct))
+	 (warning nil)
 	 (opts (cdr-safe struct))
 	 (slots nil)
 	 (defaults nil)
@@ -3094,7 +3113,10 @@ To see the documentation for a defined struct type, use
 	       (setq descs (nconc (make-list (car args) '(cl-skip-slot))
 				  descs)))
 	      (t
-	       (error "Structure option %s unrecognized" opt)))))
+	       (setq warning
+	             (macroexp-warn-and-return
+	              (format "Structure option %S unrecognized" opt)
+	              warning nil nil (list opt struct)))))))
     (unless (or include-name type
                 ;; Don't create a bogus parent to `cl-structure-object'
                 ;; while compiling the (cl-defstruct cl-structure-object ..)
@@ -3333,22 +3355,10 @@ To see the documentation for a defined struct type, use
          (cl-struct-define ',name ,docstring ',include-name
                            ',(or type 'record) ,(eq named t) ',descs
                            ',tag-symbol ',tag ',print-auto))
+       ,warning
        ',name)))
 
 ;;; Add cl-struct support to pcase
-
-;;In use by comp.el
-(defun cl--struct-all-parents (class) ;FIXME: Merge with `cl--class-allparents'
-  (when (cl--struct-class-p class)
-    (let ((res ())
-          (classes (list class)))
-      ;; BFS precedence.
-      (while (let ((class (pop classes)))
-               (push class res)
-               (setq classes
-                     (append classes
-                             (cl--class-parents class)))))
-      (nreverse res))))
 
 ;;;###autoload
 (pcase-defmacro cl-struct (type &rest fields)
@@ -3357,14 +3367,14 @@ Elements of FIELDS can be of the form (NAME PAT) in which case the
 contents of field NAME is matched against PAT, or they can be of
 the form NAME which is a shorthand for (NAME NAME)."
   (declare (debug (sexp &rest [&or (sexp pcase-PAT) sexp])))
-  `(and (pred (pcase--flip cl-typep ',type))
+  `(and (pred (cl-typep _ ',type))
         ,@(mapcar
            (lambda (field)
              (let* ((name (if (consp field) (car field) field))
                     (pat (if (consp field) (cadr field) field)))
                `(app ,(if (eq (cl-struct-sequence-type type) 'list)
                           `(nth ,(cl-struct-slot-offset type name))
-                        `(pcase--flip aref ,(cl-struct-slot-offset type name)))
+                        `(aref _ ,(cl-struct-slot-offset type name)))
                      ,pat)))
            fields)))
 
@@ -3381,13 +3391,13 @@ the form NAME which is a shorthand for (NAME NAME)."
   "Extra special cases for `cl-typep' predicates."
   (let* ((x1 pred1) (x2 pred2)
          (t1
-          (and (eq 'pcase--flip (car-safe x1)) (setq x1 (cdr x1))
-               (eq 'cl-typep (car-safe x1))    (setq x1 (cdr x1))
+          (and (eq 'cl-typep (car-safe x1))    (setq x1 (cdr x1))
+               (eq '_ (car-safe x1))           (setq x1 (cdr x1))
                (null (cdr-safe x1))            (setq x1 (car x1))
                (eq 'quote (car-safe x1))       (cadr x1)))
          (t2
-          (and (eq 'pcase--flip (car-safe x2)) (setq x2 (cdr x2))
-               (eq 'cl-typep (car-safe x2))    (setq x2 (cdr x2))
+          (and (eq 'cl-typep (car-safe x2))    (setq x2 (cdr x2))
+               (eq '_ (car-safe x2))           (setq x2 (cdr x2))
                (null (cdr-safe x2))            (setq x2 (car x2))
                (eq 'quote (car-safe x2))       (cadr x2))))
     (or
@@ -3395,8 +3405,8 @@ the form NAME which is a shorthand for (NAME NAME)."
           (let ((c1 (cl--find-class t1))
                 (c2 (cl--find-class t2)))
             (and c1 c2
-                 (not (or (memq c1 (cl--struct-all-parents c2))
-                          (memq c2 (cl--struct-all-parents c1)))))))
+                 (not (or (memq t1 (cl--class-allparents c2))
+                          (memq t2 (cl--class-allparents c1)))))))
      (let ((c1 (and (symbolp t1) (cl--find-class t1))))
        (and c1 (cl--struct-class-p c1)
             (funcall orig (cl--defstruct-predicate t1)
@@ -3473,50 +3483,26 @@ Of course, we really can't know that for sure, so it's just a heuristic."
            (or (cdr (assq sym byte-compile-function-environment))
                (cdr (assq sym macroexpand-all-environment))))))
 
+;; Please keep it in sync with `comp-known-predicates'.
 (pcase-dolist (`(,type . ,pred)
                ;; Mostly kept in alphabetical order.
-               '((array		. arrayp)
-                 (atom		. atom)
-                 (base-char	. characterp)
-                 (bignum	. bignump)
-                 (boolean	. booleanp)
-                 (bool-vector	. bool-vector-p)
-                 (buffer	. bufferp)
-                 (byte-code-function . byte-code-function-p)
-                 (character	. natnump)
-                 (char-table	. char-table-p)
-                 (command	. commandp)
-                 (compiled-function . compiled-function-p)
-                 (hash-table	. hash-table-p)
-                 (cons		. consp)
-                 (fixnum	. fixnump)
-                 (float		. floatp)
-                 (frame		. framep)
-                 (function	. functionp)
-                 (integer	. integerp)
-                 (keyword	. keywordp)
+               ;; These aren't defined via `cl--define-built-in-type'.
+               '((base-char	. characterp) ;Could be subtype of `fixnum'.
+                 (character	. natnump)    ;Could be subtype of `fixnum'.
+                 (command	. commandp)   ;Subtype of closure & subr.
+                 (keyword	. keywordp)   ;Would need `keyword-with-pos`.
+                 (natnum	. natnump)    ;Subtype of fixnum & bignum.
+                 (real		. numberp)    ;Not clear where it would fit.
+                 ;; This one is redundant, but we keep it to silence a
+                 ;; warning during the early bootstrap when `cl-seq.el' gets
+                 ;; loaded before `cl-preloaded.el' is defined.
                  (list		. listp)
-                 (marker	. markerp)
-                 (natnum	. natnump)
-                 (number	. numberp)
-                 (null		. null)
-                 (overlay	. overlayp)
-                 (process	. processp)
-                 (real		. numberp)
-                 (sequence	. sequencep)
-                 (subr		. subrp)
-                 (string	. stringp)
-                 (symbol	. symbolp)
-                 (vector	. vectorp)
-                 (window	. windowp)
-                 ;; FIXME: Do we really want to consider these types?
-                 (number-or-marker . number-or-marker-p)
-                 (integer-or-marker . integer-or-marker-p)
                  ))
   (put type 'cl-deftype-satisfies pred))
 
 ;;;###autoload
 (define-inline cl-typep (val type)
+  "Return t if VAL is of type TYPE, nil otherwise."
   (inline-letevals (val)
     (pcase (inline-const-val type)
       ((and `(,name . ,args) (guard (get name 'cl-deftype-handler)))
@@ -3752,7 +3738,7 @@ macro that returns its `&whole' argument."
 (mapc (lambda (x) (function-put x 'important-return-value t))
        '(
          ;; Functions that are side-effect-free except for the
-         ;; behaviour of functions passed as argument.
+         ;; behavior of functions passed as argument.
          cl-mapcar cl-mapcan cl-maplist cl-map cl-mapcon
          cl-reduce
          cl-assoc cl-assoc-if cl-assoc-if-not
@@ -3831,7 +3817,8 @@ STRUCT-TYPE and SLOT-NAME are symbols.  INST is a structure instance."
 (pcase-defmacro cl-type (type)
   "Pcase pattern that matches objects of TYPE.
 TYPE is a type descriptor as accepted by `cl-typep', which see."
-  `(pred (pcase--flip cl-typep ',type)))
+  `(pred (cl-typep _ ',type)))
+
 
 ;; Local variables:
 ;; generated-autoload-file: "cl-loaddefs.el"

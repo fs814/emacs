@@ -1,6 +1,6 @@
 ;;; em-unix.el --- UNIX command aliases  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -38,7 +38,7 @@
 (require 'esh-mode)
 (require 'pcomplete)
 
-;;;###autoload
+;;;###esh-module-autoload
 (progn
 (defgroup eshell-unix nil
   "This module defines many of the more common UNIX utilities as
@@ -92,7 +92,7 @@ Otherwise, `rmdir' is required."
   :group 'eshell-unix)
 
 (define-widget 'eshell-interactive-query 'radio
-  "When to interatively query the user about a particular operation.
+  "When to interactively query the user about a particular operation.
 If t, always query.  If nil, never query.  If `root', query when
 the user is logged in as root (including when `default-directory'
 is remote with a root user)."
@@ -166,9 +166,9 @@ Otherwise, Emacs will attempt to use rsh to invoke du on the remote machine."
     (add-hook 'pcomplete-try-first-hook
 	      'eshell-complete-host-reference nil t))
   (setq-local eshell-complex-commands
-	      (append '("grep" "egrep" "fgrep" "agrep" "rgrep"
-                        "glimpse" "locate" "cat" "time" "cp" "mv"
-                        "make" "du" "diff")
+	      (append '("compile" "grep" "egrep" "fgrep" "agrep"
+                        "rgrep" "glimpse" "locate" "cat" "time" "cp"
+                        "mv" "make" "du" "diff")
 		      eshell-complex-commands)))
 
 (defalias 'eshell/date     'current-time-string)
@@ -590,7 +590,7 @@ Rename SOURCE to DEST, or move SOURCE(s) to DIRECTORY.
      :external "cp"
      :show-usage
      :usage "[OPTION]... SOURCE DEST
-   or:  cp [OPTION]... SOURCE... DIRECTORY
+   or: cp [OPTION]... SOURCE... DIRECTORY
 Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.")
    (if archive
        (setq preserve t no-dereference t em-recursive t))
@@ -618,11 +618,11 @@ Copy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY.")
      :preserve-args
      :external "ln"
      :show-usage
-     :usage "[OPTION]... TARGET [LINK_NAME]
-   or:  ln [OPTION]... TARGET... DIRECTORY
-Create a link to the specified TARGET with optional LINK_NAME.  If there is
-more than one TARGET, the last argument must be a directory;  create links
-in DIRECTORY to each TARGET.  Create hard links by default, symbolic links
+     :usage "[OPTION]... TARGET LINK_NAME
+   or: ln [OPTION]... TARGET... DIRECTORY
+Create a link to the specified TARGET with LINK_NAME.  If there is more
+than one TARGET, the last argument must be a directory;  create links in
+DIRECTORY to each TARGET.  Create hard links by default, symbolic links
 with `--symbolic'.  When creating hard links, each TARGET must exist.")
    (let ((no-dereference t))
      (eshell-mvcpln-template "ln" "linking"
@@ -654,12 +654,10 @@ symlink, then revert to the system's definition of cat."
 		(throw 'special t)))))
       (let ((ext-cat (eshell-search-path "cat")))
 	(if ext-cat
-	    (throw 'eshell-replace-command
-		   (eshell-parse-command (eshell-quote-argument ext-cat) args))
+	    (throw 'eshell-external (eshell-external-command ext-cat args))
 	  (if eshell-in-pipeline-p
 	      (error "Eshell's `cat' does not work in pipelines")
 	    (error "Eshell's `cat' cannot display one of the files given"))))
-    (eshell-init-print-buffer)
     (eshell-eval-using-options
      "cat" args
      '((?h "help" nil nil "show this usage screen")
@@ -672,20 +670,18 @@ Concatenate FILE(s), or standard input, to standard output.")
 	   (throw 'eshell-external
 		  (eshell-external-command "cat" args))))
      (let ((curbuf (current-buffer)))
-       (dolist (file args)
-	 (with-temp-buffer
-	   (insert-file-contents file)
-	   (goto-char (point-min))
-	   (while (not (eobp))
-	     (let ((str (buffer-substring
-			 (point) (min (1+ (line-end-position))
-				      (point-max)))))
-	       (with-current-buffer curbuf
-		 (eshell-buffered-print str)))
-	     (forward-line)))))
-     (eshell-flush)
-     ;; if the file does not end in a newline, do not emit one
-     (setq eshell-ensure-newline-p nil))))
+       (eshell-with-buffered-print
+         (dolist (file args)
+	   (with-temp-buffer
+	     (insert-file-contents file)
+	     (goto-char (point-min))
+             (while (not (eobp))
+               (let* ((pos (min (+ (point) eshell-buffered-print-size)
+                                (point-max)))
+                      (str (buffer-substring (point) pos)))
+                 (with-current-buffer curbuf
+                   (eshell-buffered-print str))
+                 (goto-char pos))))))))))
 
 (put 'eshell/cat 'eshell-no-numeric-conversions t)
 (put 'eshell/cat 'eshell-filename-arguments t)
@@ -741,7 +737,7 @@ Fallback to standard make when called synchronously."
   (eshell-compile "make" args
                   ;; Use plain output unless we're executing in the
                   ;; background.
-                  (not eshell-current-subjob-p)))
+                  (unless eshell-current-subjob-p 'plain)))
 
 (put 'eshell/make 'eshell-no-numeric-conversions t)
 
@@ -789,7 +785,7 @@ available..."
 		    (ignore-errors
 		      (occur (car args))))
 		  (if (get-buffer "*Occur*")
-		      (with-current-buffer (get-buffer "*Occur*")
+		      (with-current-buffer "*Occur*"
 			(setq string (buffer-string))
 			(kill-buffer (current-buffer)))))
 		(if string (insert string))
@@ -815,8 +811,8 @@ external command."
   (if (and maybe-use-occur eshell-no-grep-available)
       (eshell-poor-mans-grep args)
     (eshell-compile command (cons "-n" args)
-                    (and eshell-plain-grep-behavior
-                         'interactive)
+                    (when eshell-plain-grep-behavior
+                      'plain)
                      #'grep-mode)))
 
 (defun eshell/grep (&rest args)
@@ -862,120 +858,109 @@ external command."
 	    pcomplete-last-completion-raw t)
       (throw 'pcomplete-completions (pcomplete-read-host-names)))))
 
-(defvar block-size)
-(defvar by-bytes)
-(defvar dereference-links)
-(defvar grand-total)
-(defvar human-readable)
-(defvar max-depth)
-(defvar only-one-filesystem)
-(defvar show-all)
-
-(defsubst eshell-du-size-string (size)
-  (let* ((str (eshell-printable-size size human-readable block-size t))
-	 (len (length str)))
-    (concat str (if (< len 8)
-		    (make-string (- 8 len) ? )))))
-
-(defun eshell-du-sum-directory (path depth)
+(cl-defun eshell-du-sum-directory (path depth-remaining &rest args
+                                   &key print-function show-all
+                                   dereference-links only-one-filesystem
+                                   seen-files)
   "Summarize PATH, and its member directories."
-  (let ((entries (eshell-directory-files-and-attributes path))
-	(size 0.0))
-    (while entries
-      (unless (string-match "\\`\\.\\.?\\'" (caar entries))
-	(let* ((entry (concat path "/"
-			      (caar entries)))
-	       (symlink (and (stringp (file-attribute-type (cdar entries)))
-			     (file-attribute-type (cdar entries)))))
+  (let ((size 0.0))
+    (dolist (entry (eshell-directory-files-and-attributes path))
+      (unless (or (string-match "\\`\\.\\.?\\'" (car entry))
+                  (gethash (file-attribute-file-identifier (cdr entry))
+                           seen-files))
+        (puthash (file-attribute-file-identifier (cdr entry)) t seen-files)
+        (let* ((file-name (concat path "/" (car entry)))
+               (file-type (file-attribute-type (cdr entry)))
+               (symlink (and (stringp file-type) file-type)))
 	  (unless (or (and symlink (not dereference-links))
 		      (and only-one-filesystem
 			   (/= only-one-filesystem
-			       (file-attribute-device-number (cdar entries)))))
-	    (if symlink
-		(setq entry symlink))
+                               (file-attribute-device-number (cdr entry)))))
+            (when symlink
+              (setq file-name symlink))
 	    (setq size
 		  (+ size
-		     (if (eq t (car (cdar entries)))
-			 (eshell-du-sum-directory entry (1+ depth))
-		       (let ((file-size (file-attribute-size (cdar entries))))
-			 (prog1
-			     file-size
-			   (if show-all
-			       (eshell-print
-				(concat (eshell-du-size-string file-size)
-					entry "\n")))))))))))
-      (setq entries (cdr entries)))
-    (if (or (not max-depth)
-	    (= depth max-depth)
-	    (= depth 0))
-	(eshell-print (concat (eshell-du-size-string size)
-			      (directory-file-name path) "\n")))
+                     (if (eq file-type t) ; This is a directory.
+                         (apply #'eshell-du-sum-directory file-name
+                                (when depth-remaining (1- depth-remaining))
+                                args)
+		       (let ((file-size (file-attribute-size (cdr entry))))
+                         (when show-all
+                           (funcall print-function file-size file-name))
+                         file-size))))))))
+    (when (or (not depth-remaining)
+              (natnump depth-remaining))
+      (funcall print-function size (directory-file-name path)))
     size))
 
 (defun eshell/du (&rest args)
   "Implementation of \"du\" in Lisp, passing ARGS."
-  (setq args (if args
-		 (eshell-stringify-list (flatten-tree args))
-	       '(".")))
-  (let ((ext-du (eshell-search-path "du")))
-    (if (and ext-du
-	     (not (catch 'have-ange-path
-		    (dolist (arg args)
-		      (if (string-equal
-			   (file-remote-p (expand-file-name arg) 'method) "ftp")
-			  (throw 'have-ange-path t))))))
-	(throw 'eshell-replace-command
-	       (eshell-parse-command (eshell-quote-argument ext-du) args))
-      (eshell-eval-using-options
-       "du" args
-       '((?a "all" nil show-all
-	     "write counts for all files, not just directories")
-	 (nil "block-size" t block-size
-	      "use SIZE-byte blocks (i.e., --block-size SIZE)")
-	 (?b "bytes" nil by-bytes
-	     "print size in bytes")
-	 (?c "total" nil grand-total
-	     "produce a grand total")
-	 (?d "max-depth" t max-depth
-	     "display data only this many levels of data")
-	 (?h "human-readable" 1024 human-readable
-	     "print sizes in human readable format")
-	 (?H "is" 1000 human-readable
-	     "likewise, but use powers of 1000 not 1024")
-	 (?k "kilobytes" 1024 block-size
-	     "like --block-size 1024")
-	 (?L "dereference" nil dereference-links
-	     "dereference all symbolic links")
-	 (?m "megabytes" 1048576 block-size
-	     "like --block-size 1048576")
-	 (?s "summarize" 0 max-depth
-	     "display only a total for each argument")
-	 (?x "one-file-system" nil only-one-filesystem
-	     "skip directories on different filesystems")
-	 (nil "help" nil nil
-	      "show this usage screen")
-	 :external "du"
-	 :usage "[OPTION]... FILE...
+  (let ((original-args args))
+    (eshell-eval-using-options
+     "du" args
+     '((?a "all" nil show-all
+           "write counts for all files, not just directories")
+       (nil "block-size" t block-size
+            "use SIZE-byte blocks (i.e., --block-size SIZE)")
+       (?b "bytes" 1 block-size
+           "print size in bytes")
+       (?c "total" nil grand-total
+           "produce a grand total")
+       (?d "max-depth" t max-depth
+           "display data only this many levels of data")
+       (?h "human-readable" 1024 human-readable
+           "print sizes in human readable format")
+       (?H "si" 1000 human-readable
+           "likewise, but use powers of 1000 not 1024")
+       (?k "kilobytes" 1024 block-size
+           "like --block-size 1024")
+       (?L "dereference" nil dereference-links
+           "dereference all symbolic links")
+       (?m "megabytes" 1048576 block-size
+           "like --block-size 1048576")
+       (?s "summarize" 0 max-depth
+           "display only a total for each argument")
+       (?x "one-file-system" nil only-one-filesystem
+           "skip directories on different filesystems")
+       (nil "help" nil nil
+            "show this usage screen")
+       :external "du"
+       :usage "[OPTION]... FILE...
 Summarize disk usage of each FILE, recursively for directories.")
-       (unless by-bytes
-	 (setq block-size (or block-size 1024)))
-       (if (and max-depth (stringp max-depth))
-	   (setq max-depth (string-to-number max-depth)))
-       ;; filesystem support means nothing under Windows
-       (if (eshell-under-windows-p)
-	   (setq only-one-filesystem nil))
-       (let ((size 0.0))
-	 (while args
-	   (if only-one-filesystem
-	       (setq only-one-filesystem
-		     (file-attribute-device-number (eshell-file-attributes
-			      (file-name-as-directory (car args))))))
-	   (setq size (+ size (eshell-du-sum-directory
-			       (directory-file-name (car args)) 0)))
-	   (setq args (cdr args)))
-	 (if grand-total
-	     (eshell-print (concat (eshell-du-size-string size)
-				   "total\n"))))))))
+     ;; If possible, use the external "du" command.
+     (when-let* (((not (seq-some
+                        (lambda (i) (and (stringp i) (file-remote-p i)))
+                        args)))
+                 (ext-du (eshell-search-path "du")))
+       (throw 'eshell-external (eshell-external-command ext-du original-args)))
+     (setq block-size (or block-size 1024))
+     (when (stringp block-size)
+       (setq block-size (string-to-number block-size)))
+     (when (stringp max-depth)
+       (setq max-depth (string-to-number max-depth)))
+     ;; Filesystem support means nothing under MS-Windows.
+     (when (eshell-under-windows-p)
+       (setq only-one-filesystem nil))
+     (let ((size 0.0)
+           (seen-files (make-hash-table :test #'equal))
+           (print-function
+            (lambda (size name)
+              (let ((size-str (eshell-printable-size size human-readable
+                                                     block-size t)))
+                (eshell-print (concat (string-pad size-str 8) name "\n"))))))
+       (dolist (arg (or args '(".")))
+         (when only-one-filesystem
+           (setq only-one-filesystem
+                 (file-attribute-device-number
+                  (eshell-file-attributes (file-name-as-directory arg)))))
+         (setq size (+ size (eshell-du-sum-directory
+                             (directory-file-name arg) max-depth
+                             :print-function print-function :show-all show-all
+                             :dereference-links dereference-links
+                             :only-one-filesystem only-one-filesystem
+                             :seen-files seen-files))))
+       (when grand-total
+         (funcall print-function size "total"))))))
 
 (put 'eshell/du 'eshell-filename-arguments t)
 
@@ -1018,7 +1003,7 @@ Show wall-clock time elapsed during execution of COMMAND.")
 				  (eshell-stringify-list
 				   (flatten-tree (cdr time-args))))))))
 
-(defun eshell/whoami (&rest _args)
+(defun eshell/whoami ()
   "Make \"whoami\" Tramp aware."
   (eshell-user-login-name))
 
@@ -1096,9 +1081,4 @@ Show wall-clock time elapsed during execution of COMMAND.")
 (define-obsolete-function-alias 'eshell-diff-quit #'ignore "30.1")
 
 (provide 'em-unix)
-
-;; Local Variables:
-;; generated-autoload-file: "esh-groups.el"
-;; End:
-
 ;;; em-unix.el ends here

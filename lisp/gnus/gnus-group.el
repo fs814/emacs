@@ -1,6 +1,6 @@
 ;;; gnus-group.el --- group mode commands for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -1064,11 +1064,11 @@ When FORCE, rebuild the tool bar."
 All normal editing commands are switched off.
 \\<gnus-group-mode-map>
 The group buffer lists (some of) the groups available.  For instance,
-`\\[gnus-group-list-groups]' will list all subscribed groups with unread articles, while `\\[gnus-group-list-zombies]'
+\\[gnus-group-list-groups] will list all subscribed groups with unread articles, while \\[gnus-group-list-zombies]
 lists all zombie groups.
 
-Groups that are displayed can be entered with `\\[gnus-group-read-group]'.  To subscribe
-to a group not displayed, type `\\[gnus-group-toggle-subscription]'.
+Groups that are displayed can be entered with \\[gnus-group-read-group].  To subscribe
+to a group not displayed, type \\[gnus-group-toggle-subscription].
 
 For more in-depth information on this mode, read the manual (`\\[gnus-info-find-node]').
 
@@ -1745,17 +1745,17 @@ already.  If INFO-UNCHANGED is non-nil, dribble buffer is not updated."
       gnus-level-killed))
 
 (defun gnus-group-search-forward (&optional backward all level first-too)
-  "Find the next newsgroup with unread articles.
-If BACKWARD is non-nil, find the previous newsgroup instead.
-If ALL is non-nil, just find any newsgroup.
-If LEVEL is non-nil, find group with level LEVEL, or higher if no such
-group exists.
-If FIRST-TOO, the current line is also eligible as a target."
+  "Move point to the next newsgroup with unread articles.
+If BACKWARD is non-nil, move to the previous newsgroup instead.
+If ALL is non-nil, consider any newsgroup, not only those with
+unread articles.  If LEVEL is non-nil, find group with level
+LEVEL, or higher if no such group exists.  If FIRST-TOO, the
+current line is also eligible as a target."
   (let ((way (if backward -1 1))
 	(low gnus-level-killed)
 	(beg (point))
 	pos found lev)
-    (if (and backward (progn (beginning-of-line)) (bobp))
+    (if (and backward (progn (beginning-of-line) (bobp)))
 	nil
       (unless first-too
 	(forward-line way))
@@ -4638,7 +4638,7 @@ and the second element is the address."
   "Mark ARTICLE in GROUP with MARK, whether the group is displayed or not."
   (let ((buffer (gnus-summary-buffer-name group)))
     (if (gnus-buffer-live-p buffer)
-	(with-current-buffer (get-buffer buffer)
+	(with-current-buffer buffer
 	  (gnus-summary-add-mark article mark))
       (gnus-add-marked-articles group (cdr (assq mark gnus-article-mark-lists))
 				(list article)))))

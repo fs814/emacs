@@ -1,6 +1,6 @@
 ;;; em-cmpl.el --- completion using the TAB key  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -76,7 +76,7 @@
 
 (eval-when-compile (require 'cl-lib))
 
-;;;###autoload
+;;;###esh-module-autoload
 (progn
 (defgroup eshell-cmpl nil
   "This module provides a programmable completion function bound to
@@ -444,7 +444,7 @@ to writing a completion function."
                ('nil
                 (propertize "" 'pcomplete-arg-value arg))
                (_
-                (propertize (eshell-stringify arg)
+                (propertize (eshell-stringify arg t)
                             'pcomplete-arg-value arg))))
 	   args)
 	  posns)))
@@ -518,9 +518,4 @@ to writing a completion function."
 (define-obsolete-function-alias 'eshell-pcomplete #'completion-at-point "27.1")
 
 (provide 'em-cmpl)
-
-;; Local Variables:
-;; generated-autoload-file: "esh-groups.el"
-;; End:
-
 ;;; em-cmpl.el ends here

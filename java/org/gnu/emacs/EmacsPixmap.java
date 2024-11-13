@@ -1,6 +1,6 @@
 /* Communication module for Android terminals.  -*- c-file-style: "GNU" -*-
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -51,9 +51,9 @@ public final class EmacsPixmap extends EmacsHandleObject
   private long gcClipRectID;
 
   public
-  EmacsPixmap (short handle, int width, int height, int depth)
+  EmacsPixmap (int width, int height, int depth)
   {
-    super (handle);
+    super ();
 
     if (depth != 1 && depth != 24)
       throw new IllegalArgumentException ("Invalid depth specified"

@@ -1,6 +1,6 @@
 ;;; vc-hooks.el --- resident support for version-control  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-1996, 1998-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1992-1996, 1998-2024 Free Software Foundation, Inc.
 
 ;; Author: FSF (see vc.el for full credits)
 ;; Maintainer: emacs-devel@gnu.org
@@ -152,8 +152,12 @@ visited and a warning displayed."
 
 (defcustom vc-display-status t
   "If non-nil, display revision number and lock status in mode line.
-Otherwise, not displayed."
-  :type 'boolean
+If nil, only the backend name is displayed.  When the value
+is `no-backend', then no backend name is displayed before the
+revision number and lock status."
+  :type '(choice (const :tag "Show only revision/status" no-backend)
+                 (const :tag "Show backend and revision/status" t)
+                 (const :tag "Show only backend name" nil))
   :group 'vc)
 
 
@@ -181,8 +185,9 @@ Otherwise, not displayed."
   "Version Control minor mode.
 This minor mode is automatically activated whenever you visit a file under
 control of one of the revision control systems in `vc-handled-backends'.
-VC commands are globally reachable under the prefix `\\[vc-prefix-map]':
-\\{vc-prefix-map}")
+VC commands are globally reachable under the prefix \\[vc-prefix-map]:
+\\{vc-prefix-map}"
+  nil)
 
 (defmacro vc-error-occurred (&rest body)
   `(condition-case nil (progn ,@body nil) (error t)))
@@ -193,7 +198,7 @@ VC commands are globally reachable under the prefix `\\[vc-prefix-map]':
 ;; during any subsequent VC operations, and forget them when
 ;; the buffer is killed.
 
-(defvar vc-file-prop-obarray (make-vector 17 0)
+(defvar vc-file-prop-obarray (obarray-make 17)
   "Obarray for per-file properties.")
 
 (defvar vc-touched-properties nil)
@@ -321,30 +326,37 @@ This function performs the check each time it is called.  To rely
 on the result of a previous call, use `vc-backend' instead.  If the
 file was previously registered under a certain backend, then that
 backend is tried first."
-  (let (handler)
-    (cond
-     ((and (file-name-directory file)
-           (string-match vc-ignore-dir-regexp (file-name-directory file)))
-      nil)
-     ((setq handler (find-file-name-handler file 'vc-registered))
-      ;; handler should set vc-backend and return t if registered
-      (funcall handler 'vc-registered file))
-     (t
-      ;; There is no file name handler.
-      ;; Try vc-BACKEND-registered for each handled BACKEND.
-      (catch 'found
-	(let ((backend (vc-file-getprop file 'vc-backend)))
-	  (mapc
-	   (lambda (b)
-	     (and (vc-call-backend b 'registered file)
-		  (vc-file-setprop file 'vc-backend b)
-		  (throw 'found t)))
-	   (if (or (not backend) (eq backend 'none))
-	       vc-handled-backends
-	     (cons backend vc-handled-backends))))
-        ;; File is not registered.
-        (vc-file-setprop file 'vc-backend 'none)
-        nil)))))
+  ;; Subprocesses (and with them, VC backends) can't run from /contents
+  ;; or /actions, which are fictions maintained by Emacs that do not
+  ;; exist in the filesystem.
+  (if (and (eq system-type 'android)
+           (string-match-p "/\\(content\\|assets\\)[/$]"
+                           (expand-file-name file)))
+      nil
+    (let (handler)
+      (cond
+       ((and (file-name-directory file)
+             (string-match vc-ignore-dir-regexp (file-name-directory file)))
+        nil)
+       ((setq handler (find-file-name-handler file 'vc-registered))
+        ;; handler should set vc-backend and return t if registered
+        (funcall handler 'vc-registered file))
+       (t
+        ;; There is no file name handler.
+        ;; Try vc-BACKEND-registered for each handled BACKEND.
+        (catch 'found
+	  (let ((backend (vc-file-getprop file 'vc-backend)))
+	    (mapc
+	     (lambda (b)
+	       (and (vc-call-backend b 'registered file)
+		    (vc-file-setprop file 'vc-backend b)
+		    (throw 'found t)))
+	     (if (or (not backend) (eq backend 'none))
+	         vc-handled-backends
+	       (cons backend vc-handled-backends))))
+          ;; File is not registered.
+          (vc-file-setprop file 'vc-backend 'none)
+          nil))))))
 
 (defun vc-backend (file-or-list)
   "Return the version control type of FILE-OR-LIST, nil if it's not registered.
@@ -352,15 +364,22 @@ If the argument is a list, the files must all have the same back end."
   ;; `file' can be nil in several places (typically due to the use of
   ;; code like (vc-backend buffer-file-name)).
   (cond ((stringp file-or-list)
-	 (let ((property (vc-file-getprop file-or-list 'vc-backend)))
-	   ;; Note that internally, Emacs remembers unregistered
-	   ;; files by setting the property to `none'.
-	   (cond ((eq property 'none) nil)
-		 (property)
-		 ;; vc-registered sets the vc-backend property
-		 (t (if (vc-registered file-or-list)
-			(vc-file-getprop file-or-list 'vc-backend)
-		      nil)))))
+         ;; Subprocesses (and with them, VC backends) can't run from
+         ;; /contents or /actions, which are fictions maintained by
+         ;; Emacs that do not exist in the filesystem.
+         (if (and (eq system-type 'android)
+                  (string-match-p "/\\(content\\|assets\\)[/$]"
+                                  (expand-file-name file-or-list)))
+             nil
+	   (let ((property (vc-file-getprop file-or-list 'vc-backend)))
+	     ;; Note that internally, Emacs remembers unregistered
+	     ;; files by setting the property to `none'.
+	     (cond ((eq property 'none) nil)
+		   (property)
+		   ;; vc-registered sets the vc-backend property
+		   (t (if (vc-registered file-or-list)
+			  (vc-file-getprop file-or-list 'vc-backend)
+		        nil))))))
 	((and file-or-list (listp file-or-list))
 	 (vc-backend (car file-or-list)))
 	(t
@@ -501,6 +520,18 @@ If FILE is not registered, this function always returns nil."
           (vc-file-setprop file 'vc-working-revision
                            (vc-call-backend
                             backend 'working-revision file))))))
+
+(defvar vc-use-short-revision nil
+  "If non-nil, VC backend functions should return short revisions if possible.
+This is set to t when calling `vc-short-revision', which will
+then call the \\=`working-revision' backend function.")
+
+(defun vc-short-revision (file &optional backend)
+  "Return the repository version for FILE in a shortened form.
+If FILE is not registered, this function always returns nil."
+  (let ((vc-use-short-revision t))
+    (vc-call-backend (or backend (vc-backend file))
+                     'working-revision file)))
 
 (defun vc-default-registered (backend file)
   "Check if FILE is registered in BACKEND using vc-BACKEND-master-templates."
@@ -766,7 +797,9 @@ This function assumes that the file is registered."
                (rev (vc-working-revision file backend))
                (`(,state-echo ,face ,indicator)
                 (vc-mode-line-state state))
-               (state-string (concat backend-name indicator rev)))
+               (state-string (concat (unless (eq vc-display-status 'no-backend)
+                                       backend-name)
+                                     indicator rev)))
     (propertize state-string 'face face 'help-echo
                 (concat state-echo " under the " backend-name
                         " version control system"))))

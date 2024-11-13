@@ -1,6 +1,6 @@
 /* Synchronous subprocess invocation for GNU Emacs.
 
-Copyright (C) 1985-1988, 1993-1995, 1999-2023 Free Software Foundation,
+Copyright (C) 1985-1988, 1993-1995, 1999-2024 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -914,7 +914,7 @@ call_process (ptrdiff_t nargs, Lisp_Object *args, int filefd,
       /* If the caller required, let the buffer inherit the
 	 coding-system used to decode the process output.  */
       if (inherit_process_coding_system)
-	call1 (intern ("after-insert-file-set-buffer-file-coding-system"),
+	call1 (Qafter_insert_file_set_buffer_file_coding_system,
 	       make_fixnum (total_read));
     }
 
@@ -1041,7 +1041,7 @@ create_temp_file (ptrdiff_t nargs, Lisp_Object *args,
   {
     specpdl_ref count1 = SPECPDL_INDEX ();
 
-    specbind (intern ("coding-system-for-write"), val);
+    specbind (Qcoding_system_for_write, val);
     /* POSIX lets mk[s]temp use "."; don't invoke jka-compr if we
        happen to get a ".Z" suffix.  */
     specbind (Qfile_name_handler_alist, Qnil);
@@ -1721,7 +1721,7 @@ getenv_internal (const char *var, ptrdiff_t varlen, char **value,
 			 Vprocess_environment))
     return *value ? 1 : 0;
 
-  /* On Windows we make some modifications to Emacs' environment
+  /* On Windows we make some modifications to Emacs's environment
      without recording them in Vprocess_environment.  */
 #ifdef WINDOWSNT
   {
@@ -2246,4 +2246,8 @@ the system.  */);
   defsubr (&Scall_process);
   defsubr (&Sgetenv_internal);
   defsubr (&Scall_process_region);
+
+  DEFSYM (Qafter_insert_file_set_buffer_file_coding_system,
+	  "after-insert-file-set-buffer-file-coding-system");
+  DEFSYM (Qcoding_system_for_write, "coding-system-for-write");
 }

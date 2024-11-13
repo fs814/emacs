@@ -1,6 +1,6 @@
 ;;; lua-ts-mode-tests.el --- Tests for lua-ts-mode -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2023 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -20,16 +20,33 @@
 ;;; Code:
 
 (require 'ert)
+(require 'ert-font-lock)
 (require 'ert-x)
 (require 'treesit)
+(require 'which-func)
 
-(ert-deftest lua-ts-mode-test-indentation ()
-  (skip-unless (treesit-ready-p 'lua))
+(ert-deftest lua-ts-test-indentation ()
+  (skip-unless (treesit-ready-p 'lua t))
   (ert-test-erts-file (ert-resource-file "indent.erts")))
 
-(ert-deftest lua-ts-mode-test-movement ()
-  (skip-unless (treesit-ready-p 'lua))
+(ert-deftest lua-ts-test-movement ()
+  (skip-unless (treesit-ready-p 'lua t))
   (ert-test-erts-file (ert-resource-file "movement.erts")))
+
+(ert-deftest lua-ts-test-font-lock ()
+  (skip-unless (treesit-ready-p 'lua t))
+  (let ((treesit-font-lock-level 4))
+    (ert-font-lock-test-file (ert-resource-file "font-lock.lua") 'lua-ts-mode)))
+
+(ert-deftest lua-ts-test-which-function ()
+  (skip-unless (treesit-ready-p 'lua t))
+  (with-temp-buffer
+    (insert-file-contents (ert-resource-file "which-function.lua"))
+    (lua-ts-mode)
+    (which-function-mode)
+    (goto-char (point-min))
+    (should (equal "f" (which-function)))
+    (which-function-mode -1)))
 
 (provide 'lua-ts-mode-tests)
 

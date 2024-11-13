@@ -1,6 +1,6 @@
 ;;; erc-button-tests.el --- Tests for erc-button  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 ;;
@@ -20,13 +20,15 @@
 ;;; Commentary:
 
 ;;; Code:
-
 (require 'erc-button)
 
+(require 'ert-x) ; cl-lib
+(eval-and-compile
+  (let ((load-path (cons (ert-resource-directory) load-path)))
+    (require 'erc-tests-common)))
+
 (ert-deftest erc-button-alist--url ()
-  (setq erc-server-process
-        (start-process "sleep" (current-buffer) "sleep" "1"))
-  (set-process-query-on-exit-flag erc-server-process nil)
+  (erc-tests-common-init-server-proc "sleep" "1")
   (with-current-buffer (erc--open-target "#chan")
     (let ((verify
            (lambda (p url)
@@ -65,18 +67,18 @@
   (apply #'erc-button-add-button rest))
 
 (defun erc-button-tests--erc-button-alist--function-as-form (func)
-  (setq erc-server-process
-        (start-process "sleep" (current-buffer) "sleep" "1"))
-  (set-process-query-on-exit-flag erc-server-process nil)
+  (erc-tests-common-init-server-proc "sleep" "1")
 
   (with-current-buffer (erc--open-target "#chan")
     (let* ((erc-button-tests--form nil)
            (entry (list (rx "+1") 0 func #'ignore 0))
            (erc-button-alist (cons entry erc-button-alist)))
 
-      (erc-display-message nil 'notice (current-buffer) "Foo bar baz")
-      (erc-display-message nil nil (current-buffer) "+1")
-      (erc-display-message nil 'notice (current-buffer) "Spam")
+      (erc-tests-common-display-message nil 'notice (current-buffer)
+                                        "Foo bar baz")
+      (erc-tests-common-display-message nil nil (current-buffer) "+1")
+      (erc-tests-common-display-message nil 'notice (current-buffer) "Spam")
+
       (should (equal (pop erc-button-tests--form)
                      '(53 55 ignore nil ("+1") "\\+1")))
       (should-not erc-button-tests--form)
@@ -102,9 +104,7 @@
      (apply #'erc-button-add-button r))))
 
 (defun erc-button-tests--erc-button-alist--nil-form (form)
-  (setq erc-server-process
-        (start-process "sleep" (current-buffer) "sleep" "1"))
-  (set-process-query-on-exit-flag erc-server-process nil)
+  (erc-tests-common-init-server-proc "sleep" "1")
 
   (with-current-buffer (erc--open-target "#chan")
     (let* ((erc-button-tests--form nil)
@@ -228,11 +228,9 @@
           (inhibit-message noninteractive)
           erc-modules
           erc-kill-channel-hook erc-kill-server-hook erc-kill-buffer-hook)
-      (erc-mode)
-      (setq erc-server-process
-            (start-process "sleep" (current-buffer) "sleep" "1"))
-      (set-process-query-on-exit-flag erc-server-process nil)
-      (erc--initialize-markers (point) nil)
+      (erc-tests-common-prep-for-insertion)
+      (erc-tests-common-init-server-proc "sleep" "1")
+
       (erc-button-mode +1)
       (should (equal (erc-button--display-error-notice-with-keys
                       "If \\[erc-bol] fails, "

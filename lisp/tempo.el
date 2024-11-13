@@ -1,6 +1,6 @@
 ;;; tempo.el --- Flexible template insertion -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1994-1995, 2001-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1994-1995, 2001-2024 Free Software Foundation, Inc.
 
 ;; Author: David Kågedal <davidk@lysator.liu.se>
 ;; Created: 16 Feb 1994
@@ -119,7 +119,7 @@ user for text to insert in the templates."
   :type 'boolean)
 
 (defcustom tempo-insert-region nil
-  "Automatically insert current region when there is a `r' in the template
+  "Automatically insert current region when there is a `r' in the template.
 If this variable is nil, `r' elements will be treated just like `p'
 elements, unless the template function is given a prefix (or a non-nil
 argument).  If this variable is non-nil, the behavior is reversed.
@@ -164,7 +164,7 @@ documentation for the function `tempo-complete-tag' for more info.
   "Indicates if the tag collection needs to be rebuilt.")
 
 (defvar-local tempo-marks nil
-  "A list of marks to jump to with `\\[tempo-forward-mark]' and `\\[tempo-backward-mark]'.")
+  "A list of marks to jump to with \\[tempo-forward-mark] and \\[tempo-backward-mark].")
 
 (defvar-local tempo-match-finder "\\b\\([[:word:]]+\\)\\="
   "The regexp or function used to find the string to match against tags.
@@ -197,6 +197,10 @@ This is an abnormal hook where the functions are called with one argument
 
 (defvar-local tempo-region-start (make-marker)
   "Region start when inserting around the region.")
+
+;; Insertion by the template at the region start position should move
+;; the marker to preserve the original region contents.
+(set-marker-insertion-type tempo-region-start t)
 
 (defvar-local tempo-region-stop (make-marker)
   "Region stop when inserting around the region.")
@@ -333,7 +337,8 @@ possible."
     (`(r> . ,rest) (if on-region
                        (progn
                          (goto-char tempo-region-stop)
-                         (indent-region (mark) (point) nil))
+                         (indent-region tempo-region-start
+                                        tempo-region-stop))
                        (tempo-insert-prompt-compat rest)))
     (`(s ,name) (tempo-insert-named name))
     (`(l . ,rest) (dolist (elt rest) (tempo-insert elt on-region)))
@@ -344,7 +349,7 @@ possible."
     ('r> (if on-region
 	     (progn
 	       (goto-char tempo-region-stop)
-	       (indent-region (mark) (point) nil))
+	       (indent-region tempo-region-start tempo-region-stop))
 	   (tempo-insert-mark (point-marker))))
     ('> (indent-according-to-mode))
     ('& (if (not (or (= (current-column) 0)
@@ -577,7 +582,7 @@ TAG-LIST is a symbol whose variable value is a tag list created with
 `tempo-add-tag'.
 
 COMPLETION-FUNCTION is an obsolete option for specifying an optional
-function or string that is used by `\\[tempo-complete-tag]' to find a
+function or string that is used by \\[tempo-complete-tag] to find a
 string to match the tag against.  It has the same definition as the
 variable `tempo-match-finder'.  In this version, supplying a
 COMPLETION-FUNCTION just sets `tempo-match-finder' locally."

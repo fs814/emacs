@@ -1,6 +1,6 @@
 ;;; perl-mode.el --- Perl code editing commands for GNU Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1990, 1994, 2001-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1990, 1994, 2001-2024 Free Software Foundation, Inc.
 
 ;; Author: William F. Mann
 ;; Maintainer: emacs-devel@gnu.org
@@ -251,7 +251,16 @@
       ;; correctly the \() construct (Bug#11996) as well as references
       ;; to string values.
       ("\\(\\\\\\)['`\"($]" (1 (unless (nth 3 (syntax-ppss))
-                                       (string-to-syntax "."))))
+                                 (string-to-syntax "."))))
+      ;; A "$" in Perl code must escape the next char to protect against
+      ;; misinterpreting Perl's punctuation variables as unbalanced
+      ;; quotes or parens.  This is not needed in strings and broken in
+      ;; the special case of "$\"" (Bug#69604).  Make "$" a punctuation
+      ;; char in strings.
+      ("\\$" (0 (if (save-excursion
+                      (nth 3 (syntax-ppss (match-beginning 0))))
+                    (string-to-syntax ".")
+                  (string-to-syntax "/"))))
       ;; Handle funny names like $DB'stop.
       ("\\$ ?{?\\^?[_[:alpha:]][_[:alnum:]]*\\('\\)[_[:alpha:]]" (1 "_"))
       ;; format statements
@@ -468,7 +477,7 @@
 		      (scan-error (goto-char startpos) nil))
 		  (not (or (nth 8 (parse-partial-sexp
 				   ;; Since we don't know if point is within
-				   ;; the first or the scond arg, we have to
+				   ;; the first or the second arg, we have to
 				   ;; start from the beginning.
 				   (if twoargs (1+ (nth 8 state)) (point))
 				   limit nil nil state 'syntax-table))
@@ -514,7 +523,7 @@
 				     (string-to-syntax "|e")
 				   (string-to-syntax "\"e")))
 	      (forward-char 1)
-	      ;; Re-use perl-syntax-propertize-special-constructs to handle the
+	      ;; Reuse perl-syntax-propertize-special-constructs to handle the
 	      ;; second part (the first delimiter of second part can't be
 	      ;; preceded by "s" or "tr" or "y", so it will not be considered
 	      ;; as twoarg).
@@ -647,7 +656,7 @@ create a new comment."
 ;;; Flymake support
 (defcustom perl-flymake-command '("perl" "-w" "-c")
   "External tool used to check Perl source code.
-This is a non empty list of strings, the checker tool possibly
+This is a non-empty list of strings: the checker tool possibly
 followed by required arguments.  Once launched it will receive
 the Perl source to be checked as its standard input."
   :version "26.1"
@@ -954,8 +963,8 @@ changed by, or (parse-state) if line starts in a quoted string."
   (save-excursion
     (skip-chars-backward " \t\n")
     (beginning-of-line)
-    (when-let ((comm (and (looking-at "^\\.$")
-                          (nth 8 (syntax-ppss)))))
+    (when-let* ((comm (and (looking-at "^\\.$")
+                           (nth 8 (syntax-ppss)))))
       (goto-char comm)
       (beginning-of-line)
       (looking-at perl--format-regexp))))
@@ -1119,16 +1128,9 @@ Returns (parse-state) if line starts inside a string."
             ;; Move back over whitespace before the openbrace.
             ;; If openbrace is not first nonwhite thing on the line,
             ;; add the perl-brace-imaginary-offset.
-            (progn (skip-chars-backward " \t")
-                   (if (bolp) 0 perl-brace-imaginary-offset))
-            ;; If the openbrace is preceded by a parenthesized exp,
-            ;; move to the beginning of that;
-            ;; possibly a different line
-            (progn
-              (if (eq (preceding-char) ?\))
-                  (forward-sexp -1))
-              ;; Get initial indentation of the line we are on.
-              (current-indentation)))))))))
+            (save-excursion (skip-chars-backward " \t")
+                            (if (bolp) 0 perl-brace-imaginary-offset))
+            (perl-indent-new-calculate 'virtual))))))))
 
 (defun perl-backward-to-noncomment ()
   "Move point backward to after the first non-white-space, skipping comments."

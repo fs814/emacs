@@ -1,6 +1,6 @@
 ;;; compile-tests.el --- Test suite for compile.el.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2011-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2024 Free Software Foundation, Inc.
 
 ;; Author: Chong Yidong <cyd@stupidchicken.com>
 ;; Keywords:       internal
@@ -206,6 +206,33 @@
      1 0 31 "/usr/include/c++/3.3/backward/iostream.h")
     (gcc-include "                 from test_clt.cc:1:"
      1 nil 1 "test_clt.cc")
+    ;; Lua
+    (lua "lua: database.lua:10: assertion failed!\nstack traceback:\n\t"
+         6 nil 10 "database.lua")
+    (lua "lua 5.4: database 2.lua:10: assertion failed!\nstack traceback:\n\t"
+         10 nil 10 "database 2.lua")
+    (lua "/usr/local/bin/lua: core/database.lua:20: assertion failed!\nstack traceback:\n\t"
+         21 nil 20 "core/database.lua")
+    (lua "C:\\Lua\\Lua.exe: Core\\Database.lua:20: assertion failed!\nstack traceback:\n\t"
+         17 nil 20 "Core\\Database.lua")
+    (lua "lua: /tmp/database.lua:20: assertion failed!\nstack traceback:\n\t"
+         6 nil 20 "/tmp/database.lua")
+    (lua "Lua.exe: C:\\Temp\\Database.lua:20: assertion failed!\nstack traceback:\n\t"
+         10 nil 20 "C:\\Temp\\Database.lua")
+    (lua-stack "	database.lua: in field 'statement'"
+               2 nil nil "database.lua" 0)
+    (lua-stack "	database.lua:10: in field 'statement'"
+               2 nil 10 "database.lua" 0)
+    (lua-stack "	core/database.lua:20: in field 'statement'"
+               2 nil 20 "core/database.lua" 0)
+    (lua-stack "	database 2.lua: in field 'statement'"
+               2 nil nil "database 2.lua" 0)
+    (lua-stack "	Core\\Database.lua:20: in field 'statement'"
+               2 nil 20 "Core\\Database.lua" 0)
+    (lua-stack "	/tmp/database.lua: in field 'statement'"
+               2 nil nil "/tmp/database.lua" 0)
+    (lua-stack "	C:\\Core\\Database.lua: in field 'statement'"
+               2 nil nil "C:\\Core\\Database.lua" 0)
     ;; gmake
     (gmake "make: *** [Makefile:20: all] Error 2" 12 nil 20 "Makefile" 0)
     (gmake "make[4]: *** [sub/make.mk:19: all] Error 127" 15 nil 19
@@ -243,20 +270,24 @@
      1 nil 27041 "{standard input}")
     (gnu "boost/container/detail/flat_tree.hpp:589:25:   [ skipping 5 instantiation contexts, use -ftemplate-backtrace-limit=0 to disable ]"
      1 25 589 "boost/container/detail/flat_tree.hpp" 0)
-    ;; gradle-kotlin
+    ;; Gradle/Kotlin
     (gradle-kotlin
+     "e: file:///src/Test.kt:267:5 foo: bar" 4 5 267 "/src/Test.kt" 2)
+    (gradle-kotlin
+     "w: file:///src/Test.kt:267:5 foo: bar" 4 5 267 "/src/Test.kt" 1)
+    (gradle-kotlin-legacy
      "e: /src/Test.kt: (34, 15): foo: bar" 4 15 34 "/src/Test.kt" 2)
-    (gradle-kotlin
+    (gradle-kotlin-legacy
      "w: /src/Test.kt: (11, 98): foo: bar" 4 98 11 "/src/Test.kt" 1)
-    (gradle-kotlin
+    (gradle-kotlin-legacy
      "e: e:/cygwin/src/Test.kt: (34, 15): foo: bar"
      4 15 34 "e:/cygwin/src/Test.kt" 2)
-    (gradle-kotlin
+    (gradle-kotlin-legacy
      "w: e:/cygwin/src/Test.kt: (11, 98): foo: bar"
      4 98 11 "e:/cygwin/src/Test.kt" 1)
-    (gradle-kotlin
+    (gradle-kotlin-legacy
      "e: e:\\src\\Test.kt: (34, 15): foo: bar" 4 15 34 "e:\\src\\Test.kt" 2)
-    (gradle-kotlin
+    (gradle-kotlin-legacy
      "w: e:\\src\\Test.kt: (11, 98): foo: bar" 4 98 11 "e:\\src\\Test.kt" 1)
     (gradle-android
      "     ERROR:/Users/salutis/src/AndroidSchemeExperiment/app/build/intermediates/incremental/debug/mergeDebugResources/stripped.dir/layout/item.xml:3: AAPT: error: '16dpw' is incompatible with attribute padding (attr) dimension."
@@ -507,9 +538,9 @@ The test data is in `compile-tests--test-regexps-data'."
                    1 15 5 "alpha.c")))
         (compile--test-error-line test))
 
-      (should (eq compilation-num-errors-found 100))
-      (should (eq compilation-num-warnings-found 35))
-      (should (eq compilation-num-infos-found 28)))))
+      (should (eq compilation-num-errors-found 107))
+      (should (eq compilation-num-warnings-found 36))
+      (should (eq compilation-num-infos-found 35)))))
 
 (ert-deftest compile-test-grep-regexps ()
   "Test the `grep-regexp-alist' regexps.

@@ -1,6 +1,7 @@
 ;;; sh-script.el --- shell-script editing commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1997, 1999, 2001-2024 Free Software Foundation,
+;; Inc.
 
 ;; Author: Daniel Pfeiffer <occitan@esperanto.org>
 ;; Old-Version: 2.0f
@@ -1053,7 +1054,8 @@ subshells can nest."
                     ;; a normal command rather than the real `in' keyword.
                     ;; I.e. we should look back to try and find the
                     ;; corresponding `case'.
-                    (and (looking-at ";\\(?:;&?\\|[&|]\\)\\|\\_<in")
+                    ;; Also recognize OpenBSD's case X { ... } (bug#55764).
+                    (and (looking-at ";\\(?:;&?\\|[&|]\\)\\|\\_<in\\|.{")
                          ;; ";; esac )" is a case that looks
                          ;; like a case-pattern but it's really just a close
                          ;; paren after a case statement.  I.e. if we skipped
@@ -1433,7 +1435,8 @@ If FORCE is non-nil and no process found, create one."
 (defun sh-show-shell ()
   "Pop the shell interaction buffer."
   (interactive)
-  (pop-to-buffer (process-buffer (sh-shell-process t)) display-comint-buffer-action))
+  (with-suppressed-warnings ((obsolete display-comint-buffer-action))
+    (pop-to-buffer (process-buffer (sh-shell-process t)) display-comint-buffer-action)))
 
 (defun sh-send-text (text)
   "Send TEXT to `sh-shell-process'."
@@ -1620,7 +1623,7 @@ not written in Bash or sh."
     (add-hook 'flymake-diagnostic-functions #'sh-shellcheck-flymake nil t)
     (add-hook 'hack-local-variables-hook
               #'sh-after-hack-local-variables nil t)
-    (treesit-parser-create 'bash)
+    (setq treesit-primary-parser (treesit-parser-create 'bash))
     (setq-local treesit-font-lock-feature-list
                 '(( comment function)
                   ( command declaration-command keyword string)
@@ -1636,6 +1639,8 @@ not written in Bash or sh."
                                             "heredoc_body"))))))
     (setq-local treesit-defun-type-regexp "function_definition")
     (treesit-major-mode-setup)))
+
+(derived-mode-add-parents 'bash-ts-mode '(sh-mode))
 
 (advice-add 'bash-ts-mode :around #'sh--redirect-bash-ts-mode
             ;; Give it lower precedence than normal advice, so other
@@ -2056,9 +2061,9 @@ May return nil if the line should not be treated as continued."
                              (sh-var-value 'sh-indent-for-case-label)))
     (`(:before . ,(or "(" "{" "[" "while" "if" "for" "case"))
      (cond
-      ((and (equal token "{") (smie-rule-parent-p "for"))
+      ((and (equal token "{") (smie-rule-parent-p "for" "case"))
        (let ((data (smie-backward-sexp "in")))
-         (when (equal (nth 2 data) "for")
+         (when (member (nth 2 data) '("for" "case"))
            `(column . ,(smie-indent-virtual)))))
       ((not (smie-rule-prev-p "&&" "||" "|"))
        (when (smie-rule-hanging-p)
@@ -2302,7 +2307,7 @@ Point should be before the newline."
 When used interactively, insert the proper starting #!-line,
 and make the visited file executable via `executable-set-magic',
 perhaps querying depending on the value of `executable-query'.
-(If given a prefix (i.e., `\\[universal-argument]') don't insert any starting #!
+(If given a prefix (i.e., \\[universal-argument]) don't insert any starting #!
 line.)
 
 When this function is called noninteractively, INSERT-FLAG (the third
@@ -3190,12 +3195,6 @@ shell command and conveniently use this command."
 
 (defvar-local sh--shellcheck-process nil)
 
-(defalias 'sh--json-read
-  (if (fboundp 'json-parse-buffer)
-      (lambda () (json-parse-buffer :object-type 'alist))
-    (require 'json)
-    'json-read))
-
 (defun sh-shellcheck-flymake (report-fn &rest _args)
   "Flymake backend using the shellcheck program.
 Takes a Flymake callback REPORT-FN as argument, as expected of a
@@ -3219,7 +3218,7 @@ member of `flymake-diagnostic-functions'."
                     (with-current-buffer (process-buffer proc)
                       (goto-char (point-min))
                       (thread-last
-                        (sh--json-read)
+                        (json-parse-buffer :object-type 'alist)
                         (alist-get 'comments)
                         (seq-filter
                          (lambda (item)

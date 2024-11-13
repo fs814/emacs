@@ -1,6 +1,6 @@
 ;;; reftex.el --- minor mode for doing \label, \ref, \cite, \index in LaTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2024 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <dominik@science.uva.nl>
 ;; Maintainer: auctex-devel@gnu.org
@@ -273,8 +273,7 @@ on the menu bar.
 (defvar reftex-multifile-index 0)
 
 ;; Variable holding the symbol with the label list of the document.
-(defvar reftex-docstruct-symbol nil)
-(make-variable-buffer-local 'reftex-docstruct-symbol)
+(defvar-local reftex-docstruct-symbol nil)
 
 (defun reftex-next-multifile-index ()
   ;; Return the next free index for multifile symbols.
@@ -2036,8 +2035,8 @@ IGNORE-WORDS List of words which should be removed from the string."
           ;; of font-lock)
           (rename-buffer newname t)
           ;; Good: we have the indirection functions
-          (set (make-local-variable 'font-lock-fontify-region-function)
-               #'reftex-select-font-lock-fontify-region)
+          (setq-local font-lock-fontify-region-function
+                      #'reftex-select-font-lock-fontify-region)
           (let ((major-mode 'latex-mode))
             (font-lock-mode 1)))
       (rename-buffer oldname))))
@@ -2116,8 +2115,7 @@ IGNORE-WORDS List of words which should be removed from the string."
 
 ;; Define a menu for the menu bar if Emacs is running under X
 
-(defvar reftex-isearch-minor-mode nil)
-(make-variable-buffer-local 'reftex-isearch-minor-mode)
+(defvar-local reftex-isearch-minor-mode nil)
 
 (easy-menu-define reftex-mode-menu reftex-mode-map
  "Menu used in RefTeX mode."

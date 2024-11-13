@@ -1,6 +1,6 @@
 /* Android fallback font driver.
 
-Copyright (C) 2023 Free Software Foundation, Inc.
+Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -136,26 +136,26 @@ struct androidfont_entity
 /* Method and class identifiers associated with the EmacsFontDriver
    class.  */
 
-struct android_emacs_font_driver font_driver_class;
+static struct android_emacs_font_driver font_driver_class;
 
 /* Field and class identifiers associated with the
    EmacsFontDriver$FontSpec class.  */
 
-struct android_emacs_font_spec font_spec_class;
+static struct android_emacs_font_spec font_spec_class;
 
 /* Method and class identifiers associated with the Integer class.  */
 
-struct android_integer integer_class;
+static struct android_integer integer_class;
 
 /* Field and class identifiers associated with the
    EmacsFontDriver$FontMetrics class.  */
 
-struct android_emacs_font_metrics font_metrics_class;
+static struct android_emacs_font_metrics font_metrics_class;
 
 /* Field and class identifiers associated with the
    EmacsFontDriver$FontObject class.  */
 
-struct android_emacs_font_object font_object_class;
+static struct android_emacs_font_object font_object_class;
 
 /* The font cache.  */
 
@@ -654,13 +654,11 @@ androidfont_draw (struct glyph_string *s, int from, int to,
   /* Maybe initialize the font driver.  */
   androidfont_check_init ();
 
-  verify (sizeof (unsigned int) == sizeof (jint));
+  static_assert (sizeof (unsigned int) == sizeof (jint));
   info = (struct androidfont_info *) s->font;
 
-  gcontext = android_resolve_handle (s->gc->gcontext,
-				     ANDROID_HANDLE_GCONTEXT);
-  drawable = android_resolve_handle (FRAME_ANDROID_DRAWABLE (s->f),
-				     ANDROID_HANDLE_WINDOW);
+  gcontext = android_resolve_handle (s->gc->gcontext);
+  drawable = android_resolve_handle (FRAME_ANDROID_DRAWABLE (s->f));
   chars = (*android_java_env)->NewIntArray (android_java_env,
 					    to - from);
   android_exception_check ();
@@ -934,7 +932,7 @@ androidfont_text_extents (struct font *font, const unsigned int *code,
       memory_full (0);
     }
 
-  verify (sizeof (unsigned int) == sizeof (jint));
+  static_assert (sizeof (unsigned int) == sizeof (jint));
 
   /* Always true on every Android device.  */
   (*android_java_env)->SetIntArrayRegion (android_java_env,

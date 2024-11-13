@@ -1,6 +1,6 @@
 ;;; message.el --- composing mail and news messages -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2024 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: mail, news
@@ -154,7 +154,7 @@ If this variable is nil, no such courtesy message will be added."
   :type '(radio string (const nil)))
 
 (defcustom message-ignored-bounced-headers
-  "^\\(Received\\|Return-Path\\|Delivered-To\\):"
+  "^\\(Received\\|Return-Path\\|Delivered-To\\|DKIM-Signature\\|X-Hashcash\\):"
   "Regexp that matches headers to be removed in resent bounced mail."
   :group 'message-interface
   :type 'regexp)
@@ -1876,9 +1876,13 @@ downcased."
   :type '(repeat (repeat string)))
 
 (defcustom message-mail-user-agent nil
-  "Like `mail-user-agent'.
-Except if it is nil, use Gnus native MUA; if it is t, use
-`mail-user-agent'."
+  "Your preferred package for composing and sending email when using message.el.
+Like `mail-user-agent' (which see), this specifies the package you prefer
+to use for composing and sending email messages.
+The value can be anything accepted by `mail-user-agent', and in addition
+it can be nil or t.  If the value is nil, use the Gnus native Mail User
+Agent (MUA); if it is t, use the value of `mail-user-agent'.
+For more about mail user agents, see Info node `(emacs)Mail Methods'"
   :version "22.1"
   :type '(radio (const :tag "Gnus native"
 		       :format "%t\n"
@@ -4930,8 +4934,8 @@ If you always want Gnus to send messages in one piece, set
               (let ((addr (message-fetch-field hdr)))
 	        (when (stringp addr)
 	          (dolist (address (mail-header-parse-addresses addr t))
-	            (when-let ((warning (textsec-suspicious-p
-                                         address 'email-address-header)))
+	            (when-let* ((warning (textsec-suspicious-p
+                                          address 'email-address-header)))
 	              (unless (y-or-n-p
 		               (format "Suspicious address: %s; send anyway?"
                                        warning))
@@ -5764,8 +5768,10 @@ The result is a fixnum."
       (with-temp-buffer
 	(insert-buffer-substring buf)
 	(message-clone-locals buf)
-	;; Avoid re-doing things like GPG-encoding secret parts.
-	(if (not encoded-cache)
+	;; Avoid re-doing things like GPG-encoding secret parts, unless
+	;; the user has requested that attachments be externalized, in
+	;; which case we have to re-encode the message body.
+	(if (or mml-externalize-attachments (not encoded-cache))
 	    (message-encode-message-body)
 	  (erase-buffer)
 	  (insert encoded-cache))
@@ -6246,8 +6252,7 @@ subscribed address (and not the additional To and Cc header contents)."
 	    (widen)))))))
 
 (defun message-idna-to-ascii-rhs ()
-  "Possibly IDNA encode non-ASCII domain names in From:, To: and Cc: headers.
-See `message-idna-encode'."
+  "Possibly IDNA encode non-ASCII domain names in From:, To: and Cc: headers."
   (interactive nil message-mode)
   (when message-use-idna
     (save-excursion
@@ -6600,8 +6605,7 @@ they are."
   (sit-for 0))
 
 (defcustom message-beginning-of-line t
-  "Whether \\<message-mode-map>\\[message-beginning-of-line]\
- goes to beginning of header values."
+  "Whether \\<message-mode-map>\\[message-beginning-of-line] goes to beginning of header values."
   :version "22.1"
   :group 'message-buffers
   :link '(custom-manual "(message)Movement")
@@ -6663,7 +6667,7 @@ beginning of line.
 When called without a prefix argument, header value spanning
 multiple lines is treated as a single line.  Otherwise, even if
 N is 1, when point is on a continuation header line, it will be
-moved to the beginning "
+moved to the beginning."
   (interactive "^p" message-mode)
   (cond
    ;; Go to beginning of header or beginning of line.
@@ -8608,7 +8612,6 @@ From headers in the original article."
   (let ((regexps (if (stringp message-hidden-headers)
 		     (list message-hidden-headers)
 		   message-hidden-headers))
-	(inhibit-modification-hooks t)
 	end-of-headers)
     (when regexps
       (save-excursion
@@ -9008,7 +9011,7 @@ to the E-mail."
           (message-goto-body)
           (dolist (body (cdr (assoc "body" args)))
 	    (insert body "\n")))
-      
+
       (setq need-body t))
     (if (assoc "subject" args)
 	(message-goto-body)

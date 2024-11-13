@@ -1,6 +1,6 @@
 /* X Communication module for terminals which understand the X protocol.
 
-Copyright (C) 1989, 1993-2023 Free Software Foundation, Inc.
+Copyright (C) 1989, 1993-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -616,9 +616,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
     - x_clear_errors
 
   Callers using this set should consult the comment(s) on top of the
-  aformentioned functions.  They should not be used when the requests
+  aforementioned functions.  They should not be used when the requests
   being made do not require roundtrips to the X server, and obtaining
-  the details of any error generated is unecessary, as
+  the details of any error generated is unnecessary, as
   `x_uncatch_errors' will always synchronize with the X server, which
   is a potentially slow operation.  */
 
@@ -971,7 +971,7 @@ struct x_selection_request_event
    selection requests inside long-lasting modal event loops, such as
    the drag-and-drop loop.  */
 
-struct x_selection_request_event *pending_selection_requests;
+static struct x_selection_request_event *pending_selection_requests;
 
 struct x_atom_ref
 {
@@ -1274,7 +1274,7 @@ static int x_dnd_waiting_for_motif_finish;
 
 /* The display the Motif drag receiver will send response data
    from.  */
-struct x_display_info *x_dnd_waiting_for_motif_finish_display;
+static struct x_display_info *x_dnd_waiting_for_motif_finish_display;
 
 /* Whether or not F1 was pressed during the drag-and-drop operation.
 
@@ -2933,7 +2933,6 @@ x_dnd_free_toplevels (bool display_alive)
   unsigned long *prev_masks UNINIT;
   specpdl_ref count;
   Display *dpy UNINIT;
-  struct x_display_info *dpyinfo;
 
   if (!x_dnd_toplevels)
     /* Probably called inside an IO error handler.  */
@@ -2995,25 +2994,21 @@ x_dnd_free_toplevels (bool display_alive)
   record_unwind_protect_ptr (xfree, destroy_windows);
   record_unwind_protect_ptr (xfree, prev_masks);
 
-  if (display_alive)
+  if (display_alive && n_windows)
     {
-      dpyinfo = x_display_info_for_display (dpy);
+      struct x_display_info *dpyinfo = x_dpyinfo (dpy);
 
-      if (n_windows)
+      x_ignore_errors_for_next_request (dpyinfo, 0);
+
+      for (i = 0; i < n_windows; ++i)
 	{
-	  eassume (dpyinfo);
-	  x_ignore_errors_for_next_request (dpyinfo, 0);
-
-	  for (i = 0; i < n_windows; ++i)
-	    {
-	      XSelectInput (dpy, destroy_windows[i], prev_masks[i]);
+	  XSelectInput (dpy, destroy_windows[i], prev_masks[i]);
 #ifdef HAVE_XSHAPE
-	      XShapeSelectInput (dpy, destroy_windows[i], None);
+	  XShapeSelectInput (dpy, destroy_windows[i], None);
 #endif
-	    }
-
-	  x_stop_ignoring_errors (dpyinfo);
 	}
+
+      x_stop_ignoring_errors (dpyinfo);
     }
 
   unbind_to (count, Qnil);
@@ -3104,27 +3099,19 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 #ifdef USE_XCB
   USE_SAFE_ALLOCA;
 
-  window_attribute_cookies
-    = SAFE_ALLOCA (sizeof *window_attribute_cookies * nitems);
-  translate_coordinate_cookies
-    = SAFE_ALLOCA (sizeof *translate_coordinate_cookies * nitems);
-  get_property_cookies
-    = SAFE_ALLOCA (sizeof *get_property_cookies * nitems);
-  xm_property_cookies
-    = SAFE_ALLOCA (sizeof *xm_property_cookies * nitems);
-  extent_property_cookies
-    = SAFE_ALLOCA (sizeof *extent_property_cookies * nitems);
-  get_geometry_cookies
-    = SAFE_ALLOCA (sizeof *get_geometry_cookies * nitems);
+  SAFE_NALLOCA (window_attribute_cookies, 1, nitems);
+  SAFE_NALLOCA (translate_coordinate_cookies, 1, nitems);
+  SAFE_NALLOCA (get_property_cookies, 1, nitems);
+  SAFE_NALLOCA (xm_property_cookies, 1, nitems);
+  SAFE_NALLOCA (extent_property_cookies, 1, nitems);
+  SAFE_NALLOCA (get_geometry_cookies, 1, nitems);
 
 #ifdef HAVE_XCB_SHAPE
-  bounding_rect_cookies
-    = SAFE_ALLOCA (sizeof *bounding_rect_cookies * nitems);
+  SAFE_NALLOCA (bounding_rect_cookies, 1, nitems);
 #endif
 
 #ifdef HAVE_XCB_SHAPE_INPUT_RECTS
-  input_rect_cookies
-    = SAFE_ALLOCA (sizeof *input_rect_cookies * nitems);
+  SAFE_NALLOCA (input_rect_cookies, 1, nitems);
 #endif
 
   for (i = 0; i < nitems; ++i)
@@ -5036,7 +5023,7 @@ x_dnd_note_self_drop (struct x_display_info *dpyinfo, Window target,
   XSETFRAME (lval, f);
   x_dnd_action = None;
   x_dnd_action_symbol
-    = safe_call2 (Vx_dnd_native_test_function,
+    = safe_calln (Vx_dnd_native_test_function,
 		  Fposn_at_x_y (make_fixnum (win_x),
 				make_fixnum (win_y),
 				lval, Qnil),
@@ -5173,7 +5160,7 @@ record_event (char *locus, int type)
 
 
 
-/* Miscelaneous event handling functions.  */
+/* Miscellaneous event handling functions.  */
 
 static void
 x_toolkit_position (struct frame *f, int x, int y,
@@ -5825,37 +5812,50 @@ xi_device_from_id (struct x_display_info *dpyinfo, int deviceid)
 #ifdef HAVE_XINPUT2_2
 
 /* Record a touch sequence with the identifier DETAIL from the given
-   FRAME on the specified DEVICE.  Round X and Y and record them as
-   its current position.  */
+   FRAME on the specified DEVICE.  Round X and Y and record them as its
+   current position, assign an identifier to the touch sequence suitable
+   for reporting to Lisp, and return the same.  */
 
-static void
+static EMACS_INT
 xi_link_touch_point (struct xi_device_t *device,
 		     int detail, double x, double y,
 		     struct frame *frame)
 {
   struct xi_touch_point_t *touchpoint;
+  static EMACS_INT local_detail;
+
+  /* Assign an identifier suitable for reporting to Lisp.  On builds
+     with 64-bit Lisp_Object, this is largely a theoretical problem, but
+     CARD32s easily overflow 32-bit systems, as they are not specific to
+     X clients (e.g. Emacs) but grow uniformly across all of them.  */
+
+  if (FIXNUM_OVERFLOW_P (local_detail))
+    local_detail = 0;
 
   touchpoint = xmalloc (sizeof *touchpoint);
   touchpoint->next = device->touchpoints;
   touchpoint->x = lrint (x);
   touchpoint->y = lrint (y);
   touchpoint->number = detail;
+  touchpoint->local_detail = local_detail++;
   touchpoint->frame = frame;
   touchpoint->ownership = TOUCH_OWNERSHIP_NONE;
-
   device->touchpoints = touchpoint;
+  return touchpoint->local_detail;
 }
 
 /* Free and remove the touch sequence with the identifier DETAIL.
    DEVICE is the device in which the touch sequence should be
-   recorded.
+   recorded.  If such a touch sequence exists, return its local
+   identifier in *LOCAL_DETAIL.
 
    Value is 0 if no touch sequence by that identifier exists inside
    DEVICE, 1 if a touch sequence has been found but is not owned by
    Emacs, and 2 otherwise.  */
 
 static int
-xi_unlink_touch_point (int detail, struct xi_device_t *device)
+xi_unlink_touch_point (int detail, struct xi_device_t *device,
+		       EMACS_INT *local_detail)
 {
   struct xi_touch_point_t *last, *tem;
   enum xi_touch_ownership ownership;
@@ -5871,6 +5871,7 @@ xi_unlink_touch_point (int detail, struct xi_device_t *device)
 	    last->next = tem->next;
 
 	  ownership = tem->ownership;
+	  *local_detail = tem->local_detail;
 	  xfree (tem);
 
 	  if (ownership == TOUCH_OWNERSHIP_SELF)
@@ -6881,7 +6882,20 @@ x_draw_horizontal_wave (struct frame *f, GC gc, int x, int y,
 #endif
 
 
-/* Return the struct x_display_info corresponding to DPY.  */
+/* Return the struct x_display_info corresponding to DPY,
+   when it is guaranteed that one will correspond.  */
+
+struct x_display_info *
+x_dpyinfo (Display *dpy)
+{
+  for (struct x_display_info *dpyinfo = x_display_list; ;
+       dpyinfo = dpyinfo->next)
+    if (dpyinfo->display == dpy)
+      return dpyinfo;
+}
+
+/* Return the struct x_display_info corresponding to DPY,
+   or a null pointer if none corresponds.  */
 
 struct x_display_info *
 x_display_info_for_display (Display *dpy)
@@ -7292,6 +7306,11 @@ x_sync_init_fences (struct frame *f)
 	  && dpyinfo->xsync_minor < 1))
     return;
 
+  /* Suppress errors around XSyncCreateFence requests, since its
+     implementations on certain X servers erroneously reject valid
+     drawables, such as the frame's inner window.  (bug#69762) */
+
+  x_catch_errors (dpyinfo->display);
   output->sync_fences[0]
     = XSyncCreateFence (FRAME_X_DISPLAY (f),
 			/* The drawable given below is only used to
@@ -7303,6 +7322,9 @@ x_sync_init_fences (struct frame *f)
     = XSyncCreateFence (FRAME_X_DISPLAY (f),
 			FRAME_X_WINDOW (f),
 			False);
+  if (x_had_errors_p (dpyinfo->display))
+    output->sync_fences[1] = output->sync_fences[0] = None;
+  x_uncatch_errors_after_check ();
 
   XChangeProperty (FRAME_X_DISPLAY (f), FRAME_OUTER_WINDOW (f),
 		   dpyinfo->Xatom_net_wm_sync_fences, XA_CARDINAL,
@@ -8887,7 +8909,7 @@ x_frame_of_widget (Widget widget)
   Lisp_Object tail, frame;
   struct frame *f;
 
-  dpyinfo = x_display_info_for_display (XtDisplay (widget));
+  dpyinfo = x_dpyinfo (XtDisplay (widget));
 
   /* Find the top-level shell of the widget.  Note that this function
      can be called when the widget is not yet realized, so XtWindow
@@ -9081,8 +9103,7 @@ cvt_pixel_dtor (XtAppContext app, XrmValuePtr to, XtPointer closure, XrmValuePtr
 static const XColor *
 x_color_cells (Display *dpy, int *ncells)
 {
-  struct x_display_info *dpyinfo = x_display_info_for_display (dpy);
-  eassume (dpyinfo);
+  struct x_display_info *dpyinfo = x_dpyinfo (dpy);
 
   if (dpyinfo->color_cells == NULL)
     {
@@ -9357,16 +9378,13 @@ x_parse_color (struct frame *f, const char *color_name,
 static bool
 x_alloc_nearest_color_1 (Display *dpy, Colormap cmap, XColor *color)
 {
-  struct x_display_info *dpyinfo = x_display_info_for_display (dpy);
-  bool rc;
-
-  eassume (dpyinfo);
-  rc = XAllocColor (dpy, cmap, color) != 0;
+  struct x_display_info *dpyinfo = x_dpyinfo (dpy);
+  bool rc = XAllocColor (dpy, cmap, color) != 0;
 
   if (dpyinfo->visual_info.class == DirectColor)
     return rc;
 
-  if (rc == 0)
+  if (!rc)
     {
       /* If we got to this point, the colormap is full, so we're going
 	 to try and get the next closest color.  The algorithm used is
@@ -9469,8 +9487,7 @@ x_alloc_nearest_color_1 (Display *dpy, Colormap cmap, XColor *color)
       /* If allocation succeeded, and the allocated pixel color is not
          equal to a cached pixel color recorded earlier, there was a
          change in the colormap, so clear the color cache.  */
-      struct x_display_info *dpyinfo = x_display_info_for_display (dpy);
-      eassume (dpyinfo);
+      struct x_display_info *dpyinfo = x_dpyinfo (dpy);
 
       if (dpyinfo->color_cells)
 	{
@@ -10727,10 +10744,10 @@ x_draw_stretch_glyph_string (struct glyph_string *s)
 }
 
 static void
-x_get_scale_factor (Display *disp, int *scale_x, int *scale_y)
+x_get_scale_factor (struct x_display_info *dpyinfo,
+		    int *scale_x, int *scale_y)
 {
-  const int base_res = 96;
-  struct x_display_info * dpyinfo = x_display_info_for_display (disp);
+  int base_res = 96;
 
   *scale_x = *scale_y = 1;
 
@@ -10756,12 +10773,12 @@ x_get_scale_factor (Display *disp, int *scale_x, int *scale_y)
 static void
 x_draw_underwave (struct glyph_string *s, int decoration_width)
 {
-  Display *display = FRAME_X_DISPLAY (s->f);
-
+  struct x_display_info *dpyinfo;
   /* Adjust for scale/HiDPI.  */
   int scale_x, scale_y;
 
-  x_get_scale_factor (display, &scale_x, &scale_y);
+  dpyinfo = FRAME_DISPLAY_INFO (s->f);
+  x_get_scale_factor (dpyinfo, &scale_x, &scale_y);
 
   int wave_height = 3 * scale_y, wave_length = 2 * scale_x;
 
@@ -10769,6 +10786,7 @@ x_draw_underwave (struct glyph_string *s, int decoration_width)
   x_draw_horizontal_wave (s->f, s->gc, s->x, s->ybase - wave_height + 3,
 			  decoration_width, wave_height, wave_length);
 #else  /* not USE_CAIRO */
+  Display *display;
   int dx, dy, x0, y0, width, x1, y1, x2, y2, xmax, thickness = scale_y;;
   bool odd;
   XRectangle wave_clip, string_clip, final_clip;
@@ -10791,6 +10809,7 @@ x_draw_underwave (struct glyph_string *s, int decoration_width)
   if (!gui_intersect_rectangles (&wave_clip, &string_clip, &final_clip))
     return;
 
+  display = dpyinfo->display;
   XSetClipRectangles (display, s->gc, 0, 0, &final_clip, 1, Unsorted);
 
   /* Draw the waves */
@@ -10823,6 +10842,97 @@ x_draw_underwave (struct glyph_string *s, int decoration_width)
 #endif	/* not USE_CAIRO */
 }
 
+/* Draw a dashed underline of thickness THICKNESS and width WIDTH onto F
+   at a vertical offset of OFFSET from the position of the glyph string
+   S, with each segment SEGMENT pixels in length.  */
+
+static void
+x_draw_dash (struct frame *f, struct glyph_string *s, int width,
+	     char segment, int offset, int thickness)
+{
+#ifndef USE_CAIRO
+  GC gc;
+  Display *display;
+  XGCValues gcv;
+  int y_center;
+
+  /* Configure the GC, the dash pattern and a suitable offset.  */
+  gc = s->gc;
+  display = FRAME_X_DISPLAY (f);
+
+  gcv.line_style = LineOnOffDash;
+  gcv.line_width = thickness;
+  XChangeGC (display, s->gc, GCLineStyle | GCLineWidth, &gcv);
+  XSetDashes (display, s->gc, s->x, &segment, 1);
+
+  /* Offset the origin of the line by half the line width. */
+  y_center = s->ybase + offset + thickness / 2;
+  XDrawLine (display, FRAME_X_DRAWABLE (f), gc,
+	     s->x, y_center, s->x + width, y_center);
+
+  /* Restore the initial line style.  */
+  gcv.line_style = LineSolid;
+  gcv.line_width = 1;
+  XChangeGC (display, s->gc, GCLineStyle | GCLineWidth, &gcv);
+#else /* USE_CAIRO */
+  cairo_t *cr;
+  double cr_segment, y_center;
+
+  cr = x_begin_cr_clip (f, s->gc);
+  cr_segment = (double) segment;
+  y_center = s->ybase + offset + (thickness / 2.0);
+
+  x_set_cr_source_with_gc_foreground (f, s->gc, false);
+  cairo_set_dash (cr, &cr_segment, 1, s->x);
+  cairo_set_line_width (cr, thickness);
+  cairo_move_to (cr, s->x, y_center);
+  cairo_line_to (cr, s->x + width, y_center);
+  cairo_stroke (cr);
+  x_end_cr_clip (f);
+#endif /* USE_CAIRO */
+}
+
+/* Draw an underline of STYLE onto F at an offset of POSITION from the
+   baseline of the glyph string S, DECORATION_WIDTH in length, and
+   THICKNESS in height.  */
+
+static void
+x_fill_underline (struct frame *f, struct glyph_string *s,
+		  enum face_underline_type style, int position,
+		  int decoration_width, int thickness)
+{
+  int segment;
+  char x_segment;
+
+  segment = thickness * 3;
+
+  switch (style)
+    {
+      /* FACE_UNDERLINE_DOUBLE_LINE is treated identically to SINGLE, as
+	 the second line will be filled by another invocation of this
+	 function.  */
+    case FACE_UNDERLINE_SINGLE:
+    case FACE_UNDERLINE_DOUBLE_LINE:
+      x_fill_rectangle (f, s->gc, s->x, s->ybase + position,
+			decoration_width, thickness, false);
+      break;
+
+    case FACE_UNDERLINE_DOTS:
+      segment = thickness;
+      FALLTHROUGH;
+
+    case FACE_UNDERLINE_DASHES:
+      x_segment = min (segment, CHAR_MAX);
+      x_draw_dash (f, s, decoration_width, x_segment, position,
+		   thickness);
+      break;
+
+    case FACE_NO_UNDERLINE:
+    case FACE_UNDERLINE_WAVE:
+    default:
+      emacs_abort ();
+    }
+}
 
 /* Draw glyph string S.  */
 
@@ -10949,7 +11059,7 @@ x_draw_glyph_string (struct glyph_string *s)
       /* Draw underline.  */
       if (s->face->underline)
         {
-          if (s->face->underline == FACE_UNDER_WAVE)
+          if (s->face->underline == FACE_UNDERLINE_WAVE)
             {
               if (s->face->underline_defaulted_p)
                 x_draw_underwave (s, decoration_width);
@@ -10963,13 +11073,13 @@ x_draw_glyph_string (struct glyph_string *s)
                   XSetForeground (display, s->gc, xgcv.foreground);
                 }
             }
-          else if (s->face->underline == FACE_UNDER_LINE)
+          else if (s->face->underline >= FACE_UNDERLINE_SINGLE)
             {
               unsigned long thickness, position;
-              int y;
 
               if (s->prev
-		  && s->prev->face->underline == FACE_UNDER_LINE
+		  && (s->prev->face->underline != FACE_UNDERLINE_WAVE
+		      && s->prev->face->underline >= FACE_UNDERLINE_SINGLE)
 		  && (s->prev->face->underline_at_descent_line_p
 		      == s->face->underline_at_descent_line_p)
 		  && (s->prev->face->underline_pixels_above_descent_line
@@ -11046,22 +11156,36 @@ x_draw_glyph_string (struct glyph_string *s)
                 thickness = (s->y + s->height) - (s->ybase + position);
               s->underline_thickness = thickness;
               s->underline_position = position;
-              y = s->ybase + position;
-              if (s->face->underline_defaulted_p)
-                x_fill_rectangle (s->f, s->gc,
-				  s->x, y, decoration_width, thickness,
-				  false);
-              else
-                {
-                  Display *display = FRAME_X_DISPLAY (s->f);
-                  XGCValues xgcv;
-                  XGetGCValues (display, s->gc, GCForeground, &xgcv);
-                  XSetForeground (display, s->gc, s->face->underline_color);
-                  x_fill_rectangle (s->f, s->gc,
-				    s->x, y, decoration_width, thickness,
-				    false);
-                  XSetForeground (display, s->gc, xgcv.foreground);
-                }
+
+	      {
+		Display *display = FRAME_X_DISPLAY (s->f);
+		XGCValues xgcv;
+
+		if (!s->face->underline_defaulted_p)
+		  {
+		    XGetGCValues (display, s->gc, GCForeground, &xgcv);
+		    XSetForeground (display, s->gc, s->face->underline_color);
+		  }
+
+		x_fill_underline (s->f, s, s->face->underline,
+				  position, decoration_width,
+				  thickness);
+
+		/* Place a second underline above the first if this was
+		   requested in the face specification.  */
+
+		if (s->face->underline == FACE_UNDERLINE_DOUBLE_LINE)
+		  {
+		    /* Compute the position of the second underline.  */
+		    position = position - thickness - 1;
+		    x_fill_underline (s->f, s, s->face->underline,
+				      position, decoration_width,
+				      thickness);
+		  }
+
+		if (!s->face->underline_defaulted_p)
+		  XSetForeground (display, s->gc, xgcv.foreground);
+	      }
             }
         }
       /* Draw overline.  */
@@ -11296,7 +11420,7 @@ x_clear_frame (struct frame *f)
 
 /* Send a message to frame F telling the event loop to track whether
    or not an hourglass is being displayed.  This is required to ignore
-   the right events when the hourglass is mapped without callig XSync
+   the right events when the hourglass is mapped without calling XSync
    after displaying or hiding the hourglass.  */
 
 static void
@@ -11432,19 +11556,9 @@ XTflash (struct frame *f)
   int fd, rc;
 
   block_input ();
-
-  if (FRAME_X_VISUAL_INFO (f)->class == TrueColor)
-    {
-      values.function = GXxor;
-      values.foreground = (FRAME_FOREGROUND_PIXEL (f)
-			   ^ FRAME_BACKGROUND_PIXEL (f));
-
-      gc = XCreateGC (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
-		      GCFunction | GCForeground, &values);
-    }
-  else
-    gc = FRAME_X_OUTPUT (f)->normal_gc;
-
+  values.function = GXinvert;
+  gc = XCreateGC (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
+		  GCFunction, &values);
 
   /* Get the height not including a menu bar widget.  */
   int height = FRAME_PIXEL_HEIGHT (f);
@@ -11531,8 +11645,7 @@ XTflash (struct frame *f)
 		    flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
 		    width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
 
-  if (FRAME_X_VISUAL_INFO (f)->class == TrueColor)
-    XFreeGC (FRAME_X_DISPLAY (f), gc);
+  XFreeGC (FRAME_X_DISPLAY (f), gc);
   x_flush (f);
 
   unblock_input ();
@@ -12564,7 +12677,7 @@ x_dnd_process_quit (struct frame *f, Time timestamp)
 /* This function is defined far away from the rest of the XDND code so
    it can utilize `x_any_window_to_frame'.  */
 
-/* Implementors beware!  On most other platforms (where drag-and-drop
+/* Implementers beware!  On most other platforms (where drag-and-drop
    data is not provided via selections, but some kind of serialization
    mechanism), it is usually much easier to implement a suitable
    primitive instead of copying the C code here, and then to build
@@ -13370,13 +13483,12 @@ xi_focus_handle_for_device (struct x_display_info *dpyinfo,
 	 frame's user time.  */
       x_display_set_last_user_time (dpyinfo, event->time,
 				    event->send_event, false);
-
       device->focus_frame = NULL;
 
       /* So, unfortunately, the X Input Extension is implemented such
-	 that means XI_Leave events will not have their focus field
-	 set if the core focus is transferred to another window after
-	 an entry event that pretends to (or really does) set the
+	 that XI_Leave events will not have their focus field set if
+	 the core focus is transferred to another window after an
+	 entry event that pretends to (or really does) set the
 	 implicit focus.  In addition, if the core focus is set, but
 	 the extension focus on the client pointer is not, all
 	 XI_Enter events will have their focus fields set, despite not
@@ -14493,12 +14605,7 @@ x_query_pointer (Display *dpy, Window w, Window *root_return,
 		 int *root_y_return, int *win_x_return,
 		 int *win_y_return, unsigned int *mask_return)
 {
-  struct x_display_info *dpyinfo;
-
-  dpyinfo = x_display_info_for_display (dpy);
-
-  if (!dpyinfo)
-    emacs_abort ();
+  struct x_display_info *dpyinfo = x_dpyinfo (dpy);
 
 #ifdef HAVE_XINPUT2
   return x_query_pointer_1 (dpyinfo, dpyinfo->client_pointer_device,
@@ -14544,18 +14651,19 @@ x_query_pointer (Display *dpy, Window w, Window *root_return,
    `x', `y', `x_root' and `y_root'.  This function should not access
    any other fields in EVENT without also initializing the
    corresponding fields in `bv' under the XI_ButtonPress and
-   XI_ButtonRelease labels inside `handle_one_xevent'.  */
+   XI_ButtonRelease labels inside `handle_one_xevent'.
+
+   XI2 indicates that this click comes from XInput2 rather than core
+   event.   */
 
 static Lisp_Object
 x_construct_mouse_click (struct input_event *result,
                          const XButtonEvent *event,
-                         struct frame *f)
+                         struct frame *f, bool xi2)
 {
   int x = event->x;
   int y = event->y;
 
-  /* Make the event type NO_EVENT; we'll change that when we decide
-     otherwise.  */
   result->kind = MOUSE_CLICK_EVENT;
   result->code = event->button - Button1;
   result->timestamp = event->time;
@@ -14564,6 +14672,29 @@ x_construct_mouse_click (struct input_event *result,
 		       | (event->type == ButtonRelease
 			  ? up_modifier
 			  : down_modifier));
+
+  /* Convert pre-XInput2 wheel events represented as mouse-clicks.  */
+  if (!xi2)
+    {
+      Lisp_Object base
+        = Fcdr_safe (Fassq (make_fixnum (result->code + 1),
+                            Fsymbol_value (Qmouse_wheel_buttons)));
+      int wheel
+        = (NILP (base) ? -1
+           : BASE_EQ (base, Qwheel_down)  ? 0
+           : BASE_EQ (base, Qwheel_up)    ? 1
+           : BASE_EQ (base, Qwheel_left)  ? 2
+           : BASE_EQ (base, Qwheel_right) ? 3
+           : -1);
+      if (wheel >= 0)
+        {
+          result->kind = (event->type != ButtonRelease ? NO_EVENT
+		          : wheel & 2 ? HORIZ_WHEEL_EVENT : WHEEL_EVENT);
+          result->code = 0;         /* Not used.  */
+          result->modifiers &= ~(up_modifier | down_modifier);
+          result->modifiers |= wheel & 1 ? up_modifier : down_modifier;
+        }
+    }
 
   /* If result->window is not the frame's edit widget (which can
      happen with GTK+ scroll bars, for example), translate the
@@ -15454,7 +15585,7 @@ x_send_scroll_bar_event (Lisp_Object window, enum scroll_bar_part part,
   XClientMessageEvent *ev = &event.xclient;
   struct window *w = XWINDOW (window);
   struct frame *f = XFRAME (w->frame);
-  verify (INTPTR_WIDTH <= 64);
+  static_assert (INTPTR_WIDTH <= 64);
 
   /* Don't do anything if too many scroll bar events have been
      sent but not received.  */
@@ -20271,8 +20402,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		  if (overflow)
 		    {
-		      copy_bufptr = SAFE_ALLOCA ((copy_bufsiz += overflow)
-						 * sizeof *copy_bufptr);
+		      copy_bufsiz += overflow;
+		      copy_bufptr = SAFE_ALLOCA (copy_bufsiz);
 		      overflow = 0;
 
 		      /* Use the original keysym derived from the
@@ -21874,13 +22005,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			&& event->xbutton.time > ignore_next_mouse_click_timeout)
 		      {
 			ignore_next_mouse_click_timeout = 0;
-			x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+			x_construct_mouse_click (&inev.ie, &event->xbutton,
+			                         f, false);
 		      }
 		    if (event->type == ButtonRelease)
 		      ignore_next_mouse_click_timeout = 0;
 		  }
 		else
-		  x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+		  x_construct_mouse_click (&inev.ie, &event->xbutton, f, false);
 
 		*finish = X_EVENT_DROP;
 		goto OTHER;
@@ -21950,13 +22082,15 @@ handle_one_xevent (struct x_display_info *dpyinfo,
                           && event->xbutton.time > ignore_next_mouse_click_timeout)
                         {
                           ignore_next_mouse_click_timeout = 0;
-                          x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+                          x_construct_mouse_click (&inev.ie, &event->xbutton,
+                                                   f, false);
                         }
                       if (event->type == ButtonRelease)
                         ignore_next_mouse_click_timeout = 0;
                     }
                   else
-                    x_construct_mouse_click (&inev.ie, &event->xbutton, f);
+                    x_construct_mouse_click (&inev.ie, &event->xbutton,
+                                             f, false);
 
 		  if (!NILP (tab_bar_arg))
 		    inev.ie.arg = tab_bar_arg;
@@ -23733,13 +23867,13 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 				&& xev->time > ignore_next_mouse_click_timeout)
 			      {
 				ignore_next_mouse_click_timeout = 0;
-				x_construct_mouse_click (&inev.ie, &bv, f);
+				x_construct_mouse_click (&inev.ie, &bv, f, true);
 			      }
 			    if (xev->evtype == XI_ButtonRelease)
 			      ignore_next_mouse_click_timeout = 0;
 			  }
 			else
-			  x_construct_mouse_click (&inev.ie, &bv, f);
+			  x_construct_mouse_click (&inev.ie, &bv, f, true);
 
 			if (!NILP (tab_bar_arg))
 			  inev.ie.arg = tab_bar_arg;
@@ -24183,9 +24317,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 						       &overflow);
 			  if (overflow)
 			    {
-			      copy_bufptr
-				= SAFE_ALLOCA ((copy_bufsiz += overflow)
-					       * sizeof *copy_bufptr);
+			      copy_bufsiz += overflow;
+			      copy_bufptr = SAFE_ALLOCA (copy_bufsiz);
 			      overflow = 0;
 
 			      /* Use the original keysym derived from
@@ -24526,7 +24659,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      any_changed = false;
 #endif /* !USE_X_TOOLKIT && (!USE_GTK || HAVE_GTK3) */
 	      hev = (XIHierarchyEvent *) xi_event;
-	      disabled = SAFE_ALLOCA (sizeof *disabled * hev->num_info);
+	      SAFE_NALLOCA (disabled, 1, hev->num_info);
 	      n_disabled = 0;
 
 	      for (i = 0; i < hev->num_info; ++i)
@@ -24653,6 +24786,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #ifdef HAVE_GTK3
 	      GdkRectangle test_rect;
 #endif
+	      EMACS_INT local_detail;
 	      device = xi_device_from_id (dpyinfo, xev->deviceid);
 	      source = xi_device_from_id (dpyinfo, xev->sourceid);
 	      x_display_set_last_user_time (dpyinfo, xev->time,
@@ -24777,16 +24911,17 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		      if (!x_had_errors_p (dpyinfo->display))
 			{
-			  xi_link_touch_point (device, xev->detail,
-					       xev->event_x,
-					       xev->event_y, f);
+			  local_detail
+			    = xi_link_touch_point (device, xev->detail,
+						   xev->event_x,
+						   xev->event_y, f);
 
 			  inev.ie.kind = TOUCHSCREEN_BEGIN_EVENT;
 			  inev.ie.timestamp = xev->time;
 			  XSETFRAME (inev.ie.frame_or_window, f);
 			  XSETINT (inev.ie.x, lrint (xev->event_x));
 			  XSETINT (inev.ie.y, lrint (xev->event_y));
-			  XSETINT (inev.ie.arg, xev->detail);
+			  XSETINT (inev.ie.arg, local_detail);
 
 			  if (source)
 			    inev.ie.device = source->name;
@@ -24904,7 +25039,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		    {
 		      if (touchpoint->frame == f)
 			arg = Fcons (list3i (touchpoint->x, touchpoint->y,
-					     lrint (touchpoint->number)),
+					     touchpoint->local_detail),
 				     arg);
 		    }
 
@@ -24921,6 +25056,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    {
 	      struct xi_device_t *device, *source;
 	      int state;
+	      EMACS_INT local_detail;
 
 	      device = xi_device_from_id (dpyinfo, xev->deviceid);
 	      source = xi_device_from_id (dpyinfo, xev->sourceid);
@@ -24936,7 +25072,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      if (!device || device->use == XIMasterPointer)
 		goto XI_OTHER;
 
-	      state = xi_unlink_touch_point (xev->detail, device);
+	      state = xi_unlink_touch_point (xev->detail, device,
+					     &local_detail);
 
 	      if (state)
 		{
@@ -24951,7 +25088,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      XSETFRAME (inev.ie.frame_or_window, f);
 		      XSETINT (inev.ie.x, lrint (xev->event_x));
 		      XSETINT (inev.ie.y, lrint (xev->event_y));
-		      XSETINT (inev.ie.arg, xev->detail);
+		      XSETINT (inev.ie.arg, local_detail);
 
 		      if (source)
 			inev.ie.device = source->name;
@@ -27202,7 +27339,7 @@ xim_open_dpy (struct x_display_info *dpyinfo, char *resource_name)
 	  /* Now try to determine the coding system that should be
 	     used.  locale is in Host Portable Character Encoding, and
 	     as such can be passed to build_string as is.  */
-	  dpyinfo->xim_coding = safe_call1 (Vx_input_coding_function,
+	  dpyinfo->xim_coding = safe_calln (Vx_input_coding_function,
 					    build_string (locale));
 	}
     }
@@ -28805,6 +28942,36 @@ x_focus_frame (struct frame *f, bool noactivate)
      friends being set.  */
   block_input ();
 
+#ifdef HAVE_GTK3
+  /* read_minibuf assumes that calling Fx_focus_frame on a frame that
+     is already selected won't move the focus elsewhere, and thereby
+     disrupt any focus redirection to e.g. a minibuffer frame that
+     might be activated between that call being made and the
+     consequent XI_FocusIn/Out events arriving.  This is true whether
+     the focus is ultimately transferred back to the frame it was
+     initially on or not.
+
+     GTK 3 moves the keyboard focus to the edit widget's window
+     whenever it receives a FocusIn event targeting the outer window.
+     This operation gives rise to a FocusOut event that clears
+     device->focus_frame, which in turn prompts xi_handle_focus_change
+     to clear the display's focus frame.  The next FocusIn event
+     destined for the same frame registers as a new focus, which
+     cancels any focus redirection from that frame.
+
+     To prevent this chain of events from disrupting focus redirection
+     when the minibuffer is activated twice in rapid succession while
+     configured to redirect focus to a minibuffer frame, ignore frames
+     which hold the input focus and are connected to a minibuffer
+     window.  (bug#65116)*/
+
+  if (f == dpyinfo->x_focus_frame && !FRAME_HAS_MINIBUF_P (f))
+    {
+      unblock_input ();
+      return;
+    }
+#endif /* HAVE_GTK3 */
+
   if (FRAME_X_EMBEDDED_P (f))
     /* For Xembedded frames, normally the embedder forwards key
        events.  See XEmbed Protocol Specification at
@@ -29364,6 +29531,17 @@ x_free_frame_resources (struct frame *f)
   xi_unlink_touch_points (f);
 #endif
 
+  /* We must free faces before destroying windows because some
+     font-driver (e.g. xft) access a window while finishing a face.
+
+     This function must be called to remove this frame's fontsets from
+     Vfontset_list, and is itself responsible for not issuing X requests
+     if the connection has already been terminated.  Otherwise, a future
+     call to a function that iterates over all existing fontsets might
+     crash, as they are not prepared to receive dead frames.
+     (bug#66151) */
+  free_frame_faces (f);
+
   /* If a display connection is dead, don't try sending more
      commands to the X server.  */
   if (dpyinfo->display)
@@ -29373,10 +29551,6 @@ x_free_frame_resources (struct frame *f)
       if (f->pointer_invisible)
 	XTtoggle_invisible_pointer (f, 0);
 
-      /* We must free faces before destroying windows because some
-	 font-driver (e.g. xft) access a window while finishing a
-	 face.  */
-      free_frame_faces (f);
       tear_down_x_back_buffer (f);
 
       if (f->output_data.x->icon_desc)
@@ -30661,7 +30835,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 	    terminal_list = terminal->next_terminal;
 	    unblock_input ();
 	    kset_system_key_alist (terminal->kboard,
-				   safe_call1 (Qvendor_specific_keysyms,
+				   safe_calln (Qvendor_specific_keysyms,
 					       (vendor
 						? build_string (vendor)
 						: empty_unibyte_string)));
@@ -31503,13 +31677,11 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 				      dpyinfo->selection_tracking_window,
 				      selection_name,
 				      (XFixesSetSelectionOwnerNotifyMask
-				       | XFixesSetSelectionOwnerNotifyMask
 				       | XFixesSelectionClientCloseNotifyMask));
 	}
 
 #ifdef USE_XCB
-      selection_cookies = SAFE_ALLOCA (sizeof *selection_cookies
-				       * num_fast_selections);
+      SAFE_NALLOCA (selection_cookies, 1, num_fast_selections);
 #endif
 
       /* Now, ask for the current owners of all those selections.  */
@@ -31756,8 +31928,6 @@ x_activate_timeout_atimer (void)
 
 
 /* Set up use of X before we make the first connection.  */
-
-extern frame_parm_handler x_frame_parm_handlers[];
 
 static struct redisplay_interface x_redisplay_interface =
   {
@@ -32065,7 +32235,7 @@ x_initialize (void)
   Xt_app_con = XtCreateApplicationContext ();
 
   /* Register a converter from strings to pixels, which uses
-     Emacs' color allocation infrastructure.  */
+     Emacs's color allocation infrastructure.  */
   XtAppSetTypeConverter (Xt_app_con,
 			 XtRString, XtRPixel, cvt_string_to_pixel,
 			 cvt_string_to_pixel_args,
@@ -32094,7 +32264,7 @@ x_initialize (void)
 
 #ifdef HAVE_X_I18N
 
-/* Notice that a change has occured on F that requires its input
+/* Notice that a change has occurred on F that requires its input
    method state to be reset.  */
 
 static void
@@ -32405,9 +32575,6 @@ syms_of_xterm (void)
   x_dnd_unsupported_drop_data = Qnil;
   staticpro (&x_dnd_unsupported_drop_data);
 
-  /* Used by x_cr_export_frames.  */
-  DEFSYM (Qconcat, "concat");
-
   DEFSYM (Qvendor_specific_keysyms, "vendor-specific-keysyms");
   DEFSYM (Qlatin_1, "latin-1");
   DEFSYM (Qnow, "now");
@@ -32415,6 +32582,12 @@ syms_of_xterm (void)
   DEFSYM (Qx_auto_preserve_selections, "x-auto-preserve-selections");
   DEFSYM (Qexpose, "expose");
   DEFSYM (Qdont_save, "dont-save");
+
+  DEFSYM (Qmouse_wheel_buttons, "mouse-wheel-buttons");
+  DEFSYM (Qwheel_up,    "wheel-up");
+  DEFSYM (Qwheel_down,  "wheel-down");
+  DEFSYM (Qwheel_left,  "wheel-left");
+  DEFSYM (Qwheel_right, "wheel-right");
 
 #ifdef USE_GTK
   xg_default_icon_file = build_pure_c_string ("icons/hicolor/scalable/apps/emacs.svg");
@@ -32507,39 +32680,50 @@ Android does not support scroll bars at all.  */);
   DEFSYM (Qraise_and_focus, "raise-and-focus");
   DEFSYM (Qreally_fast, "really-fast");
 
+  /* Referenced in gtkutil.c.  */
+  DEFSYM (Qtheme_name, "theme-name");
+  DEFSYM (Qfile_name_sans_extension, "file-name-sans-extension");
+
   DEFVAR_LISP ("x-ctrl-keysym", Vx_ctrl_keysym,
-    doc: /* Which keys Emacs uses for the ctrl modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `ctrl' means use the Ctrl_L and Ctrl_R keysyms.
-The default is nil, which is the same as `ctrl'.  */);
+    doc: /* Which modifier value Emacs reports when Ctrl is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Ctrl modifier (i.e. the keysym Ctrl_L or Ctrl_R) depressed, with nil or
+any other value equivalent to `ctrl'.  */);
   Vx_ctrl_keysym = Qnil;
 
   DEFVAR_LISP ("x-alt-keysym", Vx_alt_keysym,
-    doc: /* Which keys Emacs uses for the alt modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `alt' means use the Alt_L and Alt_R keysyms.
-The default is nil, which is the same as `alt'.  */);
+    doc: /* Which modifier value Emacs reports when Alt is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Alt modifier (e.g. the keysym Alt_L or Alt_R, if the keyboard features a
+dedicated key for Meta) depressed, with nil or any other value
+equivalent to `alt'.  */);
   Vx_alt_keysym = Qnil;
 
   DEFVAR_LISP ("x-hyper-keysym", Vx_hyper_keysym,
-    doc: /* Which keys Emacs uses for the hyper modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `hyper' means use the Hyper_L and Hyper_R
-keysyms.  The default is nil, which is the same as `hyper'.  */);
+    doc: /* Which modifier value Emacs reports when Hyper is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Hyper modifier (i.e. the keysym Hyper_L or Hyper_R) depressed, with nil
+or any other value equivalent to `hyper'.  */);
   Vx_hyper_keysym = Qnil;
 
   DEFVAR_LISP ("x-meta-keysym", Vx_meta_keysym,
-    doc: /* Which keys Emacs uses for the meta modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `meta' means use the Meta_L and Meta_R keysyms.
-The default is nil, which is the same as `meta'.  */);
+    doc: /* Which modifier value Emacs reports when Meta is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Meta modifier (e.g. the keysym Alt_L or Alt_R, when the keyboard does
+not feature a dedicated key for Meta) depressed, with nil or any other
+value equivalent to `meta'.  */);
   Vx_meta_keysym = Qnil;
 
   DEFVAR_LISP ("x-super-keysym", Vx_super_keysym,
-    doc: /* Which keys Emacs uses for the super modifier.
-This should be one of the symbols `ctrl', `alt', `hyper', `meta',
-`super'.  For example, `super' means use the Super_L and Super_R
-keysyms.  The default is nil, which is the same as `super'.  */);
+    doc: /* Which modifier value Emacs reports when Super is depressed.
+This should be one of the symbols `ctrl', `alt', `hyper', `meta', or
+`super', representing a modifier to be reported for key events with the
+Super modifier (i.e. the keysym Super_L or Super_R) depressed, with nil
+or any other value equivalent to `super'.  */);
   Vx_super_keysym = Qnil;
 
   DEFVAR_LISP ("x-wait-for-event-timeout", Vx_wait_for_event_timeout,
@@ -32555,10 +32739,7 @@ If set to a non-float value, there will be no wait at all.  */);
 
   DEFVAR_LISP ("x-keysym-table", Vx_keysym_table,
     doc: /* Hash table of character codes indexed by X keysym codes.  */);
-  Vx_keysym_table = make_hash_table (hashtest_eql, 900,
-				     DEFAULT_REHASH_SIZE,
-				     DEFAULT_REHASH_THRESHOLD,
-				     Qnil, false);
+  Vx_keysym_table = make_hash_table (&hashtest_eql, 900, Weak_None, false);
 
   DEFVAR_BOOL ("x-frame-normalize-before-maximize",
 	       x_frame_normalize_before_maximize,

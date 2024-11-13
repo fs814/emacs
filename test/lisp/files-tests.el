@@ -1,6 +1,6 @@
 ;;; files-tests.el --- tests for files.el.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2012-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2024 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -1196,18 +1196,21 @@ unquoted file names."
                      "emacs" (current-buffer)
                      (concat invocation-directory invocation-name)
                      "--version")))
-          (accept-process-output proc)
-          (goto-char (point-min))
-          (should (search-forward emacs-version nil t))
-          ;; Don't stop the test run with a query, as the subprocess
-          ;; may or may not be dead by the time we reach here.
-          (set-process-query-on-exit-flag proc nil)
-          ;; On MS-Windows, wait for the process to die, since the OS
-          ;; will not let us delete a directory that is the cwd of a
-          ;; running process.
-          (when (eq system-type 'windows-nt)
-            (while (process-live-p proc)
-              (sleep-for 0.1)))))))
+          (unwind-protect
+              (progn
+                (accept-process-output proc)
+                (goto-char (point-min))
+                (should (search-forward emacs-version nil t))
+                ;; Don't stop the test run with a query, as the subprocess
+                ;; may or may not be dead by the time we reach here.
+                (set-process-query-on-exit-flag proc nil)
+                ;; On MS-Windows, wait for the process to die, since the OS
+                ;; will not let us delete a directory that is the cwd of a
+                ;; running process.
+                (when (eq system-type 'windows-nt)
+                  (while (process-live-p proc)
+                    (sleep-for 0.1))))
+            (delete-process proc))))))
   (files-tests--with-temp-non-special-and-file-name-handler
       (tmpdir nospecial-dir t)
     (with-temp-buffer
@@ -1656,6 +1659,48 @@ The door of all subtleties!
   (should (equal (file-name-base "foo") "foo"))
   (should (equal (file-name-base "foo/bar") "bar")))
 
+(defvar sh-shell)
+
+(defun files-tests--check-shebang (shebang expected-mode &optional expected-dialect)
+  "Assert that mode for SHEBANG derives from EXPECTED-MODE.
+
+If EXPECTED-MODE is sh-base-mode, DIALECT says what `sh-shell' should be
+set to."
+  (ert-with-temp-file script-file
+    :text shebang
+    (find-file script-file)
+    (let ((actual-mode (if (derived-mode-p expected-mode)
+                           expected-mode
+                         major-mode)))
+      ;; Tuck all the information we need in the `should' form: input
+      ;; shebang, expected mode vs actual.
+      (should
+       (equal (list shebang actual-mode)
+              (list shebang expected-mode)))
+      (when (eq expected-mode 'sh-base-mode)
+        (should (eq sh-shell expected-dialect))))))
+
+(ert-deftest files-tests-auto-mode-interpreter ()
+  "Test that `set-auto-mode' deduces correct modes from shebangs."
+  ;; Straightforward interpreter invocation.
+  (files-tests--check-shebang "#!/bin/bash" 'sh-base-mode 'bash)
+  (files-tests--check-shebang "#!/usr/bin/make -f" 'makefile-mode)
+  ;; Invocation through env.
+  (files-tests--check-shebang "#!/usr/bin/env bash" 'sh-base-mode 'bash)
+  (files-tests--check-shebang "#!/usr/bin/env python" 'python-base-mode)
+  (files-tests--check-shebang "#!/usr/bin/env python3" 'python-base-mode)
+  ;; Invocation through env, with supplementary arguments.
+  (files-tests--check-shebang "#!/usr/bin/env --split-string=bash -eux" 'sh-base-mode 'bash)
+  (files-tests--check-shebang "#!/usr/bin/env --split-string=-iv --default-signal bash -eux" 'sh-base-mode 'bash)
+  (files-tests--check-shebang "#!/usr/bin/env -S awk -v FS=\"\\t\" -v OFS=\"\\t\" -f" 'awk-mode)
+  (files-tests--check-shebang "#!/usr/bin/env -S make -f" 'makefile-mode)
+  (files-tests--check-shebang "#!/usr/bin/env -S-vi bash -eux" 'sh-base-mode 'bash)
+  (files-tests--check-shebang "#!/usr/bin/env -ivS --default-signal=INT bash -eux" 'sh-base-mode 'bash)
+  (files-tests--check-shebang "#!/usr/bin/env -ivS --default-signal bash -eux" 'sh-base-mode 'bash)
+  (files-tests--check-shebang "#!/usr/bin/env -vS -uFOOBAR bash -eux" 'sh-base-mode 'bash)
+  ;; Invocation through env, with modified environment.
+  (files-tests--check-shebang "#!/usr/bin/env -S PYTHONPATH=/...:${PYTHONPATH} python" 'python-base-mode))
+
 (ert-deftest files-test-dir-locals-auto-mode-alist ()
   "Test an `auto-mode-alist' entry in `.dir-locals.el'"
   (find-file (ert-resource-file "whatever.quux"))
@@ -2075,6 +2120,10 @@ Prompt users for any modified buffer with `buffer-offer-save' non-nil."
       (should (documentation 'foo))
       (should (documentation 'bar))
       (should (documentation 'zot)))))
+
+(ert-deftest files-tests--expand-wildcards ()
+  (should (file-expand-wildcards
+           (concat (directory-file-name default-directory) "*/"))))
 
 (provide 'files-tests)
 ;;; files-tests.el ends here

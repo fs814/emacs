@@ -1,6 +1,6 @@
 ;;; menu-bar.el --- define a default menu bar  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993-1995, 2000-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1995, 2000-2024 Free Software Foundation, Inc.
 
 ;; Author: Richard M. Stallman
 ;; Maintainer: emacs-devel@gnu.org
@@ -1353,6 +1353,14 @@ mail status in mode line"))
                                   (frame-visible-p
                                    (symbol-value 'speedbar-frame))))))
 
+    (bindings--define-key menu [showhide-outline-minor-mode]
+      '(menu-item "Outlines" outline-minor-mode
+                  :help "Turn outline-minor-mode on/off"
+                  :visible (seq-some #'local-variable-p
+                                     '(outline-search-function
+                                       outline-regexp outline-level))
+                  :button (:toggle . (bound-and-true-p outline-minor-mode))))
+
     (bindings--define-key menu [showhide-tab-line-mode]
       '(menu-item "Window Tab Line" global-tab-line-mode
                   :help "Turn window-local tab-lines on/off"
@@ -1437,6 +1445,14 @@ mail status in mode line"))
 
 (defvar menu-bar-line-wrapping-menu
   (let ((menu (make-sparse-keymap "Line Wrapping")))
+
+    (bindings--define-key menu [visual-wrap]
+      '(menu-item "Visual Wrap Prefix mode" visual-wrap-prefix-mode
+                  :help "Display continuation lines with visual context-dependent prefix"
+                  :visible (menu-bar-menu-frame-live-and-visible-p)
+                  :button (:toggle
+                           . (bound-and-true-p visual-wrap-prefix-mode))
+                  :enable t))
 
     (bindings--define-key menu [word-wrap]
       '(menu-item "Word Wrap (Visual Line mode)"
@@ -1821,6 +1837,9 @@ mail status in mode line"))
     (bindings--define-key menu [project-open-file] '(menu-item "Open File..." project-find-file :help "Open an existing file that belongs to current project"))
     menu))
 
+(defvar menu-bar-project-item
+  `(menu-item "Project" ,menu-bar-project-menu))
+
 (defun menu-bar-read-mail ()
   "Read mail using `read-mail-command'."
   (interactive)
@@ -1908,7 +1927,7 @@ mail status in mode line"))
                   :help "Start language server suitable for this buffer's major-mode"))
 
     (bindings--define-key menu [project]
-      `(menu-item "Project" ,menu-bar-project-menu))
+      menu-bar-project-item)
 
     (bindings--define-key menu [ede]
       '(menu-item "Project Support (EDE)"
@@ -2213,26 +2232,31 @@ updating the menu."
 	 (not (window-minibuffer-p
 	       (frame-selected-window menu-frame))))))
 
-(defun kill-this-buffer ()	; for the menu bar
+(defun kill-this-buffer (&optional event) ; for the menu bar
   "Kill the current buffer.
 When called in the minibuffer, get out of the minibuffer
 using `abort-recursive-edit'.
 
-This command can be reliably invoked only from the menu bar,
-otherwise it could decide to silently do nothing."
-  (interactive)
-  (cond
-   ;; Don't do anything when `menu-frame' is not alive or visible
-   ;; (Bug#8184).
-   ((not (menu-bar-menu-frame-live-and-visible-p)))
-   ((menu-bar-non-minibuffer-window-p)
-    (kill-buffer (current-buffer))
-    ;; Also close the current window if `menu-bar-close-window' is
-    ;; set.
-    (when menu-bar-close-window
-      (ignore-errors (delete-window))))
-   (t
-    (abort-recursive-edit))))
+This command must be bound to a mouse event, and can be reliably
+invoked only from the menu bar, otherwise it could decide to silently
+do nothing or signal an error.  Use `kill-current-buffer' if you
+need to invoke a similar command from keyboard."
+  (interactive "e")
+  ;; This colossus of a conditional is necessary to account for the wide
+  ;; variety of this command's callers.
+  (if (let* ((window (or (and event (event-start event)
+                              (posn-window (event-start event)))
+                         last-event-frame
+                         (selected-frame)))
+             (frame (if (framep window) window
+                      (window-frame window))))
+        (not (window-minibuffer-p (frame-selected-window frame))))
+      (progn (kill-buffer (current-buffer))
+             ;; Also close the current window if `menu-bar-close-window' is
+             ;; set.
+             (when menu-bar-close-window
+               (ignore-errors (delete-window))))
+    (abort-recursive-edit)))
 
 (defun kill-this-buffer-enabled-p ()
   "Return non-nil if the `kill-this-buffer' menu item should be enabled.

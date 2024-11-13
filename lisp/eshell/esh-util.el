@@ -1,6 +1,6 @@
 ;;; esh-util.el --- general utilities  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2024 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -256,7 +256,7 @@ specifying a region in the current buffer, or (:file . FILENAME)
 to temporarily insert the contents of FILENAME.
 
 Before executing BODY, narrow the buffer to the text for COMMAND
-and and set point to the beginning of the narrowed region.
+and set point to the beginning of the narrowed region.
 
 The value returned is the last form in BODY."
   (declare (indent 1))
@@ -288,7 +288,7 @@ The value returned is the last form in BODY."
 (defun eshell-find-delimiter
   (open close &optional bound reverse-p backslash-p)
   "From point, find the CLOSE delimiter corresponding to OPEN.
-The matching is bounded by BOUND. If REVERSE-P is non-nil,
+The matching is bounded by BOUND.  If REVERSE-P is non-nil,
 process the region backwards.
 
 If BACKSLASH-P is non-nil, or OPEN and CLOSE are different
@@ -337,20 +337,66 @@ doubling it up."
 
 (defun eshell-convertible-to-number-p (string)
   "Return non-nil if STRING can be converted to a number.
-If `eshell-convert-numeric-aguments', always return nil."
+If `eshell-convert-numeric-arguments', always return nil."
   (and eshell-convert-numeric-arguments
        (string-match
         (concat "\\`\\s-*" eshell-number-regexp "\\s-*\\'")
         string)))
 
+(defsubst eshell--do-mark-numeric-string (string)
+  (put-text-property 0 (length string) 'number t string))
+
+(defun eshell-mark-numeric-string (string)
+  "If STRING is convertible to a number, add a text property indicating so.
+See `eshell-convertible-to-number-p'."
+  (when (eshell-convertible-to-number-p string)
+    (eshell--do-mark-numeric-string string))
+  string)
+
+(defsubst eshell--numeric-string-p (string)
+  "Return non-nil if STRING has been marked as numeric."
+  (and (stringp string)
+       (length> string 0)
+       (not (text-property-not-all 0 (length string) 'number t string))))
+
 (defun eshell-convert-to-number (string)
   "Try to convert STRING to a number.
 If STRING doesn't look like a number (or
-`eshell-convert-numeric-aguments' is nil), just return STRING
+`eshell-convert-numeric-arguments' is nil), just return STRING
 unchanged."
+  (declare (obsolete 'eshell-mark-numeric-string "31.1"))
   (if (eshell-convertible-to-number-p string)
       (string-to-number string)
     string))
+
+(cl-defstruct (eshell-range
+               (:constructor nil)
+               (:constructor eshell-range-create (begin end)))
+  "A half-open range from BEGIN to END."
+  begin end)
+
+(defsubst eshell--range-string-p (string)
+  "Return non-nil if STRING has been marked as a range."
+  (and (stringp string)
+       (text-property-any 0 (length string) 'eshell-range t string)))
+
+(defun eshell--string-to-range (string)
+  "Convert STRING to an `eshell-range' object."
+  (let* ((startpos (text-property-any 0 (length string) 'eshell-range t string))
+         (endpos (next-single-property-change startpos 'eshell-range
+                                              string (length string)))
+         range-begin range-end)
+    (unless (= startpos 0)
+      (setq range-begin (substring string 0 startpos))
+      (unless (eshell--numeric-string-p range-begin)
+        (user-error "range begin `%s' is not a number" range-begin))
+      (setq range-begin (string-to-number range-begin)))
+    (unless (= endpos (length string))
+      (setq range-end (substring string endpos))
+      (unless (eshell--numeric-string-p range-end)
+        (user-error "range end `%s' is not a number" range-end))
+      (setq range-end (string-to-number range-end)))
+    (eshell-range-create range-begin range-end)))
 
 (defun eshell-convert (string &optional to-string)
   "Convert STRING into a more-native Lisp object.
@@ -361,12 +407,12 @@ trailing newlines removed.  Otherwise, this behaves as follows:
 
 * Split multiline strings by line.
 
-* If `eshell-convert-numeric-aguments' is non-nil and every line
+* If `eshell-convert-numeric-arguments' is non-nil and every line
   of output looks like a number, convert them to numbers."
   (cond
    ((not (stringp string))
     (if to-string
-        (eshell-stringify string)
+        (eshell-stringify string t)
       string))
    (to-string (string-trim-right string "\n+"))
    (t (let ((len (length string)))
@@ -376,10 +422,10 @@ trailing newlines removed.  Otherwise, this behaves as follows:
 	    (setq string (substring string 0 (1- len))))
           (if (string-search "\n" string)
               (let ((lines (split-string string "\n")))
-                (if (seq-every-p #'eshell-convertible-to-number-p lines)
-                    (mapcar #'string-to-number lines)
-                  lines))
-            (eshell-convert-to-number string)))))))
+                (when (seq-every-p #'eshell-convertible-to-number-p lines)
+                  (mapc #'eshell--do-mark-numeric-string lines))
+                lines)
+            (eshell-mark-numeric-string string)))))))
 
 (defvar-local eshell-path-env (getenv "PATH")
   "Content of $PATH.
@@ -417,7 +463,8 @@ as the $PATH was actually specified."
                                       (butlast (exec-path))))))
       (when (and (not literal-p)
                  (not remote)
-                 (eshell-under-windows-p))
+                 (eshell-under-windows-p)
+                 (not (member "." path)))
         (push "." path))
       (if (and remote (not literal-p))
           (mapcar (lambda (x) (concat remote x)) path)
@@ -447,29 +494,33 @@ Prepend remote identification of `default-directory', if any."
 	 (parse-colon-path path-env))
       (parse-colon-path path-env))))
 
-(defun eshell-split-path (path)
-  "Split a path into multiple subparts."
-  (let ((len (length path))
-	(i 0) (li 0)
-	parts)
-    (if (and (eshell-under-windows-p)
-	     (> len 2)
-	     (eq (aref path 0) ?/)
-	     (eq (aref path 1) ?/))
-	(setq i 2))
-    (while (< i len)
-      (if (and (eq (aref path i) ?/)
-	       (not (get-text-property i 'escaped path)))
-	  (setq parts (cons (if (= li i) "/"
-			      (substring path li (1+ i))) parts)
-		li (1+ i)))
-      (setq i (1+ i)))
-    (if (< li i)
-	(setq parts (cons (substring path li i) parts)))
-    (if (and (eshell-under-windows-p)
-	     (string-match "\\`[A-Za-z]:\\'" (car (last parts))))
-	(setcar (last parts) (concat (car (last parts)) "/")))
-    (nreverse parts)))
+(defun eshell-split-filename (filename)
+  "Split a FILENAME into a list of file/directory components."
+  (let* ((remote (file-remote-p filename))
+         (filename (or (file-remote-p filename 'localname 'never) filename))
+         (len (length filename))
+         (index 0) (curr-start 0)
+         parts)
+    (when (and (eshell-under-windows-p)
+               (string-prefix-p "//" filename))
+      (setq index 2))
+    (while (< index len)
+      (when (eq (aref filename index) ?/)
+        (push (if (= curr-start index) "/"
+                (substring filename curr-start (1+ index)))
+              parts)
+        (setq curr-start (1+ index)))
+      (setq index (1+ index)))
+    (when (< curr-start len)
+      (push (substring filename curr-start) parts))
+    (setq parts (nreverse parts))
+    (when (and (eshell-under-windows-p)
+               (string-match "\\`[A-Za-z]:\\'" (car parts)))
+      (setcar parts (concat (car parts) "/")))
+    (if remote (cons remote parts) parts)))
+
+(define-obsolete-function-alias 'eshell-split-path
+  'eshell-split-filename "30.1")
 
 (defun eshell-to-flat-string (value)
   "Make value a string.  If separated by newlines change them to spaces."
@@ -483,25 +534,27 @@ Prepend remote identification of `default-directory', if any."
 
 (define-obsolete-function-alias 'eshell-flatten-list #'flatten-tree "27.1")
 
-(defun eshell-stringify (object)
+(defun eshell-stringify (object &optional quoted)
   "Convert OBJECT into a string value."
   (cond
    ((stringp object) object)
    ((numberp object)
-    (number-to-string object))
+    (if quoted
+        (number-to-string object)
+      (propertize (number-to-string object) 'number t)))
    ((and (eq object t)
 	 (not eshell-stringify-t))
     nil)
    (t
     (string-trim-right (pp-to-string object)))))
 
-(defsubst eshell-stringify-list (args)
+(defsubst eshell-stringify-list (args &optional quoted)
   "Convert each element of ARGS into a string value."
-  (mapcar #'eshell-stringify args))
+  (mapcar (lambda (i) (eshell-stringify i quoted)) args))
 
 (defsubst eshell-list-to-string (list)
   "Convert LIST into a single string separated by spaces."
-  (mapconcat #'eshell-stringify list " "))
+  (mapconcat (lambda (i) (eshell-stringify i t)) list " "))
 
 (defsubst eshell-flatten-and-stringify (&rest args)
   "Flatten and stringify all of the ARGS into a single string."

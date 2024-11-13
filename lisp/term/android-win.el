@@ -1,6 +1,6 @@
 ;;; android-win.el --- terminal set up for Android  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2023 Free Software Foundation, Inc.
+;; Copyright (C) 2023-2024 Free Software Foundation, Inc.
 
 ;; Author: FSF
 ;; Keywords: terminals, i18n, android
@@ -159,7 +159,7 @@ two markers or an overlay.  Otherwise, it is nil."
 VALUE should be something suitable for passing to
 `gui-set-selection'."
   (unless (stringp value)
-    (when-let ((bounds (android-selection-bounds value)))
+    (when-let* ((bounds (android-selection-bounds value)))
       (setq value (ignore-errors
                     (with-current-buffer (nth 2 bounds)
                       (buffer-substring (nth 0 bounds)
@@ -204,7 +204,7 @@ VALUE should be something suitable for passing to
                                               &context (window-system android))
   ;; First, try to turn value into a string.
   ;; Don't set anything if that did not work.
-  (when-let ((string (android-encode-select-string value)))
+  (when-let* ((string (android-encode-select-string value)))
     (cond ((eq type 'CLIPBOARD)
            (android-set-clipboard string))
           ((eq type 'PRIMARY)
@@ -223,7 +223,7 @@ VALUE should be something suitable for passing to
 ;; time.  This pre-command-hook clears the overlay before any command
 ;; and should be set whenever a preedit overlay is visible.
 (defun android-clear-preedit-text ()
-  "Clear the pre-edit overlay and remove itself from pre-command-hook.
+  "Clear the pre-edit overlay and remove itself from `pre-command-hook'.
 This function should be installed in `pre-command-hook' whenever
 preedit text is displayed."
   (when android-preedit-overlay
@@ -282,11 +282,12 @@ If it reflects the motion of an item above a frame, call
 `dnd-handle-movement' to move the cursor or scroll the window
 under the item pursuant to the pertinent user options.
 
-If it reflects dropped text, insert such text within window at
-the location of the drop.
+If it holds dropped text, insert such text within window at the
+location of the drop.
 
-If it reflects a list of URIs, then open each URI, converting
-content:// URIs into the special file names which represent them."
+If it holds a list of URIs, or file names, then open each URI or
+file name, converting content:// URIs into the special file
+names which represent them."
   (interactive "e")
   (let ((message (caddr event))
         (posn (event-start event)))
@@ -304,18 +305,22 @@ content:// URIs into the special file names which represent them."
                  (new-uri-list nil)
                  (dnd-unescape-file-uris t))
              (dolist (uri uri-list)
-               (ignore-errors
-                 (let ((url (url-generic-parse-url uri)))
-                   (when (equal (url-type url) "content")
-                     ;; Replace URI with a matching /content file
-                     ;; name.
-                     (setq uri (format "file:/content/by-authority/%s%s"
-                                       (url-host url)
-                                       (url-filename url))
-                           ;; And guarantee that this file URI is not
-                           ;; subject to URI decoding, for it must be
-                           ;; transformed back into a content URI.
-                           dnd-unescape-file-uris nil))))
+               ;; If the URI is a prepared file name, insert it directly.
+               (if (string-match-p "^/content/by-authority\\(-named\\)?/" uri)
+                   (setq uri (concat "file:" uri)
+                         dnd-unescape-file-uris nil)
+                 (ignore-errors
+                   (let ((url (url-generic-parse-url uri)))
+                     (when (equal (url-type url) "content")
+                       ;; Replace URI with a matching /content file
+                       ;; name.
+                       (setq uri (format "file:/content/by-authority/%s%s"
+                                         (url-host url)
+                                         (url-filename url))
+                             ;; And guarantee that this file URI is not
+                             ;; subject to URI decoding, for it must be
+                             ;; transformed back into a content URI.
+                             dnd-unescape-file-uris nil)))))
                (push uri new-uri-list))
              (dnd-handle-multiple-urls (posn-window posn)
                                        new-uri-list
@@ -339,5 +344,289 @@ the `stop-selecting-text' editing key."
 (global-set-key [stop-selecting-text] 'android-deactivate-mark-command)
 
 
+;; Splash screen notice.  Users are frequently left scratching their
+;; heads when they overlook the Android appendix in the Emacs manual
+;; and discover that external storage is not accessible; worse yet,
+;; Android 11 and later veil the settings panel controlling such
+;; permissions behind layer upon layer of largely immaterial settings
+;; panels, such that several modified copies of the Android Settings
+;; app have omitted them altogether after their developers conducted
+;; their own interface simplifications.  Display a button on the
+;; splash screen that instructs users on granting these permissions
+;; when they are denied.
+
+(declare-function android-external-storage-available-p "androidfns.c")
+(declare-function android-request-storage-access "androidfns.c")
+(declare-function android-request-directory-access "androidfns.c")
+
+(defun android-display-storage-permission-popup (&optional _ignored)
+  "Display a dialog regarding storage permissions.
+Display a buffer explaining the need for storage permissions and
+offering to grant them."
+  (interactive)
+  (with-current-buffer (get-buffer-create "*Android Permissions*")
+    (setq buffer-read-only nil)
+    (erase-buffer)
+    (insert (propertize "Storage Access Permissions"
+                        'face '(bold (:height 1.2))))
+    (insert "
+
+Before Emacs can access your device's external storage
+directories, such as /sdcard and /storage/emulated/0, you must
+grant it permission to do so.
+
+Alternatively, you can request access to a particular directory
+in external storage, whereafter it will be available under the
+directory /content/storage.
+
+")
+    (insert-button "Grant storage permissions"
+                   'action (lambda (_)
+                             (android-request-storage-access)
+                             (quit-window)))
+    (newline)
+    (newline)
+    (insert-button "Request access to directory"
+                   'action (lambda (_)
+                             (android-request-directory-access)))
+    (newline)
+    (special-mode)
+    (setq buffer-read-only t))
+  (let ((window (display-buffer "*Android Permissions*")))
+    (when (windowp window)
+      (with-selected-window window
+        ;; Fill the text to the width of this window in columns if it
+        ;; does not exceed 72, that the text might not be wrapped or
+        ;; truncated.
+        (when (<= (window-width window) 72)
+          (let ((fill-column (window-width window))
+                (inhibit-read-only t))
+            (fill-region (point-min) (point-max))))))))
+
+(defun android-before-splash-screen (fancy-p)
+  "Insert a brief notice on the absence of storage permissions.
+If storage permissions are as yet denied to Emacs, insert a short
+notice to that effect, followed by a button that enables the user
+to grant such permissions.
+
+FANCY-P non-nil means the notice will be displayed with faces, in
+the style appropriate for its incorporation within the fancy splash
+screen display; see `fancy-splash-insert'."
+  (unless (android-external-storage-available-p)
+    (if fancy-p
+        (fancy-splash-insert
+         :face '(variable-pitch
+                 font-lock-function-call-face)
+         "Permissions necessary to access external storage directories have"
+         "\nbeen denied.  Click "
+         :link '("here" android-display-storage-permission-popup)
+         " to grant them.\n")
+      (insert
+       "Permissions necessary to access external storage directories"
+       "\nhave been denied.  ")
+      (insert-button "Click here to grant them.\n"
+                     'action #'android-display-storage-permission-popup
+                     'follow-link t)
+      (newline))))
+
+
+;;; Locale preferences.
+
+(defvar android-os-language)
+
+(defun android-locale-for-system-language ()
+  "Return a locale representing the system language.
+This locale reflects the system's language preferences in its
+language name and country variant fields, and always specifies
+the UTF-8 coding system."
+  ;; android-os-language is a list comprising four elements LANGUAGE,
+  ;; COUNTRY, SCRIPT, and VARIANT.
+  ;;
+  ;; LANGUAGE and COUNTRY are ISO language and country codes identical
+  ;; to those stored within POSIX locales.
+  ;;
+  ;; SCRIPT is an ISO 15924 script tag, representing the script used
+  ;; if available, or if required to disambiguate between distinct
+  ;; writing systems for the same combination of language and country.
+  ;;
+  ;; VARIANT is an arbitrary string representing the variant of the
+  ;; LANGUAGE or SCRIPT represented.
+  ;;
+  ;; Each of these fields might be empty, but the locale is invalid if
+  ;; LANGUAGE is empty, which if true "en_US.UTF-8" is returned as a
+  ;; placeholder.
+  (let ((language (or (nth 0 android-os-language) ""))
+        (country (or (nth 1 android-os-language) ""))
+        (script (or (nth 2 android-os-language) ""))
+        (variant (or (nth 3 android-os-language) ""))
+        locale-base locale-modifier)
+    (if (string-empty-p language)
+        (setq locale-base "en_US.UTF-8")
+      (if (string-empty-p country)
+          (setq locale-base (concat language ".UTF-8"))
+        (setq locale-base (concat language "_" country
+                                  ".UTF-8"))))
+    ;; No straightforward relation between Java script and variant
+    ;; combinations exist: Java permits both a script and a variant to
+    ;; be supplied at once, whereas POSIX's closest analog "modifiers"
+    ;; permit only either an alternative script or a variant to be
+    ;; supplied.
+    ;;
+    ;; Emacs disregards variants besides "EURO" and scripts besides
+    ;; "Cyrl", for these two never coexist in existing locales, and
+    ;; their POSIX equivalents are the sole modifiers recognized by
+    ;; Emacs.
+    (if (string-equal script "Cyrl")
+        (setq locale-modifier "@cyrillic")
+      (if (string-equal variant "EURO")
+          (setq locale-modifier "@euro")
+        (setq locale-modifier "")))
+    ;; Return the concatenation of both these values.
+    (concat locale-base locale-modifier)))
+
+
+;; Miscellaneous functions.
+
+(declare-function android-browse-url-internal "androidselect.c")
+
+(defun android-browse-url (url &optional send)
+  "Open URL in an external application.
+
+URL should be a URL-encoded URL with a scheme specified unless
+SEND is non-nil.  Signal an error upon failure.
+
+If SEND is nil, start a program that is able to display the URL,
+such as a web browser.  Otherwise, try to share URL using
+programs such as email clients.
+
+If URL is a file URI, convert it into a `content' address
+accessible to other programs."
+  (when-let* ((uri (url-generic-parse-url url))
+              (filename (url-filename uri))
+              ;; If `uri' is a file URI and the file resides in /content
+              ;; or /assets, copy it to a temporary file before
+              ;; providing it to other programs.
+              (replacement-url (and (string-match-p
+                                     "/\\(content\\|assets\\)[/$]"
+                                     filename)
+                                    (prog1 t
+                                      (copy-file
+                                       filename
+                                       (setq filename
+                                             (make-temp-file
+                                              "local"
+                                              nil
+                                              (let ((extension
+                                                     (file-name-extension
+                                                      filename)))
+                                                (if extension
+                                                    (concat "."
+                                                            extension)
+                                                  nil))))
+                                       t))
+                                    (concat "file://" filename))))
+    (setq url replacement-url))
+  (android-browse-url-internal url send))
+
+
+;; Coding systems used by androidvfs.c.
+
+(define-ccl-program android-encode-jni
+  '(2 ((loop
+	(read r0)
+	(if (r0 < #x1) ; 0x0 is encoded specially in JNI environments.
+	    ((write #xc0)
+	     (write #x80))
+	  ((if (r0 < #x80) ; ASCII
+	       ((write r0))
+	     (if (r0 < #x800) ; \u0080 - \u07ff
+		 ((write ((r0 >> 6) | #xC0))
+		  (write ((r0 & #x3F) | #x80)))
+	       ;; \u0800 - \uFFFF
+	       (if (r0 < #x10000)
+		   ((write ((r0 >> 12) | #xE0))
+		    (write (((r0 >> 6) & #x3F) | #x80))
+		    (write ((r0 & #x3F) | #x80)))
+		 ;; Supplementary characters must be converted into
+		 ;; surrogate pairs before encoding.
+		 (;; High surrogate
+		  (r1 = ((((r0 - #x10000) >> 10) & #x3ff) + #xD800))
+		  ;; Low surrogate.
+		  (r2 = (((r0 - #x10000) & #x3ff) + #xDC00))
+		  ;; Write both surrogate characters.
+		  (write ((r1 >> 12) | #xE0))
+		  (write (((r1 >> 6) & #x3F) | #x80))
+		  (write ((r1 & #x3F) | #x80))
+		  (write ((r2 >> 12) | #xE0))
+		  (write (((r2 >> 6) & #x3F) | #x80))
+		  (write ((r2 & #x3F) | #x80))))))))
+	(repeat))))
+  "Encode characters from the input buffer for Java virtual machines.")
+
+(define-ccl-program android-decode-jni
+  '(1 ((loop
+        ((read-if (r0 >= #x80) ; More than a one-byte sequence?
+		  ((if (r0 < #xe0)
+		       ;; Two-byte sequence; potentially a NULL
+		       ;; character.
+		       ((read r4)
+			(r4 &= #x3f)
+			(r0 = (((r0 & #x1f) << 6) | r4)))
+		     (if (r0 < ?\xF0)
+			 ;; Three-byte sequence, after which surrogate
+			 ;; pairs should be processed.
+			 ((read r4 r6)
+			  (r4 = ((r4 & #x3f) << 6))
+			  (r6 &= #x3f)
+			  (r0 = ((((r0 & #xf) << 12) | r4) | r6)))
+		       ;; Four-byte sequences are not valid under the
+		       ;; JVM specification, but Android produces them
+		       ;; when encoding Emoji characters for being
+		       ;; supposedly less of a surprise to applications.
+		       ;; This is obviously not true of programs written
+		       ;; to the letter of the documentation, but 50
+		       ;; million Frenchmen make a right (and this
+		       ;; deviation from the norm is predictably absent
+		       ;; from Android's documentation on the subject).
+		       ((read r1 r4 r6)
+			(r1 = ((r1 & #x3f) << 12))
+			(r4 = ((r4 & #x3f) << 6))
+			(r6 &= #x3F)
+			(r0 = (((((r0 & #x07) << 18) | r1) | r4) | r6))))))))
+	(if ((r0 & #xf800) == #xd800)
+	    ;; High surrogate.
+	    ((read-if (r2 >= #xe0)
+		      ((r0 = ((r0 & #x3ff) << 10))
+		       (read r4 r6)
+		       (r4 = ((r4 & #x3f) << 6))
+		       (r6 &= #x3f)
+		       (r1 = ((((r2 & #xf) << 12) | r4) | r6))
+		       (r0 = (((r1 & #x3ff) | r0) + #xffff))))))
+	(write r0)
+	(repeat))))
+  "Decode JVM-encoded characters in the input buffer.")
+
+(define-coding-system 'android-jni
+  "CESU-8 based encoding for communication with the Android runtime."
+  :mnemonic ?J
+  :coding-type 'ccl
+  :eol-type 'unix
+  :ascii-compatible-p nil ; for \0 is encoded as a two-byte sequence.
+  :default-char ?\0
+  :charset-list '(unicode)
+  :ccl-decoder 'android-decode-jni
+  :ccl-encoder 'android-encode-jni)
+
+
+;; Default key definitions.
+
+;; Suppress KEYCODE_NOTIFICATION, which has been observed to be
+;; spontaneously generated on certain tablets, so that the user may not
+;; be disturbed by intrusive messages when it is registered.
+(global-set-key [KEYCODE_NOTIFICATION] #'ignore)
+(global-set-key [\83] #'ignore) ; KEYCODE_NOTIFICATION on pre-Honeycomb
+                                ; releases.
+
+
 (provide 'android-win)
-;; android-win.el ends here.
+;;; android-win.el ends here

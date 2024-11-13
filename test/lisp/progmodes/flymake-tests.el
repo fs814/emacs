@@ -1,6 +1,6 @@
 ;;; flymake-tests.el --- Test suite for flymake -*- lexical-binding: t -*-
 
-;; Copyright (C) 2011-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2011-2024 Free Software Foundation, Inc.
 
 ;; Author: Eduard Wiebe <usenet@pusto.de>
 
@@ -174,7 +174,8 @@ SEVERITY-PREDICATE is used to setup
     (flymake-tests--with-flymake
         ("some-problems.h")
       (flymake-goto-next-error)
-      (should (eq 'flymake-warning (face-at-point)))
+      ;; implicit-int was promoted from warning to error in GCC 14
+      (should (memq (face-at-point) '(flymake-warning flymake-error)))
       (flymake-goto-next-error)
       (should (eq 'flymake-error (face-at-point)))
       (should-error (flymake-goto-next-error nil nil t)))

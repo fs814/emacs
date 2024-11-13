@@ -1,5 +1,5 @@
 /* Define frame-object for GNU Emacs.
-   Copyright (C) 1993-1994, 1999-2023 Free Software Foundation, Inc.
+   Copyright (C) 1993-1994, 1999-2024 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -125,6 +125,10 @@ struct text_conversion_state
 
   /* Overlay representing the composing region.  */
   Lisp_Object compose_region_overlay;
+
+  /* Cons of (START END . WINDOW) holding the field to which text
+     conversion should be confined, or nil if no such field exists.  */
+  Lisp_Object field;
 
   /* The number of ongoing ``batch edits'' that are causing point
      reporting to be delayed.  */
@@ -283,6 +287,12 @@ struct frame
 
   /* Cache of realized faces.  */
   struct face_cache *face_cache;
+
+#ifdef HAVE_WINDOW_SYSTEM
+  /* Cache of realized images, which may be shared with other
+     frames.  */
+  struct image_cache *image_cache;
+#endif /* HAVE_WINDOW_SYSTEM */
 
   /* Tab-bar item index of the item on which a mouse button was pressed.  */
   int last_tab_bar_item;
@@ -905,11 +915,11 @@ default_pixels_per_inch_y (void)
 #define FRAME_KBOARD(f) ((f)->terminal->kboard)
 
 /* Return a pointer to the image cache of frame F.  */
-#define FRAME_IMAGE_CACHE(F) ((F)->terminal->image_cache)
+#define FRAME_IMAGE_CACHE(F) ((F)->image_cache)
 
 #define XFRAME(p) \
   (eassert (FRAMEP (p)), XUNTAG (p, Lisp_Vectorlike, struct frame))
-#define XSETFRAME(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_FRAME))
+#define XSETFRAME(a, b) XSETPSEUDOVECTOR (a, b, PVEC_FRAME)
 
 /* Given a window, return its frame as a Lisp_Object.  */
 #define WINDOW_FRAME(w) ((w)->frame)
@@ -992,7 +1002,7 @@ default_pixels_per_inch_y (void)
    FRAME_DISPLAY_INFO (f)->font_resolution)
 
 #else /* !HAVE_ANDROID */
-#define FRAME_RES(f) (FRAME_RES_Y (f))
+#define FRAME_RES(f) FRAME_RES_Y (f)
 #endif /* HAVE_ANDROID */
 
 #else /* !HAVE_WINDOW_SYSTEM */
@@ -1130,12 +1140,12 @@ default_pixels_per_inch_y (void)
 /* Height of F's bottom margin in frame lines.  */
 
 #define FRAME_BOTTOM_MARGIN(f)			\
-  (FRAME_TOOL_BAR_BOTTOM_LINES (f))
+  FRAME_TOOL_BAR_BOTTOM_LINES (f)
 
 /* Pixel height of frame F's bottom margin.  */
 
 #define FRAME_BOTTOM_MARGIN_HEIGHT(f)		\
-  (FRAME_TOOL_BAR_BOTTOM_HEIGHT (f))
+  FRAME_TOOL_BAR_BOTTOM_HEIGHT (f)
 
 /* Size of both vertical margins combined.  */
 
@@ -1159,7 +1169,7 @@ default_pixels_per_inch_y (void)
    visible by the X server.  */
 
 #ifndef HAVE_X_WINDOWS
-#define FRAME_REDISPLAY_P(f) (FRAME_VISIBLE_P (f))
+#define FRAME_REDISPLAY_P(f) FRAME_VISIBLE_P (f)
 #else
 #define FRAME_REDISPLAY_P(f) (FRAME_VISIBLE_P (f)		\
 			      || (FRAME_X_P (f)			\

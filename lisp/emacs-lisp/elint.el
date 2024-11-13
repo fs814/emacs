@@ -1,6 +1,6 @@
 ;;; elint.el --- Lint Emacs Lisp -*- lexical-binding: t -*-
 
-;; Copyright (C) 1997-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2024 Free Software Foundation, Inc.
 
 ;; Author: Peter Liljenberg <petli@lysator.liu.se>
 ;; Maintainer: emacs-devel@gnu.org
@@ -266,6 +266,7 @@ This environment can be passed to `macroexpand'."
       (insert-file-contents file)
       (let ((buffer-file-name file)
 	    (max-lisp-eval-depth (max 1000 max-lisp-eval-depth)))
+        (hack-local-variables)
 	(with-syntax-table emacs-lisp-mode-syntax-table
 	  (mapc 'elint-top-form (elint-update-env)))))
     (elint-set-mode-line)

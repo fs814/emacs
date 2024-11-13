@@ -1,13 +1,13 @@
 ;;; ps-print.el --- print text from the buffer as PostScript -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1993-2024 Free Software Foundation, Inc.
 
 ;; Author: Jim Thompson (was <thompson@wg2.waii.com>)
 ;;	Jacques Duthen (was <duthen@cegelec-red.fr>)
 ;;	Vinicius Jose Latorre <viniciusjl.gnu@gmail.com>
 ;;	Kenichi Handa <handa@gnu.org> (multi-byte characters)
 ;; Maintainer: Vinicius Jose Latorre <viniciusjl.gnu@gmail.com>
-;; Keywords: wp, print, PostScript
+;; Keywords: text, print, PostScript
 ;; Old-Version: 7.3.5
 ;; URL: https://www.emacswiki.org/cgi-bin/wiki/ViniciusJoseLatorre
 
@@ -191,7 +191,7 @@
 ;; inserted at end of PostScript generated.  Non-nil means do so.  The default
 ;; is nil (don't insert).
 ;;
-;; If you're using Emacs for Windows 95/98/NT or MS-DOS, don't forget to
+;; If you're using Emacs for Windows 98/NT or MS-DOS, don't forget to
 ;; customize the following variables: `ps-printer-name',
 ;; `ps-printer-name-option', `ps-lpr-command', `ps-lpr-switches' and
 ;; `ps-spool-config'.  See these variables documentation in the code or by

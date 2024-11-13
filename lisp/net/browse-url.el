@@ -1,6 +1,6 @@
 ;;; browse-url.el --- pass a URL to a web browser  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2023 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2024 Free Software Foundation, Inc.
 
 ;; Author: Denis Howe <dbh@doc.ic.ac.uk>
 ;; Maintainer: emacs-devel@gnu.org
@@ -113,10 +113,10 @@
 
 ;; Use the Emacs Web Wowser (EWW) when not running under X11:
 ;;	(or (eq window-system 'x)
-;;	    (setq browse-url-browser-function #'eww-browse-url))
+;;	    (setopt browse-url-browser-function #'eww-browse-url))
 
 ;; To always save modified buffers before displaying the file in a browser:
-;;	(setq browse-url-save-file t)
+;;	(setopt browse-url-save-file t)
 
 ;; To invoke different browsers/tools for different URLs, customize
 ;; `browse-url-handlers'.  In earlier versions of Emacs, the same
@@ -419,14 +419,14 @@ value converts ange-ftp-style file names into ftp URLs and prepends
 `file:' to any file name beginning with `/'.
 
 For example, adding to the default a specific translation of an ange-ftp
-address to an HTTP URL:
+address to an HTTPS URL:
 
-    (setq browse-url-filename-alist
-	  \\='((\"/webmaster@webserver:/home/www/html/\" .
-             \"https://www.example.org/\")
-            (\"^/\\(ftp@\\|anonymous@\\)?\\([^:/]+\\):/*\" . \"ftp://\\2/\")
-            (\"^/\\([^:@/]+@\\)?\\([^:/]+\\):/*\" . \"ftp://\\1\\2/\")
-	    (\"^/+\" . \"file:/\")))"
+    (setopt browse-url-filename-alist
+            \\='((\"/webmaster@webserver:/home/www/html/\" .
+               \"https://www.example.org/\")
+              (\"^/\\(ftp@\\|anonymous@\\)?\\([^:/]+\\):/*\" . \"ftp://\\2/\")
+              (\"^/\\([^:@/]+@\\)?\\([^:/]+\\):/*\" . \"ftp://\\1\\2/\")
+              (\"^/+\" . \"file:/\")))"
   :type '(repeat (cons :format "%v"
                        (regexp :tag "Regexp")
                        (string :tag "Replacement")))
@@ -683,13 +683,16 @@ websites are increasingly rare, but they do still exist."
   :type '(choice (const :tag "HTTP" "http")
                  (const :tag "HTTPS" "https")
                  (string :tag "Something else" "https"))
+  :risky t
   :version "29.1")
 
 (defun browse-url-url-at-point ()
   (or (thing-at-point 'url t)
       ;; assume that the user is pointing at something like gnu.org/gnu
-      (let ((f (thing-at-point 'filename t)))
-        (and f (concat browse-url-default-scheme "://" f)))))
+      (when-let* ((f (thing-at-point 'filename t)))
+	(if (string-match-p browse-url-button-regexp f)
+	    f
+	  (concat browse-url-default-scheme "://" f)))))
 
 ;; Having this as a separate function called by the browser-specific
 ;; functions allows them to be stand-alone commands, making it easier
@@ -702,8 +705,10 @@ it defaults to the current region, else to the URL at or before
 point.  If invoked with a mouse button, it moves point to the
 position clicked before acting.
 
-This function returns a list (URL NEW-WINDOW-FLAG)
-for use in `interactive'."
+This function returns a list (URL NEW-WINDOW-FLAG) for use in
+`interactive'.  NEW-WINDOW-FLAG is the prefix arg; if
+`browse-url-new-window-flag' is non-nil, invert the prefix arg
+instead."
   (let ((event (elt (this-command-keys) 0)))
     (mouse-set-point event))
   (list (read-string prompt (or (and transient-mark-mode mark-active
@@ -713,8 +718,7 @@ for use in `interactive'."
 				      (buffer-substring-no-properties
 				       (region-beginning) (region-end))))
 				(browse-url-url-at-point)))
-	(not (eq (null browse-url-new-window-flag)
-		 (null current-prefix-arg)))))
+	(xor browse-url-new-window-flag current-prefix-arg)))
 
 ;; called-interactive-p needs to be called at a function's top-level, hence
 ;; this macro.  We use that rather than interactive-p because
@@ -760,7 +764,7 @@ interactively.  Turn the filename into a URL with function
 (defun browse-url-file-url (file)
   "Return the URL corresponding to FILE.
 Use variable `browse-url-filename-alist' to map filenames to URLs."
-  (when-let ((coding (browse-url--file-name-coding-system)))
+  (when-let* ((coding (browse-url--file-name-coding-system)))
     (setq file (encode-coding-string file coding)))
   (if (and (file-remote-p file)
            ;; We're applying special rules for FTP URLs for historical
@@ -877,8 +881,8 @@ The variables `browse-url-browser-function',
 `browse-url-handlers', and `browse-url-default-handlers'
 determine which browser function to use.
 
-This command prompts for a URL, defaulting to the URL at or
-before point.
+Interactively, this command prompts for a URL, defaulting to the
+URL at or before point.
 
 The additional ARGS are passed to the browser function.  See the
 doc strings of the actual functions, starting with
@@ -886,7 +890,9 @@ doc strings of the actual functions, starting with
 significance of ARGS (most of the functions ignore it).
 
 If ARGS are omitted, the default is to pass
-`browse-url-new-window-flag' as ARGS."
+`browse-url-new-window-flag' as ARGS.  Interactively, pass the
+prefix arg as ARGS; if `browse-url-new-window-flag' is non-nil,
+invert the prefix arg instead."
   (interactive (browse-url-interactive-arg "URL: "))
   (unless (called-interactively-p 'interactive)
     (setq args (or args (list browse-url-new-window-flag))))
@@ -1322,7 +1328,7 @@ and instant messengers instead of opening it in a web browser."
   :type 'boolean
   :version "30.1")
 
-(declare-function android-browse-url "androidselect.c")
+(declare-function android-browse-url "../term/android-win")
 
 ;;;###autoload
 (defun browse-url-default-android-browser (url &optional _new-window)
@@ -1355,7 +1361,7 @@ currently selected window instead."
     (if (equal (url-type parsed) "file")
         ;; It's a file; just open it.
         (let ((file (url-unhex-string (url-filename parsed))))
-          (when-let ((coding (browse-url--file-name-coding-system)))
+          (when-let* ((coding (browse-url--file-name-coding-system)))
             (setq file (decode-coding-string file 'utf-8)))
           ;; The local-part of file: URLs on Windows is supposed to
           ;; start with an extra slash.
