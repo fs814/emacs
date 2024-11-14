@@ -2005,7 +2005,7 @@ del_range_2 (ptrdiff_t from, ptrdiff_t from_byte, ptrdiff_t to,
   ZV -= nchars_del;
   ZE -= nchars_del;
   ZV_BYTE -= nbytes_del;
-  Z_BYTE -= nbytes_del;
+  ZE_BYTE -= nbytes_del;
   GPT = from;
   GPT_BYTE = from_byte;
   if (GAP_SIZE > 0 && !current_buffer->text->inhibit_shrinking)
