@@ -1,6 +1,7 @@
-#define STB_IMAGE_IMPLEMENTATION
-
 #include <config.h>
+
+#ifdef HAVE_FILAMENT
+#define STB_IMAGE_IMPLEMENTATION
 
 #import <AppKit/AppKit.h>
 
@@ -501,3 +502,5 @@ NSString *FilamentDelegateDidSizeChange = @"FilamentDelegateDidSizeChange";
   //    Viewport(0, 0, nativeBounds.size.width, nativeBounds.size.height));
 }
 @end
+
+#endif /* HAVE_FILAMENT */

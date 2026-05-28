@@ -1,5 +1,6 @@
 #include <config.h>
 
+#ifdef HAVE_VULKAN
 #import <AppKit/AppKit.h>
 
 #import "VulkanDelegate.h"
@@ -61,3 +62,5 @@
     //vulkanExample->renderLoop();
 }
 @end
+
+#endif /* HAVE_VULKAN */

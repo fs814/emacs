@@ -24,6 +24,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include <time.h>
 
 #include "lisp.h"
+#include "character.h"
 #include "itree.h"
 
 INLINE_HEADER_BEGIN

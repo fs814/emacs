@@ -354,12 +354,12 @@ fails.  */)
 
       if (!NILP (arguments))
         {
-          xw->init_func = Fplist_get (arguments, QCinit);
-          xw->render_func = Fplist_get (arguments, QCrender);
-          xw->cursor_pos_cb = Fplist_get (arguments, QCcursor_pos);
+          xw->init_func = Fplist_get (arguments, QCinit, Qnil);
+          xw->render_func = Fplist_get (arguments, QCrender, Qnil);
+          xw->cursor_pos_cb = Fplist_get (arguments, QCcursor_pos, Qnil);
           xw->mouse_button_cb
-            = Fplist_get (arguments, QCmouse_button);
-          xw->private_data = Fplist_get (arguments, QCprivate);
+            = Fplist_get (arguments, QCmouse_button, Qnil);
+          xw->private_data = Fplist_get (arguments, QCprivate, Qnil);
         }
     }
 

@@ -6713,8 +6713,8 @@ from the absolute start of the buffer, disregarding the narrowing.  */)
       CHECK_FIXNUM (position);
       ptrdiff_t pos = XFIXNUM (position);
       /* Check that POSITION is valid. */
-      if (pos < BEG || pos > Z)
-	args_out_of_range_3 (position, make_int (BEG), make_int (Z));
+      if (pos < BEG || pos > ZE)
+	args_out_of_range_3 (position, make_int (BEG), make_int (ZE));
       pos_byte = CHAR_TO_BYTE (pos);
     }
 
@@ -6724,9 +6724,9 @@ from the absolute start of the buffer, disregarding the narrowing.  */)
     pos_byte = clip_to_bounds (BEGV_BYTE, pos_byte, ZV_BYTE);
 
   /* Check that POSITION is valid. */
-  if (pos_byte < BEG_BYTE || pos_byte > Z_BYTE)
+  if (pos_byte < BEG_BYTE || pos_byte > ZE_BYTE)
     args_out_of_range_3 (make_int (BYTE_TO_CHAR (pos_byte)),
-			 make_int (BEG), make_int (Z));
+			 make_int (BEG), make_int (ZE));
 
   return make_int (count_lines (start_byte, pos_byte) + 1);
 }

@@ -1058,14 +1058,14 @@ treesit_count_lines (ptrdiff_t start_byte,
 static void
 treesit_debug_validate_linecol (struct ts_linecol linecol)
 {
-  eassert (linecol.bytepos <= Z_BYTE);
+  eassert (linecol.bytepos <= ZE_BYTE);
 
   /* We can't use count_lines as ground truth because it respects
      narrowing, and calling it with a bytepos outside of the visible
      portion results in infloop.  */
   ptrdiff_t _unused;
   ptrdiff_t true_line_count = treesit_count_lines (BEG_BYTE, linecol.bytepos,
-						   Z_BYTE, &_unused) + 1;
+						   ZE_BYTE, &_unused) + 1;
   eassert (true_line_count == linecol.line);
 }
 
@@ -1451,7 +1451,7 @@ treesit_record_change_1 (ptrdiff_t start_byte, ptrdiff_t old_end_byte,
 
 	  eassert (BEG_BYTE <= new_visible_beg);
 	  eassert (new_visible_beg <= new_visible_end);
-	  eassert (new_visible_end <= Z_BYTE);
+	  eassert (new_visible_end <= ZE_BYTE);
 
 	  /* (Optionally) calculate the point for start/old_end/new_end
 	     to be sent to tree-sitter.  Also update parser cache for

@@ -4502,9 +4502,12 @@ if test "$with_xwidgets" != "no"; then
     NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
     NS_OBJCXX_OBJ="LcRender.o FilamentDelegate.o VulkanView.o VulkanDelegate.o"
     #NS_CXX_OBJ="FilamentRender.o"
+    AC_PROG_CXX
     CXXFLAGS="$CXXFLAGS -std=c++17"
     dnl Update NS_OBJC_OBJ with added nsxwidget.o
     AC_SUBST([NS_OBJC_OBJ])
+    AC_SUBST([NS_OBJCXX_OBJ])
+    AC_SUBST([NS_CXX_OBJ])
   else
     AC_MSG_ERROR([xwidgets requested, it requires GTK3 as X window toolkit or macOS Cocoa as window system.])
   fi
@@ -7489,7 +7492,7 @@ case "$opsys" in
      libs_nsgui="-framework AppKit"
      if test "$NS_IMPL_COCOA" = "yes"; then
         libs_nsgui="$libs_nsgui -framework IOKit -framework Carbon \
-                    -framework IOSurface -framework QuartzCore"
+                    -framework IOSurface -framework QuartzCore -framework Metal -framework MetalKit"
         if test "$emacs_cv_macosx_12_0" = "yes"; then
 	  libs_nsgui="$libs_nsgui -framework UniformTypeIdentifiers"
 	fi

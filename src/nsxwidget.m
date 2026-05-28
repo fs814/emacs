@@ -39,10 +39,14 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #import "LcRender.h"
 #import "LcShaderTypes.h"
 
+#ifdef HAVE_FILAMENT
 #import "FilamentDelegate.h"
+#endif
+#ifdef HAVE_VULKAN
 #import "VulkanView.h"
 
 #import "VulkanDelegate.h"
+#endif
 
 
 /* Thoughts on NS Cocoa xwidget and webkit2:
@@ -399,6 +403,7 @@ AAPLRenderer *_mRenderer;
 }
 @end
 
+#ifdef HAVE_FILAMENT
 NSString *XwFilamentViewDidSizeChange = @"XwFilamentViewDidSizeChange";
 
 @interface XwFilamentView : MTKView
@@ -457,6 +462,7 @@ NSSize _viewSize;
   }
 }
 @end
+#endif /* HAVE_FILAMENT */
 
 /* Xwidget webkit commands.  */
 

@@ -1,5 +1,6 @@
 #include <config.h>
 
+#ifdef HAVE_VULKAN
 //#import "xwidget.h"
 
 #include "triangle.h"
@@ -81,3 +82,5 @@ VulkanExampleBase* vulkanExample;
   }
 }
 @end
+
+#endif /* HAVE_VULKAN */

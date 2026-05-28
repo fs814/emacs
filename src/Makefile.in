@@ -445,7 +445,7 @@ ALL_CXX_CFLAGS = $(EMACS_CFLAGS) \
 ALL_OBJCXX_CFLAGS = $(EMACS_CFLAGS) \
   $(filter-out $(NON_OBJCXX_CFLAGS),$(WARN_CFLAGS)) $(CXXFLAGS)
 
-.SUFFIXES: .c .m .cc
+.SUFFIXES: .c .m .cc .mm
 .c.o:
 	$(AM_V_CC)$(CC) -c $(CPPFLAGS) $(ALL_CFLAGS) $(PROFILING_CFLAGS) $<
 .m.o:
@@ -476,7 +476,7 @@ base_obj = dispnew.o frame.o scroll.o xdisp.o menu.o $(XMENU_OBJ) window.o     \
 	$(W32_OBJ) $(WINDOW_SYSTEM_OBJ) $(XGSELOBJ)			       \
 	$(HAIKU_OBJ) $(PGTK_OBJ) $(ANDROID_OBJ)
 doc_obj = $(base_obj) $(NS_OBJC_OBJ)
-obj = $(doc_obj) $(HAIKU_CXX_OBJ)
+obj = $(doc_obj) $(HAIKU_CXX_OBJ) $(NS_OBJCXX_OBJ) $(NS_CXX_OBJ)
 
 ## Object files used on some machine or other.
 ## These go in the DOC file on all machines in case they are needed.
