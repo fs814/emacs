@@ -693,17 +693,23 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
 
   record_unwind_protect_void (minibuffer_unwind);
   if (read_minibuffer_restore_windows)
-    record_unwind_protect (restore_window_configuration,
-			   list3 (Fcurrent_window_configuration (Qnil),
-				  Qt, Qt));
+    {
+      record_unwind_protect
+	(restore_window_configuration,
+	 list3 (Fcurrent_window_configuration (Qnil), Qt, Qt));
 
-  /* If the minibuffer window is on a different frame, save that
-     frame's configuration too.  */
-  if (read_minibuffer_restore_windows &&
-      !EQ (mini_frame, selected_frame))
-    record_unwind_protect (restore_window_configuration,
-			   list3 (Fcurrent_window_configuration (mini_frame),
-				  Qnil, Qt));
+      /* If the minibuffer window is on a different frame, save that
+	 frame's configuration too.  */
+      if (!EQ (mini_frame, selected_frame))
+	record_unwind_protect
+	  (restore_window_configuration,
+	   list3 (Fcurrent_window_configuration (mini_frame), Qnil, Qt));
+    }
+  else if (!EQ (mini_frame, selected_frame))
+    record_unwind_protect
+      (restore_focus_frame,
+       Fcons (selected_frame, XFRAME (selected_frame)->focus_frame));
+
 
   /* If the minibuffer is on an iconified or invisible frame,
      make it visible now.  */
@@ -2363,6 +2369,22 @@ STR the i-th character of PAT matched.  */)
     /* Bail if strings are empty or matrix too large.  */
     if (patlen == 0 || strlen == 0 || size > FLEX_MAX_MATRIX_SIZE)
       return Qnil;
+
+    /* Also bail if PAT is not a subsequence of STR so bail "cheaply"
+       before the O(N*M) DP algorithm.  Walking both strings
+       byte-by-byte for this purpose (and only for case-sensitive common
+       case) should be valid even for multibyte strings. */
+    if (!completion_ignore_case)
+      {
+	const unsigned char *p = SDATA (pat);
+	const unsigned char *s = SDATA (str);
+	int pi = 0;
+	for (int si = 0; si < strlen && pi < patlen; si++)
+	  if (s[si] == p[pi])
+	    pi++;
+	if (pi < patlen)
+	  return Qnil;
+      }
 
     /* Initialize M and D with positive infinity...  */
     for (int j = 0; j < size; j++)

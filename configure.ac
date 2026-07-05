@@ -966,7 +966,7 @@ a valid path to android.jar.  See config.log for more details.])
   fi
 
   AC_CACHE_CHECK([whether android.jar is new enough],
-    [emacs_cv_android_w_or_later],
+    [emacs_cv_android_x_or_later],
     AS_IF([rm -f conftest.class
 cat << EOF > conftest.java
 
@@ -974,7 +974,7 @@ import android.os.Build;
 
 class conftest
 {
-  private static int test = Build.VERSION_CODES.BAKLAVA;
+  private static int test = Build.VERSION_CODES.CINNAMON_BUN;
 }
 
 EOF
@@ -985,7 +985,7 @@ EOF
 
   if test "$emacs_cv_android_w_or_later" = "no"; then
     AC_MSG_ERROR([Emacs must be built with an android.jar file produced for \
-Android 16 (BAKLAVA) or later.])
+Android 17 (CINNAMON_BUN) or later.])
   fi
 
   dnl See if the Java compiler supports the `--release' option which
@@ -2107,44 +2107,7 @@ if test $opsys = darwin; then
   AC_PATH_PROG([HAVE_MACPORTS], [port])
 fi
 
-## Require makeinfo >= 4.13 (last of the 4.x series) to build the manuals.
-: ${MAKEINFO:=makeinfo}
-case `($MAKEINFO --version) 2>/dev/null` in
-  *' (GNU texinfo) '4.1[[3-9]]* | \
-  *' (GNU texinfo) '[[5-9]]* | \
-  *' (GNU texinfo) '[[1-9][0-9]]* ) ;;
-  *) MAKEINFO=no;;
-esac
-
-## Makeinfo is unusual.  For a released Emacs, the manuals are
-## pre-built, and not deleted by the normal clean rules.  makeinfo is
-## therefore in the category of "special tools" not normally required, which
-## configure does not have to check for (eg autoconf itself).
-## In a repository checkout on the other hand, the manuals are not included.
-## So makeinfo is a requirement to build from the repository, and configure
-## should test for it as it does for any other build requirement.
-## We use the presence of $srcdir/info/emacs to distinguish a release,
-## with pre-built manuals, from a repository checkout.
-if test "$MAKEINFO" = "no"; then
-  MAKEINFO=makeinfo
-  if test ! -e "$srcdir/info/emacs" && test ! -e "$srcdir/info/emacs.info"; then
-    AC_MSG_ERROR( [You do not seem to have makeinfo >= 4.13, and your
-source tree does not seem to have pre-built manuals in the 'info' directory.
-Please install a suitable version of makeinfo.] )
-  else
-    AC_MSG_WARN( [You do not seem to have makeinfo >= 4.13.
-You will not be able to rebuild the manuals if you delete them or change
-their sources.] )
-  fi
-fi
-AC_SUBST([MAKEINFO])
-
-if test $opsys = mingw32; then
-   DOCMISC_W32=efaq-w32
-else
-   DOCMISC_W32=
-fi
-AC_SUBST([DOCMISC_W32])
+gl_TEXINFO
 
 dnl Add our options to ac_link now, after it is set up.
 
@@ -5326,19 +5289,6 @@ You can find the instructions on how to compile and install libgccjit from
 source on this site:
 <https://gcc.gnu.org/wiki/JIT>.])])
 
-HAVE_NATIVE_COMP=no
-LIBGCCJIT_LIBS=
-LIBGCCJIT_CFLAGS=
-if test "$canonical" = i686-pc-cygwin; then
-  if test "${with_cygwin32_native_compilation}" = yes; then
-    with_native_compilation=yes
-  elif test "${with_native_compilation}" != no; then
-    AC_MSG_ERROR([Native compilation is not supported on 32-bit Cygwin.
-If you really want to try it anyway, use the configure option
-'--with-cygwin32-native-compilation'.])
-  fi
-fi
-
 AC_DEFUN([libgccjit_not_found], [
   AC_MSG_WARN([Elisp native compiler can't be enabled as libgccjit was not
 found.
@@ -5372,30 +5322,25 @@ source on this site:
 
   with_native_compilation=no])
 
+HAVE_NATIVE_COMP=no
+LIBGCCJIT_LIBS=
+LIBGCCJIT_CFLAGS=
+if test "$canonical" = i686-pc-cygwin; then
+  if test "${with_cygwin32_native_compilation}" = yes; then
+    with_native_compilation=yes
+  elif test "${with_native_compilation}" != no; then
+    AC_MSG_ERROR([Native compilation is not supported on 32-bit Cygwin.
+If you really want to try it anyway, use the configure option
+'--with-cygwin32-native-compilation'.])
+  fi
+fi
+
 if test "$with_features" = "no" \
    && test "${with_native_compilation}" = "default"; then
   with_native_compilation=no
 fi
 
-if test "${with_native_compilation}" = "default"; then
-    # Check if libgccjit is available.
-    AC_CHECK_LIB([gccjit], [gcc_jit_context_acquire],
-      [], [libgccjit_not_found])
-    AC_CHECK_HEADERS([libgccjit.h], [], [libgccjit_dev_not_found])
-    if test "${with_native_compilation}" != "no"; then
-      # Check if libgccjit really works.
-      AC_RUN_IFELSE([libgccjit_smoke_test], [], [libgccjit_broken])
-    fi
-fi
-
 if test "${with_native_compilation}" != "no"; then
-    if test "${HAVE_ZLIB}" = no; then
-       AC_MSG_ERROR(['--with-native-compilation' requires zlib])
-    fi
-
-    SAVE_CFLAGS=$CFLAGS
-    SAVE_LIBS=$LIBS
-
     if test "${opsys}" = "darwin"; then
       # Ensure libgccjit installed by Homebrew or macports can be found.
       if test -n "$BREW"; then
@@ -5432,15 +5377,38 @@ if test "${with_native_compilation}" != "no"; then
       fi
     fi
 
-    # In the default case we already checked
-    if test "${with_native_compilation}" != "default"; then
-      # Check if libgccjit is available.
-      AC_CHECK_LIB([gccjit], [gcc_jit_context_acquire],
-        [], [libgccjit_not_found_err])
-      AC_CHECK_HEADERS([libgccjit.h], [], [libgccjit_dev_not_found_err])
+    # Check if libgccjit is available.
+    native_compilation_requested=${with_native_compilation}
+    AC_CHECK_LIB([gccjit], [gcc_jit_context_acquire], [],
+        [if test "${native_compilation_requested}" = "default"; then
+	   libgccjit_not_found
+	 else
+	   libgccjit_not_found_err
+	 fi])
+    AC_CHECK_HEADERS([libgccjit.h], [],
+        [if test "${native_compilation_requested}" = "default"; then
+	   libgccjit_dev_not_found
+	 else
+	   libgccjit_dev_not_found_err
+	 fi])
+    if test "${with_native_compilation}" != "no"; then
       # Check if libgccjit really works.
-      AC_RUN_IFELSE([libgccjit_smoke_test], [], [libgccjit_broken_err])
+      AC_RUN_IFELSE([libgccjit_smoke_test], [],
+        [if test "${native_compilation_requested}" = "default"; then
+           libgccjit_broken
+	 else
+           libgccjit_broken_err
+         fi])
     fi
+fi
+
+if test "${with_native_compilation}" != "no"; then
+    if test "${HAVE_ZLIB}" = no; then
+       AC_MSG_ERROR(['--with-native-compilation' requires zlib])
+    fi
+
+    SAVE_CFLAGS=$CFLAGS
+    SAVE_LIBS=$LIBS
     HAVE_NATIVE_COMP=yes
     case "${opsys}" in
       # mingw32 loads the library dynamically.

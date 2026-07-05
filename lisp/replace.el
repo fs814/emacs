@@ -369,6 +369,8 @@ should a regexp."
                                 (replace--region-filter
                                  (funcall region-extract-function 'bounds)))
                       :highlight (and query-replace-lazy-highlight (not no-highlight))
+                      :lax-whitespace (if regexp-flag replace-regexp-lax-whitespace
+                                          replace-lax-whitespace)
                       :regexp regexp-flag
                       :regexp-function (or replace-regexp-function
                                            delimited-flag
@@ -1980,12 +1982,12 @@ See also `multi-occur'."
         (source-buffer-default-directory default-directory))
     ;; Handle the case where one of the buffers we're searching is the
     ;; output buffer.  Just rename it.
-    (when (member buf-name
-                  ;; FIXME: Use cl-exists.
-                  (mapcar
-                   (lambda (boo)
-                     (buffer-name (if (overlayp boo) (overlay-buffer boo) boo)))
-                   active-bufs))
+    (when (seq-some (lambda (boo)
+                      (equal buf-name
+                             (buffer-name (if (overlayp boo)
+                                              (overlay-buffer boo)
+                                            boo))))
+                    active-bufs)
       (with-current-buffer buf-name
 	(rename-uniquely)))
 

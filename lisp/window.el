@@ -7994,6 +7994,12 @@ variable to t, strong dedication will be used by default and
 
 See the info node `(elisp)Dedicated Windows' for more details."
   (interactive "i\nP\np")
+
+  (when (and (not window) (mouse-event-p last-input-event))
+    (let ((event-window (posn-window (event-start last-input-event))))
+      (unless (eq (selected-window) event-window)
+        (setq window event-window))))
+
   (setq window (window-normalize-window window))
   (setq flag (cond
               ((consp flag)
@@ -8012,8 +8018,9 @@ See the info node `(elisp)Dedicated Windows' for more details."
                 ((null status) "no longer")
                 ((eq status t) "now strongly")
                 (t "now")))
-             (current-buffer))
-    (force-mode-line-update)))
+             (window-buffer window))
+    (with-current-buffer (window-buffer window)
+      (force-mode-line-update))))
 
 (defconst display-buffer--action-function-custom-type
   '(choice :tag "Function"
@@ -8273,7 +8280,7 @@ Action alist entries are:
     and `shrink-window-if-larger-than-buffer'.
  \\+`window-width' -- The value specifies the desired width of the
     window chosen and is either an integer (the total width of
-    the window specified in frame lines), a floating point
+    the window specified in frame columns), a floating point
     number (the fraction of its total width with respect to the
     width of the frame's root window), a cons cell whose car is
     `body-columns' and whose cdr is an integer that specifies the

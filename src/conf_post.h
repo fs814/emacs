@@ -371,6 +371,11 @@ extern int emacs_setenv_TZ (char const *);
 # define UNINIT /* empty */
 #endif
 
+/* likely (COND) is equivalent to COND ? 1 : 0, but instructs the
+   compiler to provide static branch prediction hints to the CPU so that
+   the branch isn't mispredicted.  */
+#define likely(cond)	__builtin_expect (!!(cond), 1)
+
 /* Emacs needs neither glibc strftime behavior for AM and PM indicators,
    nor Gnulib strftime support for non-Gregorian calendars.  */
 #define REQUIRE_GNUISH_STRFTIME_AM_PM false
@@ -386,6 +391,10 @@ extern int emacs_setenv_TZ (char const *);
     : S_ISLNK (mode) ? DT_LNK : S_ISBLK (mode) ? DT_BLK \
     : S_ISCHR (mode) ? DT_CHR : S_ISFIFO (mode) ? DT_FIFO \
     : S_ISSOCK (mode) ? DT_SOCK : DT_UNKNOWN)
+
+/* DJGPP doesn't provide uchar.h and Emacs doesn't import Gnulib's
+   replacement either.  */
+#define _REGEX_AVOID_UCHAR_H 1
 #endif /* MSDOS */
 
 #if defined WINDOWSNT && !(defined OMIT_CONSOLESAFE && OMIT_CONSOLESAFE == 1)
