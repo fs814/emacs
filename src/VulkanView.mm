@@ -42,10 +42,10 @@ VulkanExampleBase* vulkanExample;
 }
 
 - (void)viewDidMoveToWindow {
-  CVDisplayLinkCreateWithActiveCGDisplays(&displayLink);
-  CVDisplayLinkSetOutputCallback(displayLink, &displayLinkOutputCallback,
-                                 vulkanExample);
-  CVDisplayLinkStart(displayLink);
+  /* Rendering is driven by the MTKView delegate's drawInMTKView: on the
+     main thread (see VulkanDelegate).  No separate CVDisplayLink is
+     needed, and running one on a background thread would race with the
+     main-thread Vulkan/Metal submission.  */
 }
 
 - (void)dealloc {

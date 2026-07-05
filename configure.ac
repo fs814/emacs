@@ -4500,10 +4500,147 @@ if test "$with_xwidgets" != "no"; then
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
     NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
-    NS_OBJCXX_OBJ="LcRender.o FilamentDelegate.o VulkanView.o VulkanDelegate.o"
+    NS_OBJCXX_OBJ="LcRender.o FilamentDelegate.o VulkanView.o VulkanDelegate.o BgfxDelegate.o DawnDelegate.o SlateDelegate.o GodotDelegate.o"
     #NS_CXX_OBJ="FilamentRender.o"
     AC_PROG_CXX
-    CXXFLAGS="$CXXFLAGS -std=c++17"
+    dnl bgfx (bx/platform.h) requires C++20; filament/vulkan compile fine
+    dnl with it too (C++20 is a superset of the C++17 they need).
+    CXXFLAGS="$CXXFLAGS -std=c++20"
+
+    dnl --- Vulkan (MoltenVK) support for the vulkan xwidget type. ---
+    dnl Enable when the Vulkan SDK is present; define HAVE_VULKAN, add its
+    dnl include path to CPPFLAGS (reaches nsxwidget.m and the .mm files),
+    dnl and remember the lib dir/flags for the temacs link below.
+    VULKAN_SDK_DIR="$HOME/VulkanSDK/1.4.341.1/macOS"
+    if test -f "$VULKAN_SDK_DIR/include/vulkan/vulkan.h"; then
+      AC_DEFINE([HAVE_VULKAN], [1],
+                [Define to 1 if the Vulkan xwidget type is available.])
+      VULKAN_CFLAGS="-DHAVE_VULKAN -I$VULKAN_SDK_DIR/include"
+      VULKAN_LIBS="-L$VULKAN_SDK_DIR/lib -lvulkan -Wl,-rpath,$VULKAN_SDK_DIR/lib -lc++"
+      AC_MSG_NOTICE([Vulkan xwidget support enabled ($VULKAN_SDK_DIR)])
+    else
+      VULKAN_CFLAGS=
+      VULKAN_LIBS=
+      AC_MSG_NOTICE([Vulkan SDK not found; vulkan xwidget disabled])
+    fi
+    AC_SUBST([VULKAN_CFLAGS])
+    AC_SUBST([VULKAN_LIBS])
+
+    dnl --- Filament support for the filament xwidget type. ---
+    dnl Enable when a filament install is present; define HAVE_FILAMENT,
+    dnl add its include path (VULKAN_CFLAGS/FILAMENT_CFLAGS are folded
+    dnl into EMACS_CFLAGS in Makefile.in so they reach every compile),
+    dnl and link its static libs (order matters for static archives).
+    FILAMENT_DIR="$HOME/fsmyproject/filament"
+    if test -f "$FILAMENT_DIR/include/filament/Engine.h"; then
+      AC_DEFINE([HAVE_FILAMENT], [1],
+                [Define to 1 if the Filament xwidget type is available.])
+      FILAMENT_CFLAGS="-DHAVE_FILAMENT -I$FILAMENT_DIR/include"
+      FILAMENT_LIBDIR="$FILAMENT_DIR/lib/arm64"
+      FILAMENT_LIBS="-L$FILAMENT_LIBDIR \
+        -lfilament -lbackend -lfilabridge -lfilaflat -lutils -lgeometry \
+        -lsmol-v -libl-lite -lbluevk -lbluegl -lzstd \
+        -framework Foundation -framework Cocoa -framework Metal \
+        -framework CoreVideo -framework QuartzCore -lc++"
+      AC_MSG_NOTICE([Filament xwidget support enabled ($FILAMENT_DIR)])
+    else
+      FILAMENT_CFLAGS=
+      FILAMENT_LIBS=
+      AC_MSG_NOTICE([Filament not found; filament xwidget disabled])
+    fi
+    AC_SUBST([FILAMENT_CFLAGS])
+    AC_SUBST([FILAMENT_LIBS])
+
+    dnl --- bgfx support for the bgfx xwidget type. ---
+    dnl Enable when a bgfx install is present; define HAVE_BGFX, add its
+    dnl include path, and link its static libs plus the Metal frameworks
+    dnl its Metal renderer needs.
+    BGFX_DIR="$HOME/fsmyproject/bgfx"
+    if test -f "$BGFX_DIR/include/bgfx/bgfx.h"; then
+      AC_DEFINE([HAVE_BGFX], [1],
+                [Define to 1 if the bgfx xwidget type is available.])
+      BGFX_CFLAGS="-DHAVE_BGFX -I$BGFX_DIR/include"
+      BGFX_LIBS="-L$BGFX_DIR/lib \
+        -lbgfxRelease -lbimgRelease -lbxRelease \
+        -framework Metal -framework MetalKit -framework QuartzCore \
+        -framework Cocoa -framework IOKit \
+        -framework CoreMedia -framework VideoToolbox -framework CoreVideo \
+        -lc++"
+      AC_MSG_NOTICE([bgfx xwidget support enabled ($BGFX_DIR)])
+    else
+      BGFX_CFLAGS=
+      BGFX_LIBS=
+      AC_MSG_NOTICE([bgfx not found; bgfx xwidget disabled])
+    fi
+    AC_SUBST([BGFX_CFLAGS])
+    AC_SUBST([BGFX_LIBS])
+
+    dnl --- Dawn (WebGPU) support for the dawn xwidget type. ---
+    dnl Enable when a dawn install is present; define HAVE_DAWN, add its
+    dnl include path, and link its monolithic static lib plus the Apple
+    dnl frameworks the Metal backend needs.
+    DAWN_DIR="$HOME/fsmyproject/dawn"
+    if test -f "$DAWN_DIR/include/webgpu/webgpu.h"; then
+      AC_DEFINE([HAVE_DAWN], [1],
+                [Define to 1 if the Dawn (WebGPU) xwidget type is available.])
+      DAWN_CFLAGS="-DHAVE_DAWN -I$DAWN_DIR/include"
+      DAWN_LIBS="-L$DAWN_DIR/lib -lwebgpu_dawn \
+        -framework Metal -framework QuartzCore -framework IOSurface \
+        -framework IOKit -framework Cocoa -framework CoreFoundation -lc++"
+      AC_MSG_NOTICE([Dawn xwidget support enabled ($DAWN_DIR)])
+    else
+      DAWN_CFLAGS=
+      DAWN_LIBS=
+      AC_MSG_NOTICE([Dawn not found; dawn xwidget disabled])
+    fi
+    AC_SUBST([DAWN_CFLAGS])
+    AC_SUBST([DAWN_LIBS])
+
+    dnl --- Unreal Slate support for the slate xwidget type. ---
+    dnl The embedded engine ships as a ~318 MB monolithic libSlateOffscreen.dylib
+    dnl (built from macbuild/gameengine/unreal6/slate-offscreen).  It has its own
+    dnl main()/allocator and @rpath deps on engine ThirdParty dylibs, so it is
+    dnl dlopen'd in place from the engine Binaries dir (see SlateDelegate.mm)
+    dnl rather than copied or linked -- we only need HAVE_SLATE here.
+    SLATE_DYLIB=
+    for slate_d in \
+      "$HOME/sourcecode/gameengine/UnrealEngine6/Engine/Binaries/Mac/libSlateOffscreen.dylib" \
+      "$HOME/sourcenew/gameengine/UnrealEngine6/Engine/Binaries/Mac/libSlateOffscreen.dylib"; do
+      if test -f "$slate_d"; then SLATE_DYLIB="$slate_d"; break; fi
+    done
+    if test -n "$SLATE_DYLIB"; then
+      AC_DEFINE([HAVE_SLATE], [1],
+                [Define to 1 if the Unreal Slate xwidget type is available.])
+      SLATE_CFLAGS="-DHAVE_SLATE"
+      AC_MSG_NOTICE([Slate xwidget support enabled ($SLATE_DYLIB)])
+    else
+      SLATE_CFLAGS=
+      AC_MSG_NOTICE([libSlateOffscreen.dylib not found; slate xwidget disabled])
+    fi
+    AC_SUBST([SLATE_CFLAGS])
+
+    dnl --- Godot editor support for the godot xwidget type. ---
+    dnl The embedded editor ships as libGodotOffscreen.dylib (built from
+    dnl macbuild/gameengine/godot/godot-offscreen), which dlopens the patched
+    dnl editor libgodot and publishes a CAContext id.  GodotDelegate.mm dlopens
+    dnl the shim in place (overridable via $GODOT_OFFSCREEN_SHIM), so we only
+    dnl need HAVE_GODOT here.
+    GODOT_SHIM=
+    for godot_d in \
+      "$HOME/sourcecode/Settings/macbuild/gameengine/godot/godot-offscreen/libGodotOffscreen.dylib"; do
+      if test -f "$godot_d"; then GODOT_SHIM="$godot_d"; break; fi
+    done
+    if test -n "$GODOT_SHIM"; then
+      AC_DEFINE([HAVE_GODOT], [1],
+                [Define to 1 if the Godot xwidget type is available.])
+      GODOT_CFLAGS="-DHAVE_GODOT"
+      AC_MSG_NOTICE([Godot xwidget support enabled ($GODOT_SHIM)])
+    else
+      GODOT_CFLAGS=
+      AC_MSG_NOTICE([libGodotOffscreen.dylib not found; godot xwidget disabled])
+    fi
+    AC_SUBST([GODOT_CFLAGS])
+
     dnl Update NS_OBJC_OBJ with added nsxwidget.o
     AC_SUBST([NS_OBJC_OBJ])
     AC_SUBST([NS_OBJCXX_OBJ])
@@ -7500,7 +7637,7 @@ case "$opsys" in
    else
      libs_nsgui=
    fi
-   LD_SWITCH_SYSTEM_TEMACS=$libs_nsgui
+   LD_SWITCH_SYSTEM_TEMACS="$libs_nsgui $VULKAN_LIBS $FILAMENT_LIBS $BGFX_LIBS $DAWN_LIBS"
    ## The -headerpad option tells ld (see man page) to leave room at the
    ## end of the header for adding load commands.  Needed for dumping.
    ## 0x1000 is enough for roughly 52 load commands on the x86_64

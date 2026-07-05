@@ -42,10 +42,22 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifdef HAVE_FILAMENT
 #import "FilamentDelegate.h"
 #endif
+#ifdef HAVE_SLATE
+#import "SlateDelegate.h"
+#endif
+#ifdef HAVE_GODOT
+#import "GodotDelegate.h"
+#endif
 #ifdef HAVE_VULKAN
 #import "VulkanView.h"
 
 #import "VulkanDelegate.h"
+#endif
+#ifdef HAVE_BGFX
+#import "BgfxDelegate.h"
+#endif
+#ifdef HAVE_DAWN
+#import "DawnDelegate.h"
 #endif
 
 
@@ -275,7 +287,11 @@ completionHandler:(void (^)(NSArray<NSURL *> *URLs))completionHandler
   [self evaluateJavaScript:@"xwHasFocus()"
          completionHandler:^(id result, NSError *error) {
            if (error) {
-             NSLog(@"xwHasFocus: %@", error);
+             /* xwHasFocus() may be undefined when no HTML document is
+                loaded (e.g. metal/blank xwidget sessions), which makes
+                WebKit raise a ReferenceError on every keystroke.  Treat
+                any evaluation error as "no web focus" and forward the
+                key to Emacs, without spamming the system log.  */
              [self.xw->xv->emacswindow keyDown:event];
            } else if (result) {
              NSNumber *hasFocus = result; /* __NSCFBoolean */
@@ -464,6 +480,383 @@ NSSize _viewSize;
 @end
 #endif /* HAVE_FILAMENT */
 
+#ifdef HAVE_BGFX
+@interface XwBgfxView : MTKView
+@property struct xwidget *xw;
+@end
+
+@implementation XwBgfxView : MTKView
+BgfxDelegate *bgfxDelegate;
+
+- (id)initWithFrame:(CGRect)frameRect
+             device:(nullable id<MTLDevice>)device
+            xwidget:(struct xwidget *)xw {
+  self = [super initWithFrame:frameRect device:device];
+  if (self) {
+    self.xw = xw;
+    bgfxDelegate = [[BgfxDelegate alloc] initWithBgfxView:self];
+    [self setDelegate:bgfxDelegate];
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [bgfxDelegate release];
+  [super dealloc];
+}
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+- (void)keyDown:(NSEvent *)event {
+  [self.xw->xv->emacswindow keyDown:event];
+}
+@end
+#endif /* HAVE_BGFX */
+
+#ifdef HAVE_DAWN
+@interface XwDawnView : MTKView
+@property struct xwidget *xw;
+@end
+
+@implementation XwDawnView : MTKView
+DawnDelegate *dawnDelegate;
+
+- (id)initWithFrame:(CGRect)frameRect
+             device:(nullable id<MTLDevice>)device
+            xwidget:(struct xwidget *)xw {
+  self = [super initWithFrame:frameRect device:device];
+  if (self) {
+    self.xw = xw;
+    dawnDelegate = [[DawnDelegate alloc] initWithDawnView:self];
+    [self setDelegate:dawnDelegate];
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [dawnDelegate release];
+  [super dealloc];
+}
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+- (void)keyDown:(NSEvent *)event {
+  [self.xw->xv->emacswindow keyDown:event];
+}
+@end
+#endif /* HAVE_DAWN */
+
+#ifdef HAVE_SLATE
+@interface XwSlateView : MTKView
+@property struct xwidget *xw;
+@end
+
+@implementation XwSlateView : MTKView
+SlateDelegate *slateDelegate;
+
+- (id)initWithFrame:(CGRect)frameRect
+             device:(nullable id<MTLDevice>)device
+            xwidget:(struct xwidget *)xw {
+  self = [super initWithFrame:frameRect device:device];
+  if (self) {
+    self.xw = xw;
+    slateDelegate = [[SlateDelegate alloc] initWithSlateView:self];
+    [self setDelegate:slateDelegate];
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [slateDelegate release];
+  [super dealloc];
+}
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+/* Forward mouse + keyboard into the embedded Slate widget tree so the
+   interactive "slate viewer" (Starship gallery) is clickable.  Mouse events
+   drive the gallery directly; keyboard is delivered to Slate AND still routed
+   to Emacs's frame so global bindings (C-x b, C-g, ...) keep working. */
+- (NSPoint)slatePointForEvent:(NSEvent *)event {
+  return [self convertPoint:event.locationInWindow fromView:nil];
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+  [slateDelegate forwardMouseMoveTo:[self slatePointForEvent:event]];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+  [slateDelegate forwardMouseMoveTo:[self slatePointForEvent:event]];
+}
+
+- (void)mouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
+  [slateDelegate forwardMouseButton:0 down:YES at:[self slatePointForEvent:event]];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+  [slateDelegate forwardMouseButton:0 down:NO at:[self slatePointForEvent:event]];
+}
+
+- (void)rightMouseDown:(NSEvent *)event {
+  [slateDelegate forwardMouseButton:1 down:YES at:[self slatePointForEvent:event]];
+}
+
+- (void)rightMouseUp:(NSEvent *)event {
+  [slateDelegate forwardMouseButton:1 down:NO at:[self slatePointForEvent:event]];
+}
+
+- (void)scrollWheel:(NSEvent *)event {
+  [slateDelegate forwardScroll:event.scrollingDeltaY];
+}
+
+- (void)keyDown:(NSEvent *)event {
+  /* Deliver to Slate (virtual-key + characters), then let Emacs see it too so
+     global keybindings continue to function. */
+  NSEventModifierFlags m = event.modifierFlags;
+  [slateDelegate forwardKey:(int)event.keyCode down:YES
+                      shift:(m & NSEventModifierFlagShift) != 0
+                       ctrl:(m & NSEventModifierFlagControl) != 0
+                        alt:(m & NSEventModifierFlagOption) != 0
+                        cmd:(m & NSEventModifierFlagCommand) != 0];
+  NSString *chars = event.characters;
+  for (NSUInteger i = 0; i < chars.length; i++)
+    [slateDelegate forwardChar:[chars characterAtIndex:i]];
+  [self.xw->xv->emacswindow keyDown:event];
+}
+
+- (void)keyUp:(NSEvent *)event {
+  NSEventModifierFlags m = event.modifierFlags;
+  [slateDelegate forwardKey:(int)event.keyCode down:NO
+                      shift:(m & NSEventModifierFlagShift) != 0
+                       ctrl:(m & NSEventModifierFlagControl) != 0
+                        alt:(m & NSEventModifierFlagOption) != 0
+                        cmd:(m & NSEventModifierFlagCommand) != 0];
+}
+@end
+#endif /* HAVE_SLATE */
+
+#ifdef HAVE_GODOT
+/* The godot xwidget is a plain layer-backed NSView; GodotDelegate hosts the
+   embedded Godot editor's CAContext via a CALayerHost sublayer (no MTKView,
+   no per-frame blit).  Keyboard is routed to Emacs's frame so global bindings
+   keep working (input injection into Godot is a TODO). */
+@interface XwGodotView : NSView {
+  NSPoint _lastGodotMousePoint;
+  BOOL _hasLastGodotMousePoint;
+}
+@property struct xwidget *xw;
+@end
+
+@implementation XwGodotView
+GodotDelegate *godotDelegate;
+
+- (id)initWithFrame:(CGRect)frameRect
+            xwidget:(struct xwidget *)xw
+             editor:(BOOL)editor
+            project:(const char *)project {
+  self = [super initWithFrame:frameRect];
+  if (self) {
+    self.xw = xw;
+    self.wantsLayer = YES;
+    self.layer.masksToBounds = YES;
+    godotDelegate = [[GodotDelegate alloc] initWithGodotView:self
+                                                      editor:editor
+                                                     project:project];
+  }
+  return self;
+}
+
+- (void)dealloc {
+  [godotDelegate release];
+  [super dealloc];
+}
+
+- (BOOL)acceptsFirstResponder {
+  return YES;
+}
+
+/* Let the first click both focus the widget AND reach Godot (e.g. clicking a
+   toolbar button in one gesture), like a normal editor surface. */
+- (BOOL)acceptsFirstMouse:(NSEvent *)event {
+  return YES;
+}
+
+- (BOOL)isFlipped {
+  return YES;
+}
+
+/* A tracking area so -mouseMoved: fires for hover (button highlights, resize
+   cursors, etc.) even when no button is held. */
+- (void)updateTrackingAreas {
+  for (NSTrackingArea *ta in [self.trackingAreas copy])
+    [self removeTrackingArea:ta];
+  NSTrackingArea *area = [[[NSTrackingArea alloc]
+    initWithRect:self.bounds
+         options:(NSTrackingMouseMoved | NSTrackingActiveInKeyWindow |
+                  NSTrackingInVisibleRect)
+           owner:self
+        userInfo:nil] autorelease];
+  [self addTrackingArea:area];
+  [super updateTrackingAreas];
+}
+
+- (void)resizeGodotToBounds {
+  const CGFloat scale = self.window ? self.window.backingScaleFactor
+                                    : (NSScreen.mainScreen ? NSScreen.mainScreen.backingScaleFactor : 1.0);
+  [godotDelegate resizeToPixels:NSMakeSize(self.bounds.size.width * scale,
+                                           self.bounds.size.height * scale)];
+}
+
+- (void)viewDidMoveToWindow {
+  [super viewDidMoveToWindow];
+  [self resizeGodotToBounds];
+}
+
+- (void)layout {
+  [super layout];
+  [self resizeGodotToBounds];
+}
+
+/* Keep the hosted layer sized to the view. */
+- (void)setFrameSize:(NSSize)newSize {
+  [super setFrameSize:newSize];
+  [self resizeGodotToBounds];
+}
+
+/* View-space point (flipped: top-left origin, points) for an event. */
+- (NSPoint)godotPointForEvent:(NSEvent *)event {
+  return [self convertPoint:event.locationInWindow fromView:nil];
+}
+
+- (NSPoint)godotRelativePointForPoint:(NSPoint)point {
+  NSPoint rel = NSMakePoint(0, 0);
+  if (_hasLastGodotMousePoint)
+    rel = NSMakePoint(point.x - _lastGodotMousePoint.x,
+                      point.y - _lastGodotMousePoint.y);
+  _lastGodotMousePoint = point;
+  _hasLastGodotMousePoint = YES;
+  return rel;
+}
+
+- (void)forwardGodotMouseMoveEvent:(NSEvent *)event {
+  NSPoint point = [self godotPointForEvent:event];
+  [godotDelegate forwardMouseMoveTo:point
+                           relative:[self godotRelativePointForPoint:point]
+                                mods:[self godotModsForEvent:event]];
+}
+
+/* Godot modifier bitmask: 1=shift 2=ctrl 4=alt 8=cmd. */
+- (int)godotModsForEvent:(NSEvent *)event {
+  NSEventModifierFlags m = event.modifierFlags;
+  int mods = 0;
+  if (m & NSEventModifierFlagShift)   mods |= 1;
+  if (m & NSEventModifierFlagControl) mods |= 2;
+  if (m & NSEventModifierFlagOption)  mods |= 4;
+  if (m & NSEventModifierFlagCommand) mods |= 8;
+  return mods;
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+  [self forwardGodotMouseMoveEvent:event];
+}
+
+- (void)mouseDragged:(NSEvent *)event {
+  [self forwardGodotMouseMoveEvent:event];
+}
+
+- (void)rightMouseDragged:(NSEvent *)event {
+  [self forwardGodotMouseMoveEvent:event];
+}
+
+- (void)otherMouseDragged:(NSEvent *)event {
+  [self forwardGodotMouseMoveEvent:event];
+}
+
+- (void)mouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
+  NSPoint point = [self godotPointForEvent:event];
+  [self godotRelativePointForPoint:point];
+  [godotDelegate forwardMouseButton:0 down:YES at:point
+                              mods:[self godotModsForEvent:event]
+                       doubleClick:event.clickCount >= 2];
+}
+
+- (void)mouseUp:(NSEvent *)event {
+  NSPoint point = [self godotPointForEvent:event];
+  [self godotRelativePointForPoint:point];
+  [godotDelegate forwardMouseButton:0 down:NO at:point
+                              mods:[self godotModsForEvent:event]
+                       doubleClick:NO];
+}
+
+- (void)rightMouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
+  NSPoint point = [self godotPointForEvent:event];
+  [self godotRelativePointForPoint:point];
+  [godotDelegate forwardMouseButton:1 down:YES at:point
+                              mods:[self godotModsForEvent:event]
+                       doubleClick:event.clickCount >= 2];
+}
+
+- (void)rightMouseUp:(NSEvent *)event {
+  NSPoint point = [self godotPointForEvent:event];
+  [self godotRelativePointForPoint:point];
+  [godotDelegate forwardMouseButton:1 down:NO at:point
+                              mods:[self godotModsForEvent:event]
+                       doubleClick:NO];
+}
+
+- (void)otherMouseDown:(NSEvent *)event {
+  [self.window makeFirstResponder:self];
+  NSPoint point = [self godotPointForEvent:event];
+  [self godotRelativePointForPoint:point];
+  [godotDelegate forwardMouseButton:2 down:YES at:point
+                              mods:[self godotModsForEvent:event]
+                       doubleClick:event.clickCount >= 2];
+}
+
+- (void)otherMouseUp:(NSEvent *)event {
+  NSPoint point = [self godotPointForEvent:event];
+  [self godotRelativePointForPoint:point];
+  [godotDelegate forwardMouseButton:2 down:NO at:point
+                              mods:[self godotModsForEvent:event]
+                       doubleClick:NO];
+}
+
+- (void)scrollWheel:(NSEvent *)event {
+  /* Positive deltaY = scroll up in Godot (WHEEL_UP).  Use precise deltas when
+     available (trackpad), else the line-based scrollingDeltaY. */
+  CGFloat dy = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY * 0.1
+                                               : event.scrollingDeltaY;
+  if (dy != 0.0)
+    [godotDelegate forwardScroll:dy at:[self godotPointForEvent:event]
+                            mods:[self godotModsForEvent:event]];
+}
+
+- (void)keyDown:(NSEvent *)event {
+  /* Deliver to Godot (virtual keycode + typed unicode), then let Emacs see it
+     too so global keybindings (C-x b, C-g, ...) keep working. */
+  int mods = [self godotModsForEvent:event];
+  NSString *chars = event.characters;
+  uint32_t unicode = (chars.length > 0) ? [chars characterAtIndex:0] : 0;
+  [godotDelegate forwardKey:(int)event.keyCode down:YES mods:mods unicode:unicode];
+  [self.xw->xv->emacswindow keyDown:event];
+}
+
+- (void)keyUp:(NSEvent *)event {
+  int mods = [self godotModsForEvent:event];
+  [godotDelegate forwardKey:(int)event.keyCode down:NO mods:mods unicode:0];
+}
+@end
+#endif /* HAVE_GODOT */
+
 /* Xwidget webkit commands.  */
 
 bool nsxwidget_is_web_view(struct xwidget *xw) {
@@ -472,6 +865,22 @@ bool nsxwidget_is_web_view(struct xwidget *xw) {
 
 bool nsxwidget_is_metal_view(struct xwidget *xw) {
   return xw->xwWidget != NULL && [xw->xwWidget isKindOfClass:MTKView.class];
+}
+
+/* Called from the xwidget-slate-shutdown DEFUN (wired to kill-emacs-hook).
+   Stops the embedded Unreal engine and hard-exits, before Emacs's exit()
+   runs the engine's static destructors (which crash for an embedded engine). */
+void nsxwidget_slate_shutdown(void) {
+  [SlateDelegate shutdownEngineAndExit];
+}
+
+/* Called from the xwidget-godot-shutdown DEFUN (wired to kill-emacs-hook).
+   Hard-exits before Emacs's exit() runs the embedded Godot engine's static
+   destructors. */
+void nsxwidget_godot_shutdown(void) {
+#ifdef HAVE_GODOT
+  [GodotDelegate shutdownEngineAndExit];
+#endif
 }
 
 Lisp_Object nsxwidget_webkit_uri(struct xwidget *xw) {
@@ -617,13 +1026,112 @@ nsxwidget_init (struct xwidget *xw)
 {
   block_input ();
   NSRect rect = NSMakeRect (0, 0, xw->width, xw->height);
-  xw->xwWidget = [[XwWebView alloc]
-                   initWithFrame:rect
-                   configuration:[[[WKWebViewConfiguration alloc] init]
-                                   autorelease]
-                         xwidget:xw];
+  if (EQ (xw->type, Qmetal))
+    {
+      /* Metal-backed xwidget: create an MTKView driven by AAPLRenderer
+         (draws the triangle) instead of a WebKit view.  */
+      id<MTLDevice> device = MTLCreateSystemDefaultDevice ();
+      xw->xwWidget = [[XwMetalView alloc]
+                       initWithFrame:rect
+                              device:device
+                             xwidget:xw];
+    }
+#ifdef HAVE_VULKAN
+  else if (EQ (xw->type, Qvulkan))
+    {
+      /* Vulkan-backed xwidget: MTKView whose CAMetalLayer is rendered
+         to via MoltenVK (VK_EXT_metal_surface).  */
+      id<MTLDevice> device = MTLCreateSystemDefaultDevice ();
+      xw->xwWidget = [[XwVulkanView alloc]
+                       initWithFrame:rect
+                              device:device
+                             xwidget:xw];
+    }
+#endif
+#ifdef HAVE_FILAMENT
+  else if (EQ (xw->type, Qfilament))
+    {
+      /* Filament-backed xwidget: MTKView driven by FilamentDelegate
+         (Metal backend, renders into the view's CAMetalLayer).  */
+      id<MTLDevice> device = MTLCreateSystemDefaultDevice ();
+      xw->xwWidget = [[XwFilamentView alloc]
+                       initWithFrame:rect
+                              device:device
+                             xwidget:xw];
+    }
+#endif
+#ifdef HAVE_BGFX
+  else if (EQ (xw->type, Qbgfx))
+    {
+      /* bgfx-backed xwidget: MTKView driven by BgfxDelegate (Metal
+         renderer, draws into a CAMetalLayer via bgfx).  */
+      id<MTLDevice> device = MTLCreateSystemDefaultDevice ();
+      xw->xwWidget = [[XwBgfxView alloc]
+                       initWithFrame:rect
+                              device:device
+                             xwidget:xw];
+    }
+#endif
+#ifdef HAVE_DAWN
+  else if (EQ (xw->type, Qdawn))
+    {
+      /* Dawn (WebGPU) xwidget: MTKView driven by DawnDelegate, which
+         renders into a CAMetalLayer via a WebGPU metal surface.  */
+      id<MTLDevice> device = MTLCreateSystemDefaultDevice ();
+      xw->xwWidget = [[XwDawnView alloc]
+                       initWithFrame:rect
+                              device:device
+                             xwidget:xw];
+    }
+#endif
+#ifdef HAVE_SLATE
+  else if (EQ (xw->type, Qslate))
+    {
+      /* Unreal Slate xwidget: MTKView whose drawable is blitted from the
+         embedded Unreal engine's offscreen render target (libSlateOffscreen).  */
+      id<MTLDevice> device = MTLCreateSystemDefaultDevice ();
+      xw->xwWidget = [[XwSlateView alloc]
+                       initWithFrame:rect
+                              device:device
+                             xwidget:xw];
+    }
+#endif
+#ifdef HAVE_GODOT
+  else if (EQ (xw->type, Qgodot))
+    {
+      /* Godot xwidget: a layer-backed NSView hosting the embedded Godot
+         editor's CAContext via a CALayerHost (GodotDelegate + libGodotOffscreen).
+         Lisp passes :editor and :project in the xwidget argument plist. */
+      BOOL editor = !NILP (Fplist_get (xw->private_data, QCeditor, Qnil));
+      Lisp_Object project = Fplist_get (xw->private_data, QCproject, Qnil);
+      const char *project_path = STRINGP (project) ? SSDATA (project) : NULL;
+      xw->xwWidget = [[XwGodotView alloc]
+                       initWithFrame:rect
+                             xwidget:xw
+                              editor:editor
+                             project:project_path];
+    }
+#endif
+  else
+    {
+      xw->xwWidget = [[XwWebView alloc]
+                       initWithFrame:rect
+                       configuration:[[[WKWebViewConfiguration alloc] init]
+                                       autorelease]
+                             xwidget:xw];
+    }
   xw->xwWindow = [[XwWindow alloc]
                    initWithFrame:rect];
+  /* MTKView is layer-backed (CAMetalLayer).  Nesting a layer-backed
+     view inside a non-layer-backed container produces an inconsistent
+     CALayer tree, which crashes AppKit during relayout (e.g. when the
+     frame title changes on C-x b).  Make the container layer-backed so
+     the layer hierarchy stays consistent.  */
+  if (EQ (xw->type, Qmetal) || EQ (xw->type, Qvulkan)
+      || EQ (xw->type, Qfilament) || EQ (xw->type, Qbgfx)
+      || EQ (xw->type, Qdawn) || EQ (xw->type, Qslate)
+      || EQ (xw->type, Qgodot))
+    xw->xwWindow.wantsLayer = YES;
   [xw->xwWindow addSubview:xw->xwWidget];
   xw->xv = NULL; /* for 1 to 1 relationship of webkit2.  */
   unblock_input();
@@ -698,6 +1206,13 @@ void nsxwidget_init_view(struct xwidget_view *xv, struct xwidget *xw,
       [[XvWindow alloc] initWithFrame:NSMakeRect(x, y, xw->width, xw->height)];
   xv->xvWindow.xw = xw;
   xv->xvWindow.xv = xv;
+  /* Keep the layer hierarchy consistent for layer-backed (Metal/Vulkan/
+     Filament/bgfx/Dawn) widgets; see nsxwidget_init.  */
+  if (EQ (xw->type, Qmetal) || EQ (xw->type, Qvulkan)
+      || EQ (xw->type, Qfilament) || EQ (xw->type, Qbgfx)
+      || EQ (xw->type, Qdawn) || EQ (xw->type, Qslate)
+      || EQ (xw->type, Qgodot))
+    xv->xvWindow.wantsLayer = YES;
 
   xw->xv = xv; /* For 1 to 1 relationship of webkit2.  */
   [xv->xvWindow addSubview:xw->xwWindow];

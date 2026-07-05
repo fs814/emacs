@@ -323,7 +323,8 @@ fails.  */)
   CHECK_FIXNAT (height);
 
   if (!EQ (type, Qwebkit) && !EQ (type, Qglarea) && !EQ (type, Qmetal)
-      && !EQ (type, Qfilament) && !EQ(type, Qvulkan))
+      && !EQ (type, Qfilament) && !EQ(type, Qvulkan) && !EQ (type, Qbgfx)
+      && !EQ (type, Qdawn) && !EQ (type, Qslate) && !EQ (type, Qgodot))
     error ("Bad xwidget type");
 
   Frequire (Qxwidget, Qnil, Qnil);
@@ -361,6 +362,10 @@ fails.  */)
             = Fplist_get (arguments, QCmouse_button, Qnil);
           xw->private_data = Fplist_get (arguments, QCprivate, Qnil);
         }
+    }
+  else if (EQ (xw->type, Qgodot))
+    {
+      xw->private_data = arguments;
     }
 
   Fputhash (make_fixnum (xw->xwidget_id), val, id_to_xwidget_map);
@@ -3218,7 +3223,11 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
   window_box (s->w, xv->area, &text_area_x, &text_area_y,
               &text_area_width, &text_area_height);
 
-  if ((EQ (xww->type, Qwebkit) || EQ (xww->type, Qglarea))
+  if ((EQ (xww->type, Qwebkit) || EQ (xww->type, Qglarea)
+       || EQ (xww->type, Qmetal) || EQ (xww->type, Qvulkan)
+       || EQ (xww->type, Qfilament) || EQ (xww->type, Qbgfx)
+       || EQ (xww->type, Qdawn) || EQ (xww->type, Qslate)
+       || EQ (xww->type, Qgodot))
       && (xww->width != text_area_width
           || xww->height != text_area_height))
     {
@@ -3236,6 +3245,7 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
   clip_bottom
     = max (clip_top,
            min (xww->height, text_area_y + text_area_height - y));
+
 
   /* We are concerned with movement of the onscreen area.  The area
      might sit still when the widget actually moves.  This happens
@@ -4383,6 +4393,48 @@ XWIDGET as part of loading a page.  */)
   return Qnil;
 }
 
+#ifdef NS_IMPL_COCOA
+extern void nsxwidget_slate_shutdown (void);
+DEFUN ("xwidget-slate-shutdown", Fxwidget_slate_shutdown, Sxwidget_slate_shutdown,
+       0, 0, 0, doc: /* Stop the embedded Slate/Unreal engine and exit the process.
+Intended for `kill-emacs-hook': it stops the engine's game thread and then
+hard-exits, before Emacs's C exit() runs the engine's static destructors
+(which crash for an embedded engine).  No-op if no slate xwidget was created.  */)
+(void)
+{
+  nsxwidget_slate_shutdown ();
+  return Qnil;
+}
+
+extern void nsxwidget_godot_shutdown (void);
+DEFUN ("xwidget-godot-shutdown", Fxwidget_godot_shutdown, Sxwidget_godot_shutdown,
+       0, 0, 0, doc: /* Stop the embedded Godot engine and exit the process.
+Intended for `kill-emacs-hook': hard-exits before Emacs's C exit() runs the
+embedded engine's static destructors (which crash).  No-op if no godot xwidget
+was created.  */)
+(void)
+{
+  nsxwidget_godot_shutdown ();
+  return Qnil;
+}
+
+DEFUN ("xwidget-slate-set-content", Fxwidget_slate_set_content,
+       Sxwidget_slate_set_content, 1, 1, 0,
+       doc: /* Select the embedded Slate content: KIND is a string.
+"gallery" selects SlateViewer's Starship widget gallery; anything else selects
+the triangle demo.  This sets the real C-library environment variable
+SLATE_OFFSCREEN_CONTENT that the engine dylib reads at boot -- Emacs's own
+`setenv' only updates `process-environment', which the dylib's getenv() cannot
+see.  Must be called BEFORE the first slate xwidget is created (the embedded
+engine is a per-process singleton whose content is fixed at first init).  */)
+(Lisp_Object kind)
+{
+  CHECK_STRING (kind);
+  setenv ("SLATE_OFFSCREEN_CONTENT", SSDATA (kind), 1);
+  return Qnil;
+}
+#endif
+
 void
 syms_of_xwidget (void)
 {
@@ -4404,6 +4456,12 @@ syms_of_xwidget (void)
   defsubr (&Sset_xwidget_query_on_exit_flag);
   defsubr (&Sxwidget_queue_redraw);
 
+#ifdef NS_IMPL_COCOA
+  defsubr (&Sxwidget_slate_shutdown);
+  defsubr (&Sxwidget_godot_shutdown);
+  defsubr (&Sxwidget_slate_set_content);
+#endif
+
   defsubr (&Sxwidget_webkit_uri);
   defsubr (&Sxwidget_webkit_title);
   defsubr (&Sxwidget_webkit_goto_uri);
@@ -4415,6 +4473,10 @@ syms_of_xwidget (void)
   DEFSYM (Qmetal, "metal");
   DEFSYM (Qfilament, "filament");
   DEFSYM (Qvulkan, "vulkan");
+  DEFSYM (Qbgfx, "bgfx");
+  DEFSYM (Qdawn, "dawn");
+  DEFSYM (Qslate, "slate");
+  DEFSYM (Qgodot, "godot");
 
   defsubr (&Sxwidget_glarea_make_current);
   DEFSYM (Qglarea, "glarea");
@@ -4425,6 +4487,8 @@ syms_of_xwidget (void)
   DEFSYM (QCcursor_pos, ":cursor-pos");
   DEFSYM (QCmouse_button, ":mouse-button");
   DEFSYM (QCprivate, ":private");
+  DEFSYM (QCeditor, ":editor");
+  DEFSYM (QCproject, ":project");
 
   defsubr (&Sxwidget_size_request);
   defsubr (&Sdelete_xwidget_view);

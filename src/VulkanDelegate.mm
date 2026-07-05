@@ -9,7 +9,7 @@
 
 @implementation VulkanDelegate {
     MTKView* _view;
-    //VulkanExample* _vulkanExample;
+    CAMetalLayer* _caMetalLayer;
 
     VulkanExample* _vulkanExample;
 
@@ -22,10 +22,12 @@
     _view = mtkView;
 
     _view.wantsLayer=YES;
-    CAMetalLayer* caMetalLayer = [CAMetalLayer new];
-    caMetalLayer.frame = _view.frame;
-    caMetalLayer.device = mtkView.device;
-    [_view.layer addSublayer:caMetalLayer];
+    _caMetalLayer = [CAMetalLayer new];
+    _caMetalLayer.frame = _view.bounds;
+    _caMetalLayer.device = mtkView.device;
+    _caMetalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    _caMetalLayer.framebufferOnly = YES;
+    [_view.layer addSublayer:_caMetalLayer];
 
     [self initializeVulkan];
 
@@ -34,28 +36,31 @@
 
 - (void)dealloc {
     delete _vulkanExample;
+    [super dealloc];
 }
 
 - (void)drawInMTKView:(nonnull MTKView*)view{
-    //self->_vulkanExample->render();
-    //self->_vulkanExample->updateOverlay();
+    if (_vulkanExample)
+        _vulkanExample->render();
 }
 
 - (void)mtkView:(nonnull MTKView*)view drawableSizeWillChange:(CGSize)size{
     NSSize curSize = size;
     _viewportSize = curSize;
 
-    //CAMetalLayer* myLayer = (CAMetalLayer*)_view.layer;
-    //myLayer.drawableSize = NSSizeToCGSize(curSize);
-    _vulkanExample->windowWillResize(curSize.width,curSize.height);
-    _vulkanExample->viewChanged();
+    _caMetalLayer.frame = _view.bounds;
+    _caMetalLayer.drawableSize = size;
+    if (_vulkanExample) {
+        _vulkanExample->windowWillResize(curSize.width,curSize.height);
+        _vulkanExample->viewChanged();
+    }
 }
 
 - (void)initializeVulkan {
     _vulkanExample = new VulkanExample();
     _vulkanExample->initVulkan();
 
-    _vulkanExample->setupWindow(_view);
+    _vulkanExample->setupWindow(_caMetalLayer);
     _vulkanExample->prepare();
 
     _vulkanExampleBase = _vulkanExample;

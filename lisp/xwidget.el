@@ -1424,6 +1424,7 @@ Each line describes an entry in history."
     (xwidget-metal-new-session)
     ))
 
+;;;###autoload
 (defun xwidget-metal-browse (&optional new-session)
   (interactive)
   (or (featurep 'xwidget-internal)
@@ -1436,15 +1437,21 @@ Each line describes an entry in history."
 
 (defun xwidget-metal-refit ()
   (interactive)
-  ;;(switch-to-buffer-other-window (xwidget-buffer (xwidget-metal-current-session)))
-  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-last-session) (selected-window))
-  ;;(message "%s" (window-resizable (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) 1 t))
-  (window-resize (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) 1 t)
-  ;;(display-buffer-reuse-window (xwidget-buffer (xwidget-metal-current-session)) nil)
-  ;;(window-resize (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) -1 t)
-
-  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-current-session) (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))))
-  )
+  ;; Nudge the window by 1px then back to force a relayout/redisplay so
+  ;; the metal widget resizes to fit.  `window-resize' errors on the
+  ;; frame's sole (root) window ("Cannot resize the root window of a
+  ;; frame").  A window is only resizable this way when it has a parent
+  ;; (a sibling to trade space with); `window-resizable' is NOT a
+  ;; reliable guard here (it returns 0 for the root window).  So check
+  ;; `window-parent'; otherwise just force a redisplay.
+  (let ((win (get-buffer-window
+              (xwidget-buffer (xwidget-metal-current-session)))))
+    (when win
+      (if (window-parent win)
+          (progn
+            (window-resize win 1 t)
+            (window-resize win -1 t))
+        (force-window-update win)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;filament
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1597,6 +1604,7 @@ Each line describes an entry in history."
     (xwidget-filament-new-session)
     ))
 
+;;;###autoload
 (defun xwidget-filament-browse (&optional new-session)
   (interactive)
   (or (featurep 'xwidget-internal)
@@ -1609,15 +1617,119 @@ Each line describes an entry in history."
 
 (defun xwidget-filament-refit ()
   (interactive)
-  ;;(switch-to-buffer-other-window (xwidget-buffer (xwidget-filament-current-session)))
-  ;;(xwidget-filament-adjust-size-to-window (xwidget-filament-last-session) (selected-window))
-  ;;(message "%s" (window-resizable (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))) 1 t))
-  (window-resize (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))) 1 t)
-  ;;(display-buffer-reuse-window (xwidget-buffer (xwidget-filament-current-session)) nil)
-  ;;(window-resize (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))) -1 t)
+  ;; See `xwidget-metal-refit': guard against resizing the frame's sole
+  ;; (root) window, which errors ("Cannot resize the root window of a
+  ;; frame").  A window is only resizable this way when it has a parent.
+  (let ((win (get-buffer-window
+              (xwidget-buffer (xwidget-filament-current-session)))))
+    (when win
+      (if (window-parent win)
+          (progn
+            (window-resize win 1 t)
+            (window-resize win -1 t))
+        (force-window-update win)))))
 
-  ;;(xwidget-filament-adjust-size-to-window (xwidget-filament-current-session) (get-buffer-window (xwidget-buffer (xwidget-filament-current-session))))
-  )
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;bgfx
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar xwidget-bgfx-last-session-buffer nil)
+
+(defun xwidget-bgfx-last-session ()
+  (if (buffer-live-p xwidget-bgfx-last-session-buffer)
+      (with-current-buffer xwidget-bgfx-last-session-buffer
+        (xwidget-at (point-min)))
+    nil))
+
+(defun xwidget-bgfx-callback (xwidget xwidget-event-type)
+  (if (not (buffer-live-p (xwidget-buffer xwidget)))
+      (xwidget-log "error: callback called for xwidget with dead buffer")
+    (cond (t (xwidget-log "unhandled event:%s" xwidget-event-type)))))
+
+(defun xwidget-bgfx-buffer-kill ())
+
+(defvar xwidget-bgfx-mode-map
+  (let ((map (make-sparse-keymap)))
+    map)
+  "Keymap for `xwidget-bgfx-mode'.")
+
+(define-derived-mode xwidget-bgfx-mode special-mode "xwidget-bgfx"
+  (setq buffer-read-only t)
+  (add-hook 'kill-buffer-hook #'xwidget-bgfx-buffer-kill)
+  (image-mode-setup-winprops))
+
+(defun xwidget-bgfx-current-session ()
+  (or (xwidget-at (point-min)) (xwidget-bgfx-last-session)))
+
+(defun xwidget-bgfx-display-callback (xwidget _source)
+  (display-buffer (xwidget-bgfx-import-widget xwidget)))
+
+(defun xwidget-bgfx-import-widget (xwidget)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback #'xwidget-bgfx-callback)
+         (buffer (get-buffer-create bufname)))
+    (with-current-buffer buffer
+      (setq xwidget-bgfx-last-session-buffer buffer)
+      (save-excursion
+        (erase-buffer)
+        (insert ".")
+        (put-text-property (point-min) (point-max)
+                           'display (list 'xwidget :xwidget xwidget)))
+      (xwidget-put xwidget 'callback callback)
+      (xwidget-put xwidget 'display-callback #'xwidget-bgfx-display-callback)
+      (set-xwidget-buffer xwidget buffer)
+      (xwidget-bgfx-mode))
+    buffer))
+
+(defun xwidget-bgfx--create-new-session-buffer (&optional callback)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback (or callback #'xwidget-bgfx-callback))
+         (current-session (xwidget-bgfx-current-session))
+         xw)
+    (setq xwidget-bgfx-last-session-buffer (get-buffer-create bufname))
+    (with-current-buffer xwidget-bgfx-last-session-buffer
+      (let ((start (point)))
+        (insert "bgfx")
+        (put-text-property start (+ start (length "bgfx")) 'invisible t)
+        (setq xw (xwidget-insert
+                  start 'bgfx bufname
+                  (xwidget-window-inside-pixel-width (selected-window))
+                  (xwidget-window-inside-pixel-height (selected-window))
+                  nil current-session)))
+      (xwidget-put xw 'callback callback)
+      (xwidget-put xw 'display-callback #'xwidget-bgfx-display-callback)
+      (xwidget-bgfx-mode))
+    xwidget-bgfx-last-session-buffer))
+
+(defun xwidget-bgfx-new-session ()
+  (switch-to-buffer (xwidget-bgfx--create-new-session-buffer)))
+
+(defun xwidget-bgfx-goto ()
+  (if (xwidget-bgfx-current-session)
+      (switch-to-buffer (xwidget-buffer (xwidget-bgfx-current-session)))
+    (xwidget-bgfx-new-session)))
+
+;;;###autoload
+(defun xwidget-bgfx-browse (&optional new-session)
+  (interactive)
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-bgfx-new-session)
+    (xwidget-bgfx-goto)))
+
+(defun xwidget-bgfx-refit ()
+  (interactive)
+  ;; See `xwidget-metal-refit': guard against resizing the frame's sole
+  ;; (root) window, which errors ("Cannot resize the root window of a
+  ;; frame").  A window is only resizable this way when it has a parent.
+  (let ((win (get-buffer-window
+              (xwidget-buffer (xwidget-bgfx-current-session)))))
+    (when win
+      (if (window-parent win)
+          (progn
+            (window-resize win 1 t)
+            (window-resize win -1 t))
+        (force-window-update win)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1770,6 +1882,7 @@ Each line describes an entry in history."
     (xwidget-vulkan-new-session)
     ))
 
+;;;###autoload
 (defun xwidget-vulkan-browse (&optional new-session)
   (interactive)
   (or (featurep 'xwidget-internal)
@@ -1782,19 +1895,519 @@ Each line describes an entry in history."
 
 (defun xwidget-vulkan-refit ()
   (interactive)
-  ;;(switch-to-buffer-other-window (xwidget-buffer (xwidget-metal-current-session)))
-  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-last-session) (selected-window))
-  ;;(message "%s" (window-resizable (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) 1 t))
-  (window-resize (get-buffer-window (xwidget-buffer (xwidget-vulkan-current-session))) 1 t)
-  ;;(display-buffer-reuse-window (xwidget-buffer (xwidget-metal-current-session)) nil)
-  ;;(window-resize (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))) -1 t)
+  ;; See `xwidget-metal-refit': guard against resizing the frame's sole
+  ;; (root) window, which errors ("Cannot resize the root window of a
+  ;; frame").  A window is only resizable this way when it has a parent.
+  (let ((win (get-buffer-window
+              (xwidget-buffer (xwidget-vulkan-current-session)))))
+    (when win
+      (if (window-parent win)
+          (progn
+            (window-resize win 1 t)
+            (window-resize win -1 t))
+        (force-window-update win)))))
 
-  ;;(xwidget-metal-adjust-size-to-window (xwidget-metal-current-session) (get-buffer-window (xwidget-buffer (xwidget-metal-current-session))))
-  )
 
 
 
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;dawn
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar xwidget-dawn-last-session-buffer nil)
+
+(defun xwidget-dawn-last-session ()
+  (if (buffer-live-p xwidget-dawn-last-session-buffer)
+      (with-current-buffer xwidget-dawn-last-session-buffer
+        (xwidget-at (point-min)))
+    nil))
+
+(defun xwidget-dawn-callback (xwidget xwidget-event-type)
+  (if (not (buffer-live-p (xwidget-buffer xwidget)))
+      (xwidget-log "error: callback called for xwidget with dead buffer")
+    (cond (t (xwidget-log "unhandled event:%s" xwidget-event-type)))))
+
+(defun xwidget-dawn-buffer-kill ())
+
+(defvar xwidget-dawn-mode-map
+  (let ((map (make-sparse-keymap)))
+    map)
+  "Keymap for `xwidget-dawn-mode'.")
+
+(define-derived-mode xwidget-dawn-mode special-mode "xwidget-dawn"
+  (setq buffer-read-only t)
+  (add-hook 'kill-buffer-hook #'xwidget-dawn-buffer-kill)
+  (image-mode-setup-winprops))
+
+(defun xwidget-dawn-current-session ()
+  (or (xwidget-at (point-min)) (xwidget-dawn-last-session)))
+
+(defun xwidget-dawn-display-callback (xwidget _source)
+  (display-buffer (xwidget-dawn-import-widget xwidget)))
+
+(defun xwidget-dawn-import-widget (xwidget)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback #'xwidget-dawn-callback)
+         (buffer (get-buffer-create bufname)))
+    (with-current-buffer buffer
+      (setq xwidget-dawn-last-session-buffer buffer)
+      (save-excursion
+        (erase-buffer)
+        (insert ".")
+        (put-text-property (point-min) (point-max)
+                           'display (list 'xwidget :xwidget xwidget)))
+      (xwidget-put xwidget 'callback callback)
+      (xwidget-put xwidget 'display-callback #'xwidget-dawn-display-callback)
+      (set-xwidget-buffer xwidget buffer)
+      (xwidget-dawn-mode))
+    buffer))
+
+(defun xwidget-dawn--create-new-session-buffer (&optional callback)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback (or callback #'xwidget-dawn-callback))
+         (current-session (xwidget-dawn-current-session))
+         xw)
+    (setq xwidget-dawn-last-session-buffer (get-buffer-create bufname))
+    (with-current-buffer xwidget-dawn-last-session-buffer
+      (let ((start (point)))
+        (insert "dawn")
+        (put-text-property start (+ start (length "dawn")) 'invisible t)
+        (setq xw (xwidget-insert
+                  start 'dawn bufname
+                  (xwidget-window-inside-pixel-width (selected-window))
+                  (xwidget-window-inside-pixel-height (selected-window))
+                  nil current-session)))
+      (xwidget-put xw 'callback callback)
+      (xwidget-put xw 'display-callback #'xwidget-dawn-display-callback)
+      (xwidget-dawn-mode))
+    xwidget-dawn-last-session-buffer))
+
+(defun xwidget-dawn-new-session ()
+  (switch-to-buffer (xwidget-dawn--create-new-session-buffer)))
+
+(defun xwidget-dawn-goto ()
+  (if (xwidget-dawn-current-session)
+      (switch-to-buffer (xwidget-buffer (xwidget-dawn-current-session)))
+    (xwidget-dawn-new-session)))
+
+;;;###autoload
+(defun xwidget-dawn-browse (&optional new-session)
+  (interactive)
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-dawn-new-session)
+    (xwidget-dawn-goto)))
+
+(defun xwidget-dawn-refit ()
+  (interactive)
+  ;; See `xwidget-metal-refit': guard against resizing the frame's sole
+  ;; (root) window, which errors ("Cannot resize the root window of a
+  ;; frame").  A window is only resizable this way when it has a parent.
+  (let ((win (get-buffer-window
+              (xwidget-buffer (xwidget-dawn-current-session)))))
+    (when win
+      (if (window-parent win)
+          (progn
+            (window-resize win 1 t)
+            (window-resize win -1 t))
+        (force-window-update win)))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;slate
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar xwidget-slate-last-session-buffer nil)
+
+(defun xwidget-slate-last-session ()
+  (if (buffer-live-p xwidget-slate-last-session-buffer)
+      (with-current-buffer xwidget-slate-last-session-buffer
+        (xwidget-at (point-min)))
+    nil))
+
+(defun xwidget-slate-callback (xwidget xwidget-event-type)
+  (if (not (buffer-live-p (xwidget-buffer xwidget)))
+      (xwidget-log "error: callback called for xwidget with dead buffer")
+    (cond (t (xwidget-log "unhandled event:%s" xwidget-event-type)))))
+
+(defun xwidget-slate-buffer-kill ())
+
+(defvar xwidget-slate-mode-map
+  (let ((map (make-sparse-keymap)))
+    map)
+  "Keymap for `xwidget-slate-mode'.")
+
+(define-derived-mode xwidget-slate-mode special-mode "xwidget-slate"
+  (setq buffer-read-only t)
+  (add-hook 'kill-buffer-hook #'xwidget-slate-buffer-kill)
+  (image-mode-setup-winprops))
+
+(defun xwidget-slate-current-session ()
+  (or (xwidget-at (point-min)) (xwidget-slate-last-session)))
+
+(defun xwidget-slate-display-callback (xwidget _source)
+  (display-buffer (xwidget-slate-import-widget xwidget)))
+
+(defun xwidget-slate-import-widget (xwidget)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback #'xwidget-slate-callback)
+         (buffer (get-buffer-create bufname)))
+    (with-current-buffer buffer
+      (setq xwidget-slate-last-session-buffer buffer)
+      (save-excursion
+        (erase-buffer)
+        (insert ".")
+        (put-text-property (point-min) (point-max)
+                           'display (list 'xwidget :xwidget xwidget)))
+      (xwidget-put xwidget 'callback callback)
+      (xwidget-put xwidget 'display-callback #'xwidget-slate-display-callback)
+      (set-xwidget-buffer xwidget buffer)
+      (xwidget-slate-mode))
+    buffer))
+
+(defun xwidget-slate--create-new-session-buffer (&optional callback)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback (or callback #'xwidget-slate-callback))
+         (current-session (xwidget-slate-current-session))
+         xw)
+    (setq xwidget-slate-last-session-buffer (get-buffer-create bufname))
+    (with-current-buffer xwidget-slate-last-session-buffer
+      (let ((start (point)))
+        (insert "slate")
+        (put-text-property start (+ start (length "slate")) 'invisible t)
+        (setq xw (xwidget-insert
+                  start 'slate bufname
+                  (xwidget-window-inside-pixel-width (selected-window))
+                  (xwidget-window-inside-pixel-height (selected-window))
+                  nil current-session)))
+      (xwidget-put xw 'callback callback)
+      (xwidget-put xw 'display-callback #'xwidget-slate-display-callback)
+      (xwidget-slate-mode))
+    xwidget-slate-last-session-buffer))
+
+(defun xwidget-slate-new-session ()
+  (switch-to-buffer (xwidget-slate--create-new-session-buffer)))
+
+(defun xwidget-slate-goto ()
+  (if (xwidget-slate-current-session)
+      (switch-to-buffer (xwidget-buffer (xwidget-slate-current-session)))
+    (xwidget-slate-new-session)))
+
+;;;###autoload
+(defun xwidget-slate-browse (&optional new-session)
+  "Display an Unreal Slate xwidget (embedded engine, offscreen-rendered).
+With a prefix argument NEW-SESSION, force a fresh session buffer."
+  (interactive "P")
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-slate-new-session)
+    (xwidget-slate-goto)))
+
+;;;###autoload
+(defun xwidget-slate-viewer-browse (&optional new-session)
+  "Display SlateViewer's Starship widget gallery in an Unreal Slate xwidget.
+Same embedded-engine offscreen rendering as `xwidget-slate-browse', but shows
+the interactive Slate demo UI (buttons, sliders, ...) instead of the triangle,
+and forwards mouse/keyboard input into it.
+
+The embedded engine is a per-process singleton: its content is chosen the first
+time a slate xwidget is created.  This command sets $SLATE_OFFSCREEN_CONTENT to
+\"gallery\" so that first init selects the gallery.  If a triangle slate session
+was already started in this Emacs, restart Emacs before switching content.
+With a prefix argument NEW-SESSION, force a fresh session buffer."
+  (interactive "P")
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if (fboundp 'xwidget-slate-set-content)
+      (xwidget-slate-set-content "gallery")
+    ;; Fallback: plain setenv only updates `process-environment', which the
+    ;; embedded engine's getenv() cannot see, so this won't take effect unless
+    ;; the primitive is available.
+    (setenv "SLATE_OFFSCREEN_CONTENT" "gallery"))
+  (if new-session
+      (xwidget-slate-new-session)
+    (xwidget-slate-goto)))
+
+;;;###autoload
+(defun xwidget-slate-editor-browse (&optional new-session)
+  "Display the full Unreal Editor UI (docked panels) in an Unreal Slate xwidget.
+Boots the real editor engine in-process (UUnrealEdEngine + the default MainFrame:
+menu bar, Level Editor, Content Browser, Details, Outliner) and composites its
+offscreen-rendered frame into the xwidget via the shared IOSurface.
+
+The editor is driven with a widgets-only Slate tick (no platform/FMacApplication
+polling, which would crash on the engine's game thread).  The embedded engine is
+a per-process singleton, so content is fixed at first slate-xwidget creation:
+this sets $SLATE_OFFSCREEN_CONTENT=editor.  If another slate session (triangle/
+gallery) was already started in this Emacs, restart Emacs before switching.
+With a prefix argument NEW-SESSION, force a fresh session buffer.
+
+NOTE: editor bring-up is heavy (shader compile, asset registry) -- the first
+frame can take many seconds.  Point at a real project by launching Emacs with a
+game .uproject configured if you want its assets in the Content Browser."
+  (interactive "P")
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if (fboundp 'xwidget-slate-set-content)
+      (xwidget-slate-set-content "editor")
+    (setenv "SLATE_OFFSCREEN_CONTENT" "editor"))
+  (if new-session
+      (xwidget-slate-new-session)
+    (xwidget-slate-goto)))
+
+;;;###autoload
+(defun xwidget-slate-canvas-browse (&optional new-session)
+  "Draw a triangle via Unreal's render library (FCanvas) in a Slate xwidget.
+Unlike `xwidget-slate-browse' (which draws the triangle with Slate's
+FSlateDrawElement), this uses the engine's FCanvas/FCanvasTriangleItem RHI
+triangle renderer to draw directly into the offscreen render target.  It
+constructs a bare UEngine (no full GEngineLoop.Init) because FCanvas's
+FSceneView requires a non-null GEngine.
+
+The embedded engine is a per-process singleton, so content is fixed at first
+slate-xwidget creation: this sets $SLATE_OFFSCREEN_CONTENT=canvas.  If another
+slate session was already started in this Emacs, restart Emacs before switching.
+With a prefix argument NEW-SESSION, force a fresh session buffer."
+  (interactive "P")
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if (fboundp 'xwidget-slate-set-content)
+      (xwidget-slate-set-content "canvas")
+    (setenv "SLATE_OFFSCREEN_CONTENT" "canvas"))
+  (if new-session
+      (xwidget-slate-new-session)
+    (xwidget-slate-goto)))
+
+(defun xwidget-slate-refit ()
+  (interactive)
+  ;; See `xwidget-metal-refit': guard against resizing the frame's sole
+  ;; (root) window, which errors ("Cannot resize the root window of a
+  ;; frame").  A window is only resizable this way when it has a parent.
+  (let ((win (get-buffer-window
+              (xwidget-buffer (xwidget-slate-current-session)))))
+    (when win
+      (if (window-parent win)
+          (progn
+            (window-resize win 1 t)
+            (window-resize win -1 t))
+        (force-window-update win)))))
+
+;; Auto-resize the slate xwidget when its Emacs window changes size.  Mirrors
+;; `xwidget-metal-adjust-size-in-frame' (the slate mode previously had no such
+;; handler, so the embedded engine kept its original size when the window
+;; changed).  `xwidget-resize' -> nsxwidget_resize resizes the MTKView, which
+;; fires drawableSizeWillChange: -> SlateOffscreen_Resize on the engine.
+(defun xwidget-slate-adjust-size-to-window (xwidget &optional window)
+  "Resize the slate XWIDGET to fill WINDOW (or the selected window)."
+  (xwidget-resize xwidget
+                  (xwidget-window-inside-pixel-width window)
+                  (xwidget-window-inside-pixel-height window)))
+
+(defun xwidget-slate-auto-adjust-size (window)
+  "Resize the slate widget shown in WINDOW to fit it."
+  (with-current-buffer (window-buffer window)
+    (when (eq major-mode 'xwidget-slate-mode)
+      (let ((xwidget (xwidget-slate-current-session)))
+        (when xwidget
+          (xwidget-slate-adjust-size-to-window xwidget window)
+          ;; Mark the window for redisplay so its xwidget glyph is redrawn,
+          ;; which runs `x_draw_xwidget_glyph_string' -> resizes the on-screen
+          ;; clip container to the new size.  Without this the buffer text is
+          ;; unchanged, so redisplay would skip the glyph row and the widget
+          ;; would keep its old on-screen size until the next full redisplay.
+          (force-window-update window))))))
+
+(defvar xwidget-slate--resize-timer nil
+  "Idle timer coalescing slate xwidget resizes to fit their windows.")
+
+(defun xwidget-slate--do-adjust-in-frame (frame)
+  "Resize every slate xwidget in FRAME to fit its window."
+  (setq xwidget-slate--resize-timer nil)
+  (when (frame-live-p frame)
+    (walk-windows #'xwidget-slate-auto-adjust-size 'no-minibuf frame)))
+
+(defun xwidget-slate-adjust-size-in-frame (frame)
+  "Schedule a fit of every slate widget in FRAME to its window.
+Runs from `window-size-change-functions', which executes *inside* redisplay --
+where `xwidget-resize's own redisplay is a no-op and the glyph row is not
+redrawn.  Defer the actual resize to a zero-delay idle timer so it runs in the
+command loop (outside redisplay), where the resize and clip update take effect;
+this is why a plain window drag previously needed a manual redisplay (e.g. M-x)
+to catch up."
+  (when (timerp xwidget-slate--resize-timer)
+    (cancel-timer xwidget-slate--resize-timer))
+  (setq xwidget-slate--resize-timer
+        (run-with-idle-timer 0 nil #'xwidget-slate--do-adjust-in-frame frame)))
+
+(add-hook 'window-size-change-functions #'xwidget-slate-adjust-size-in-frame)
+
+;; Cleanly stop the embedded Unreal engine when Emacs exits.  This runs during
+;; Fkill_emacs, BEFORE the C exit() that would otherwise run the engine's static
+;; destructors on the host thread and crash.  `xwidget-slate-shutdown' is a
+;; no-op (returns normally) if no slate xwidget was ever created; only when one
+;; was does it stop the engine and hard-exit the process.
+(when (fboundp 'xwidget-slate-shutdown)
+  (add-hook 'kill-emacs-hook #'xwidget-slate-shutdown))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;godot
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defvar xwidget-godot-last-session-buffer nil)
+
+(defvar xwidget-godot-default-project
+  (expand-file-name
+   "~/sourcecode/Settings/macbuild/gameengine/godot/godot-offscreen/triangle-project")
+  "Default Godot project used by `xwidget-godot-browse'.")
+
+(defun xwidget-godot-last-session ()
+  (if (buffer-live-p xwidget-godot-last-session-buffer)
+      (with-current-buffer xwidget-godot-last-session-buffer
+        (xwidget-at (point-min)))
+    nil))
+
+(defun xwidget-godot-callback (xwidget xwidget-event-type)
+  (if (not (buffer-live-p (xwidget-buffer xwidget)))
+      (xwidget-log "error: callback called for xwidget with dead buffer")
+    (cond (t (xwidget-log "unhandled event:%s" xwidget-event-type)))))
+
+(defun xwidget-godot-buffer-kill ())
+
+(defvar xwidget-godot-mode-map
+  (let ((map (make-sparse-keymap)))
+    map)
+  "Keymap for `xwidget-godot-mode'.")
+
+(define-derived-mode xwidget-godot-mode special-mode "xwidget-godot"
+  (setq buffer-read-only t)
+  (add-hook 'kill-buffer-hook #'xwidget-godot-buffer-kill)
+  (image-mode-setup-winprops))
+
+(defun xwidget-godot-current-session ()
+  (or (xwidget-at (point-min)) (xwidget-godot-last-session)))
+
+(defun xwidget-godot-display-callback (xwidget _source)
+  (display-buffer (xwidget-godot-import-widget xwidget)))
+
+(defun xwidget-godot-import-widget (xwidget)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback #'xwidget-godot-callback)
+         (buffer (get-buffer-create bufname)))
+    (with-current-buffer buffer
+      (setq xwidget-godot-last-session-buffer buffer)
+      (save-excursion
+        (erase-buffer)
+        (insert ".")
+        (put-text-property (point-min) (point-max)
+                           'display (list 'xwidget :xwidget xwidget)))
+      (xwidget-put xwidget 'callback callback)
+      (xwidget-put xwidget 'display-callback #'xwidget-godot-display-callback)
+      (set-xwidget-buffer xwidget buffer)
+      (xwidget-godot-mode))
+    buffer))
+
+(defun xwidget-godot--create-new-session-buffer (&optional callback editor project)
+  (let* ((bufname (generate-new-buffer-name (buffer-name)))
+         (callback (or callback #'xwidget-godot-callback))
+         (current-session (xwidget-godot-current-session))
+         xw)
+    (setq xwidget-godot-last-session-buffer (get-buffer-create bufname))
+    (with-current-buffer xwidget-godot-last-session-buffer
+      (let ((start (point)))
+        (insert "godot")
+        (put-text-property start (+ start (length "godot")) 'invisible t)
+        (setq xw (xwidget-insert
+                  start 'godot bufname
+                  (xwidget-window-inside-pixel-width (selected-window))
+                  (xwidget-window-inside-pixel-height (selected-window))
+                  (list :editor editor :project project) current-session)))
+      (xwidget-put xw 'callback callback)
+      (xwidget-put xw 'display-callback #'xwidget-godot-display-callback)
+      (xwidget-godot-mode))
+    xwidget-godot-last-session-buffer))
+
+(defun xwidget-godot-new-session (&optional editor project)
+  (switch-to-buffer (xwidget-godot--create-new-session-buffer nil editor project)))
+
+(defun xwidget-godot-goto (&optional editor project)
+  (if (xwidget-godot-current-session)
+      (switch-to-buffer (xwidget-buffer (xwidget-godot-current-session)))
+    (xwidget-godot-new-session editor project)))
+
+;;;###autoload
+(defun xwidget-godot-editor-browse (&optional new-session)
+  "Display the Godot editor embedded in an xwidget.
+Boots the (patched, tools-enabled) libgodot via libGodotOffscreen with the
+embedded macOS display server, and hosts its rendered CAMetalLayer in the
+xwidget via a CALayerHost.
+
+Boots straight into `xwidget-godot-default-project' (passing --path) rather
+than the Project Manager.  This matters for the in-process embedding: the
+Project Manager's \"Open\" spawns a new process via the host bundle, which would
+launch another emacs-fswork instead of Godot.  (Opening a *different* project or
+Run/restart from inside the editor is redirected to standalone Godot by the
+OS_MacOS_Embedded::create_instance patch.)
+
+The embedded engine is a per-process singleton: content is fixed at first godot
+xwidget creation.
+With a prefix argument NEW-SESSION, force a fresh session buffer.
+
+NOTE: first frame can take a few seconds (shader compile)."
+  (interactive "P")
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-godot-new-session t xwidget-godot-default-project)
+    (xwidget-godot-goto t xwidget-godot-default-project)))
+
+;;;###autoload
+(defun xwidget-godot-browse (&optional new-session)
+  "Display the default embedded Godot triangle project in an xwidget.
+This starts Godot in run mode, not editor mode.  The embedded engine is a
+per-process singleton, so use this as the first Godot xwidget in a fresh Emacs
+process when you want the triangle instead of the editor.
+With a prefix argument NEW-SESSION, force a fresh session buffer."
+  (interactive "P")
+  (or (featurep 'xwidget-internal)
+      (user-error "Your Emacs was not compiled with xwidgets support"))
+  (if new-session
+      (xwidget-godot-new-session nil xwidget-godot-default-project)
+    (xwidget-godot-goto nil xwidget-godot-default-project)))
+
+(defun xwidget-godot-adjust-size-to-window (xwidget &optional window)
+  "Resize the godot XWIDGET to fill WINDOW."
+  (xwidget-resize xwidget
+                  (xwidget-window-inside-pixel-width window)
+                  (xwidget-window-inside-pixel-height window)))
+
+(defun xwidget-godot-auto-adjust-size (window)
+  (with-current-buffer (window-buffer window)
+    (when (eq major-mode 'xwidget-godot-mode)
+      (let ((xwidget (xwidget-godot-current-session)))
+        (when xwidget
+          (xwidget-godot-adjust-size-to-window xwidget window)
+          (force-window-update window))))))
+
+(defvar xwidget-godot--resize-timer nil)
+
+(defun xwidget-godot--do-adjust-in-frame (frame)
+  (setq xwidget-godot--resize-timer nil)
+  (when (frame-live-p frame)
+    (walk-windows #'xwidget-godot-auto-adjust-size 'no-minibuf frame)))
+
+(defun xwidget-godot-adjust-size-in-frame (frame)
+  "Schedule a fit of every godot widget in FRAME (deferred; see slate variant)."
+  (when (timerp xwidget-godot--resize-timer)
+    (cancel-timer xwidget-godot--resize-timer))
+  (setq xwidget-godot--resize-timer
+        (run-with-idle-timer 0 nil #'xwidget-godot--do-adjust-in-frame frame)))
+
+(add-hook 'window-size-change-functions #'xwidget-godot-adjust-size-in-frame)
+
+;; Cleanly stop the embedded Godot engine when Emacs exits (see slate variant).
+(when (fboundp 'xwidget-godot-shutdown)
+  (add-hook 'kill-emacs-hook #'xwidget-godot-shutdown))
 
 (provide 'xwidget)
 ;;; xwidget.el ends here

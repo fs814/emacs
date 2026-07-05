@@ -66,6 +66,14 @@
     }
     // Create the command queue
     _commandQueue = [_device newCommandQueue];
+
+    /* Initialize the viewport from the view's current drawable size.
+       drawableSizeWillChange: is not guaranteed to fire before the
+       first draw when the MTKView is embedded as a subview (as with
+       xwidgets), which would leave _viewportSize at {0,0} and draw
+       nothing.  */
+    _viewportSize.x = (unsigned int) mtkView.drawableSize.width;
+    _viewportSize.y = (unsigned int) mtkView.drawableSize.height;
   }
 
   return self;
