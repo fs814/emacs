@@ -871,7 +871,9 @@ bool nsxwidget_is_metal_view(struct xwidget *xw) {
    Stops the embedded Unreal engine and hard-exits, before Emacs's exit()
    runs the engine's static destructors (which crash for an embedded engine). */
 void nsxwidget_slate_shutdown(void) {
+#ifdef HAVE_SLATE
   [SlateDelegate shutdownEngineAndExit];
+#endif
 }
 
 /* Called from the xwidget-godot-shutdown DEFUN (wired to kill-emacs-hook).
