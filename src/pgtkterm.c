@@ -787,9 +787,9 @@ pgtk_iconify_frame (struct frame *f)
 }
 
 static gboolean
-pgtk_make_frame_visible_wait_for_map_event_cb (GtkWidget *widget,
-					       GdkEventAny *event,
-					       gpointer user_data)
+pgtk_make_frame_visible_wait_for_event_cb (GtkWidget *widget,
+					   GdkEventAny *event,
+					   gpointer user_data)
 {
   int *foundptr = user_data;
   *foundptr = 1;
@@ -797,7 +797,7 @@ pgtk_make_frame_visible_wait_for_map_event_cb (GtkWidget *widget,
 }
 
 static gboolean
-pgtk_make_frame_visible_wait_for_map_event_timeout (gpointer user_data)
+pgtk_make_frame_visible_wait_for_event_timeout (gpointer user_data)
 {
   int *timedoutptr = user_data;
   *timedoutptr = 1;
@@ -805,7 +805,7 @@ pgtk_make_frame_visible_wait_for_map_event_timeout (gpointer user_data)
 }
 
 static void
-pgtk_wait_for_map_event (struct frame *f, bool multiple_times)
+pgtk_wait_for_event (struct frame *f, const gchar *signal_name)
 {
   if (FLOATP (Vpgtk_wait_for_event_timeout))
     {
@@ -814,25 +814,17 @@ pgtk_wait_for_map_event (struct frame *f, bool multiple_times)
       int found = 0;
       int timed_out = 0;
       gulong id
-	= g_signal_connect (FRAME_WIDGET (f), "map-event",
+	= g_signal_connect (FRAME_WIDGET (f), signal_name,
 			    G_CALLBACK
-			    (pgtk_make_frame_visible_wait_for_map_event_cb),
+			    (pgtk_make_frame_visible_wait_for_event_cb),
 			    &found);
       guint src
 	= g_timeout_add (msec,
-			 pgtk_make_frame_visible_wait_for_map_event_timeout,
+			 pgtk_make_frame_visible_wait_for_event_timeout,
 			 &timed_out);
 
-      if (!multiple_times)
-	{
-	  while (!found && !timed_out)
-	    gtk_main_iteration ();
-	}
-      else
-	{
-	  while (!timed_out)
-	    gtk_main_iteration ();
-	}
+      while (!found && !timed_out)
+	gtk_main_iteration ();
 
       g_signal_handler_disconnect (FRAME_WIDGET (f), id);
 
@@ -852,7 +844,7 @@ pgtk_make_frame_visible (struct frame *f)
       if (win)
 	gtk_window_deiconify (GTK_WINDOW (win));
 
-      pgtk_wait_for_map_event (f, false);
+      pgtk_wait_for_event (f, "map-event");
     }
 }
 
@@ -860,14 +852,15 @@ pgtk_make_frame_visible (struct frame *f)
 void
 pgtk_make_frame_invisible (struct frame *f)
 {
-  gtk_widget_hide (FRAME_WIDGET (f));
+  if (FRAME_VISIBLE_P (f))
+    {
+      gtk_widget_hide (FRAME_WIDGET (f));
 
-  /* Handle any pending map event(s), then make the frame visible
-     manually, to avoid race conditions.  */
-  pgtk_wait_for_map_event (f, true);
+      pgtk_wait_for_event (f, "unmap-event");
 
-  SET_FRAME_VISIBLE (f, 0);
-  SET_FRAME_ICONIFIED (f, false);
+      SET_FRAME_VISIBLE (f, 0);
+      SET_FRAME_ICONIFIED (f, false);
+    }
 }
 
 static void
@@ -2096,9 +2089,9 @@ pgtk_draw_horizontal_wave (struct frame *f, unsigned long color, int x, int y,
 }
 
 static void
-pgtk_draw_underwave (struct glyph_string *s, unsigned long color)
+pgtk_draw_underwave (struct glyph_string *s, unsigned long color, int thickness)
 {
-  int wave_height = 3, wave_length = 2;
+  int wave_height = 3 * thickness, wave_length = 2 * thickness;
 
   pgtk_draw_horizontal_wave (s->f, color, s->x, s->ybase - wave_height + 3,
 			     s->width, wave_height, wave_length);
@@ -2633,6 +2626,15 @@ pgtk_draw_glyph_string (struct glyph_string *s)
 
   if (!s->for_overlaps)
     {
+      struct font *font = font_for_underline_metrics (s);
+      unsigned long scaled_thickness;
+
+      /* Get the underline thickness.  Default is 1 pixel.  */
+      if (font && font->underline_thickness > 0)
+	scaled_thickness = font->underline_thickness;
+      else
+	scaled_thickness = 1;
+
       /* Draw relief if not yet drawn.  */
       if (!relief_drawn_p && s->face->box != FACE_NO_BOX)
 	pgtk_draw_glyph_string_box (s);
@@ -2640,16 +2642,18 @@ pgtk_draw_glyph_string (struct glyph_string *s)
       /* Draw underline.  */
       if (s->face->underline)
 	{
+	  unsigned long thickness = (underline_line_scaling_flag
+				     ? scaled_thickness : 1);
 	  if (s->face->underline == FACE_UNDERLINE_WAVE)
 	    {
 	      if (s->face->underline_defaulted_p)
-		pgtk_draw_underwave (s, s->xgcv.foreground);
+		pgtk_draw_underwave (s, s->xgcv.foreground, thickness);
 	      else
-		pgtk_draw_underwave (s, s->face->underline_color);
+		pgtk_draw_underwave (s, s->face->underline_color, thickness);
 	    }
 	  else if (s->face->underline >= FACE_UNDERLINE_SINGLE)
 	    {
-	      unsigned long thickness, position;
+	      unsigned long position;
 	      unsigned long foreground;
 
 	      if (s->prev
@@ -2666,13 +2670,6 @@ pgtk_draw_glyph_string (struct glyph_string *s)
 		}
 	      else
 		{
-		  struct font *font = font_for_underline_metrics (s);
-
-		  /* Get the underline thickness.  Default is 1 pixel.  */
-		  if (font && font->underline_thickness > 0)
-		    thickness = font->underline_thickness;
-		  else
-		    thickness = 1;
 		  if ((x_underline_at_descent_line
 		       || s->face->underline_at_descent_line_p))
 		    position = ((s->height - thickness)
@@ -2734,7 +2731,7 @@ pgtk_draw_glyph_string (struct glyph_string *s)
       /* Draw overline.  */
       if (s->face->overline_p)
 	{
-	  unsigned long dy = 0, h = 1;
+	  unsigned long dy = 0, h = overline_line_scaling_flag ? scaled_thickness : 1;
 
 	  if (s->face->overline_color_defaulted_p)
 	    pgtk_fill_rectangle (s->f, s->xgcv.foreground, s->x, s->y + dy,
@@ -2756,7 +2753,7 @@ pgtk_draw_glyph_string (struct glyph_string *s)
 	  int glyph_height = s->first_glyph->ascent + s->first_glyph->descent;
 	  /* Strike-through width and offset from the glyph string's
 	     top edge.  */
-          unsigned long h = 1;
+          unsigned long h = strike_through_line_scaling_flag ? scaled_thickness : 1;
           unsigned long dy = (glyph_height - h) / 2;
 
 	  if (s->face->strike_through_color_defaulted_p)
@@ -3141,6 +3138,16 @@ pgtk_scroll_run (struct window *w, struct run *run)
 	height = bottom_y - from_y;
       else
 	height = run->height;
+
+      /* Don't draw over the display parts above if destination is off
+         the top of the current window.  */
+      if (to_y < y)
+	{
+	  int d = y - to_y;
+	  height -= d;
+	  to_y += d;
+	  from_y += d;
+	}
     }
   else
     {

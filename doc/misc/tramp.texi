@@ -681,7 +681,7 @@ installed and loaded:
 @lisp
 @group
 (require 'tramp)
-(customize-set-variable 'tramp-verbose 6 "Enable remote command traces")
+(setopt tramp-verbose 6)
 @end group
 @end lisp
 
@@ -1027,6 +1027,21 @@ if desired.
 If the @command{podman} program isn't found in your @env{PATH}
 environment variable, you can tell @value{tramp} its absolute path via
 the user option @code{tramp-podman-program}.
+
+@cindex method @option{wslc}
+@cindex @option{wslc} method
+@item @option{wslc}
+
+@c Command "wslc" exists since WSL 2.9.3.
+WSL container is the implementation on MS Windows.  @value{tramp} uses
+the method @option{wslc}.
+
+@vindex tramp-wslc-program
+If the @command{wslc} program isn't found in your @env{PATH}
+environment variable, you can tell @value{tramp} its absolute path via
+the user option @code{tramp-wslc-program}.
+
+This is an optional method, @pxref{Optional methods}.
 
 @cindex method @option{kubernetes}
 @cindex @option{kubernetes} method
@@ -1545,7 +1560,7 @@ respectively:
 @lisp
 @group
 (add-to-list 'tramp-gvfs-methods "ftp")
-(customize-set-variable 'tramp-ftp-method nil)
+(setopt tramp-ftp-method nil)
 @end group
 @end lisp
 @end defopt
@@ -1610,10 +1625,7 @@ option @code{tramp-sshfs-program}.
 All remote files are available via the local mount point.
 @value{tramp} aids in mounting the file system if it isn't mounted
 yet.  The remote file name syntax is
-
-@example
-@trampfn{sshfs,user@@host#port,/path/to/file}
-@end example
+@trampfn{sshfs,user@@host#port,/path/to/file}.
 
 User name and port number are optional.  This method does not support
 password handling, the file system must either be mounted already, or
@@ -1639,7 +1651,7 @@ option to determine the default method for remote file names that do
 not have one specified.
 
 @lisp
-(customize-set-variable 'tramp-default-method "ssh")
+(setopt tramp-default-method "ssh")
 @end lisp
 @end defopt
 
@@ -1732,7 +1744,7 @@ this substitution can be overridden with @code{tramp-default-user}.
 For example:
 
 @lisp
-(customize-set-variable 'tramp-default-user "root")
+(setopt tramp-default-user "root")
 @end lisp
 @end defopt
 
@@ -1787,10 +1799,10 @@ follows:
 
 @lisp
 @group
-(custom-set-variables
- '(tramp-default-method "ssh")
- '(tramp-default-user "john")
- '(tramp-default-host "target"))
+(setopt
+ tramp-default-method "ssh"
+ tramp-default-user "john"
+ tramp-default-host "target")
 @end group
 @end lisp
 
@@ -1833,7 +1845,7 @@ and the target host matching @var{user}@@@var{host}.  @var{host} and
 @var{user} are regular expressions or @code{nil}, interpreted as a
 regular expression which always matches.
 
-@var{proxy} is a literal @value{tramp} file name whose local name part
+@var{proxy} is a literal @value{tramp} file name whose localname part
 is ignored, and the method and user name parts are optional.
 
 The method must be an inline method (@pxref{Inline methods}).  If
@@ -2000,6 +2012,14 @@ They can be installed with Emacs's Package Manager.  This includes
 
 @c @item ibuffer-tramp.el
 @c Contact Svend Sorensen <svend@@ciffer.net>
+
+@c @cindex method @option{container}
+@c @cindex @option{container} method
+@c @item apple-container-tramp
+@c Implementation of containers on macOS.  A container is accessed
+@c via @file{@trampfn{container,user@@container,/path/to/file}},
+@c @samp{user} and @samp{container} have the same meaning as with the
+@c @option{docker} method.
 
 @cindex method @option{incus}
 @cindex @option{incus} method
@@ -2250,7 +2270,7 @@ you want, for example, use your @file{~/.authinfo.gpg} authentication
 file, you must customize @code{ange-ftp-netrc-filename}:
 
 @lisp
-(customize-set-variable 'ange-ftp-netrc-filename "~/.authinfo.gpg")
+(setopt ange-ftp-netrc-filename "~/.authinfo.gpg")
 @end lisp
 
 In case you do not want to use an authentication file for
@@ -2586,7 +2606,7 @@ overwrite this, you might apply
 
 @vindex tramp-encoding-shell
 @lisp
-(customize-set-variable 'tramp-encoding-shell "/usr/bin/zsh")
+(setopt tramp-encoding-shell "/usr/bin/zsh")
 @end lisp
 
 This uses also the settings in @code{tramp-sh-extra-args}.
@@ -2651,8 +2671,8 @@ example below:
 
 @lisp
 @group
-(customize-set-variable
- 'tramp-password-prompt-regexp
+(setopt
+ tramp-password-prompt-regexp
  (concat
   "^.*"
   (regexp-opt
@@ -2969,8 +2989,8 @@ allows you to set the @option{ControlPath} provided the variable
 
 @lisp
 @group
-(customize-set-variable
- 'tramp-ssh-controlmaster-options
+(setopt
+ tramp-ssh-controlmaster-options
  (concat
   "-o ControlPath=/tmp/ssh-ControlPath-%%r@@%%h:%%p "
   "-o ControlMaster=auto -o ControlPersist=yes"))
@@ -2989,7 +3009,7 @@ behavior, then any changes to @command{ssh} can be suppressed with
 this @code{nil} setting:
 
 @lisp
-(customize-set-variable 'tramp-use-connection-share nil)
+(setopt tramp-use-connection-share nil)
 @end lisp
 
 Sometimes, it is not possible to use OpenSSH's @option{ControlMaster}
@@ -3380,13 +3400,23 @@ of the secretfile is now owned by the user logged in from
 When @code{backup-directory-alist} is @code{nil} (the default), such
 problems do not occur.
 
-To ``turn off'' the backup feature for remote files and stop
-@value{tramp} from saving to the backup directory, use this:
+@vindex make-backup-files
+In case you do not want to use backup files for remote files, use
+connection-local variable @code{make-backup-files}
+@ifinfo
+(@pxref{Connection Variables, , , emacs})
+@end ifinfo
+like this:
 
 @lisp
 @group
-(add-to-list 'backup-directory-alist
-             (cons tramp-file-name-regexp nil))
+(connection-local-set-profile-variables
+ 'no-remote-backup-files '((make-backup-files . nil)))
+@end group
+
+@group
+(connection-local-set-profiles
+ '(:application tramp) 'no-remote-backup-files)
 @end group
 @end lisp
 
@@ -3396,13 +3426,13 @@ Disabling backups can be targeted to just the @option{su} and
 
 @lisp
 @group
-(setq backup-enable-predicate
-      (lambda (name)
-        (and (normal-backup-enable-predicate name)
-             (not
-              (let ((method (file-remote-p name 'method)))
-                (when (stringp method)
-                  (member method '("su" "sudo"))))))))
+(connection-local-set-profiles
+ '(:application tramp :protocol "su") 'no-remote-backup-files)
+@end group
+
+@group
+(connection-local-set-profiles
+ '(:application tramp :protocol "sudo") 'no-remote-backup-files)
 @end group
 @end lisp
 
@@ -3425,8 +3455,7 @@ Example:
 @group
 (add-to-list 'backup-directory-alist
              (cons "." "~/.emacs.d/backups/"))
-(customize-set-variable
- 'tramp-backup-directory-alist backup-directory-alist)
+(setopt tramp-backup-directory-alist backup-directory-alist)
 @end group
 @end lisp
 
@@ -3462,7 +3491,6 @@ to direct all auto saves to that location.
 If you want to suppress auto-saving of remote files at all, set user
 option @code{remote-file-name-inhibit-auto-save} to non-@code{nil}.
 
-@c Since Emacs 29.
 @vindex remote-file-name-inhibit-auto-save-visited
 An alternative to @code{auto-save-mode} is
 @code{auto-save-visited-mode}.  In this mode, auto-saving is identical
@@ -3652,8 +3680,9 @@ is a feature of Emacs that may cause missed prompts when using
 @cindex file name syntax
 @cindex file name examples
 
-@file{@trampfn{method,host,/path/to/file}} opens file @var{/path/to/file}
-on the remote host @var{host}, using the method @var{method}.
+@file{@trampfn{method,user@@host,/path/to/file}} opens the file
+@var{/path/to/file} on the remote host @var{host} for the user
+@var{user}, using the method @var{method}.
 
 @c We cannot use @trampfn{} in @item.
 @table @file
@@ -3666,7 +3695,8 @@ For the file @file{.emacs} specified using the fully qualified domain name of
 the host.
 
 @item @value{prefix}ssh@value{postfixhop}melancholia@value{postfix}~/.emacs
-For the file @file{.emacs} specified using the @file{~}, which is expanded.
+For the file @file{.emacs} specified using the tilde @file{~}, which
+is expanded.
 
 @item @value{prefix}ssh@value{postfixhop}melancholia@value{postfix}~daniel/.emacs
 For the file @file{.emacs} located in @samp{daniel}'s home directory
@@ -3689,7 +3719,9 @@ brackets @file{@value{ipv6prefix}} and @file{@value{ipv6postfix}}.
 By default, @value{tramp} will use the current local user name as the
 remote user name for log in to the remote host.  Specifying a
 different name using the proper syntax will override this default
-behavior: @file{@trampfn{method,user@@host,path/to/file}}.
+behavior: @file{@trampfn{method,user@@host,path/to/file}}.  The user
+name can also be taken from an environment variable, like
+@file{@trampfn{method,@env{$MY_REMOTE_USER}@@host,path/to/file}}.
 
 @file{@trampfn{ssh,daniel@@melancholia,.emacs}} is for file
 @file{.emacs} in @samp{daniel}'s home directory on the host,
@@ -3700,12 +3732,59 @@ name.  For example: @file{@trampfn{ssh,daniel@@melancholia#42,.emacs}}.
 If the host is an IPv6 address, the port is appended like this:
 @file{@trampfn{ssh,@value{ipv6prefix}::1@value{ipv6postfix}#42,.emacs}}.
 
-All method, user name, host name, port number and local name parts are
+All method, user name, host name, port number and localname parts are
 optional, @xref{Default Method}, @xref{Default User}, @xref{Default Host}.
 @ifset unified
 For syntactical reasons, the default method must be indicated by the
 pseudo method @file{-}.
 @end ifset
+
+@defvar tramp-method-regexp
+@defvarx tramp-user-regexp
+@defvarx tramp-host-regexp
+@defvarx tramp-port-regexp
+@defvarx tramp-localname-regexp
+
+These regular expressions define the syntax of remote file name
+components.
+
+A method name must be defined in the association list
+@code{tramp-methods}.
+
+User and host names can contain the percent sign @file{%}.  On
+MS-Windows, this can be used only once per user or host name for
+security reasons.
+@end defvar
+
+@vindex tramp-allow-double-percent
+Some packages use the percent sign as field separator in user or host
+names.  If it is ensured that a pattern like @samp{%NAME%} is used
+internally only, and won't be part of the final user or host name
+during connection to the remote host, the variable
+@code{tramp-allow-double-percent} can be set temporarily to a
+non-@code{nil} value, for example by let-binding the variable, or
+setting as connection-local variable
+@ifinfo
+(@pxref{Connection Variables, , , emacs})
+@end ifinfo
+for a dedicated method name.  On systems other than MS-Windows, this
+variable is already non-@code{nil} by default.
+
+For example, the package @file{tramp-archive.el} does
+
+@lisp
+@group
+(connection-local-set-profile-variables
+ 'tramp-archive-connection-local-default-profile
+ '((tramp-allow-double-percent . t)))
+@end group
+
+@group
+(connection-local-set-profiles
+ `(:application tramp :protocol ,tramp-archive-method)
+ 'tramp-archive-connection-local-default-profile)
+@end group
+@end lisp
 
 
 @ifset unified
@@ -3919,7 +3998,7 @@ A non-@code{nil} setting of this option has effect only if set before
 the connection is established.
 
 @lisp
-(customize-set-variable 'tramp-show-ad-hoc-proxies t)
+(setopt tramp-show-ad-hoc-proxies t)
 @end lisp
 @end defopt
 
@@ -3941,7 +4020,7 @@ definitions on another host, for example by distribution of the
 as well.
 
 @lisp
-(customize-set-variable 'tramp-save-ad-hoc-proxies t)
+(setopt tramp-save-ad-hoc-proxies t)
 @end lisp
 @end defopt
 
@@ -3963,7 +4042,8 @@ can, for example, provide a list of running docker or podman
 containers on the remote host.
 
 @lisp
-(customize-set-variable 'tramp-completion-multi-hop-methods
+(setopt
+ tramp-completion-multi-hop-methods
  `(,tramp-docker-method ,tramp-podman-method))
 @end lisp
 @end defopt
@@ -4090,6 +4170,36 @@ configured to expand a home directory via a connection property,
 
 When your remote file name does not contain a @samp{user} part, the
 connection property @t{"~"} must be used instead.
+
+In case there is no remote home directory and you haven't specified a
+respective connection property, you should avoid using @file{~} in
+file names. This means for example
+
+@itemize
+@item
+Don't use a remote file name like @file{@trampfn{ssh,user@@host,}} or
+@file{@trampfn{ssh,user@@host,~/}}.  Use an absolute localname part
+instead, like @file{@trampfn{ssh,user@@host,/path/to/file}}.
+
+@item
+Disable @code{tramp-histfile-override}, @ref{Managing remote shell history}:
+
+@lisp
+(setopt tramp-histfile-override nil)
+@end lisp
+@end itemize
+
+@vindex tramp-tolerate-tilde
+In case you want use @file{~} in a file name although it cannot be
+expanded (like in artificial file names in test functions), let-bind
+@code{tramp-tolerate-tilde} to a non-nil value:
+
+@lisp
+@group
+(let ((tramp-tolerate-tilde nil))
+  (expand-file-name "@trampfn{ssh,host,~user/file.txt}"))
+@end group
+@end lisp
 
 
 @node Remote processes
@@ -5289,7 +5399,7 @@ In order to disable file archives, you can add the following form to
 your init file:
 
 @lisp
-(customize-set-variable 'tramp-archive-enabled nil)
+(setopt tramp-archive-enabled nil)
 @end lisp
 
 
@@ -5427,8 +5537,8 @@ Where is the latest @value{tramp}?
 @item
 Which systems does it work on?
 
-The package works successfully on @w{Emacs 28}, @w{Emacs 29}, @w{Emacs
-30}, and @w{Emacs 31}.
+The package works successfully on @w{Emacs 29}, @w{Emacs 30}, @w{Emacs
+31}, and @w{Emacs 32}.
 
 While Unix and Unix-like systems are the primary remote targets,
 @value{tramp} has equal success connecting to other platforms, such as
@@ -5570,8 +5680,15 @@ operations.  For example, the GNU ELPA package @file{tramp-hlo}
 implements specialized versions of @code{dir-locals--all-files},
 @code{locate-dominating-file} and @code{dir-locals-find-file} for
 @value{tramp}'s @code{tramp-sh} backend (@pxref{New operations}).
-@c The NonGNU ELPA package @file{tramp-rpc} implements an own
-@c @value{tramp} backend (@pxref{New operations}).
+
+@c The package @file{tramp-rpc} implements an own @value{tramp}
+@c backend (@pxref{New operations}).
+
+@c The package @file{scrutinize-agent} uses a similar approach like
+@c @file{tramp-rpc}:  It uses a server process on the remote side it
+@c speaks with.  Different to @file{tramp-rpc}, it doesn't offer an
+@c own method.  It  works with the @option{ssh} method, while
+@c implementing specialized versions of many magic operations.
 @end itemize
 
 
@@ -5984,7 +6101,7 @@ syntax}):
 
 @lisp
 @group
-(customize-set-variable 'tramp-default-method "ssh")
+(setopt tramp-default-method "ssh")
 (tramp-change-syntax 'simplified)
 @end group
 @end lisp
@@ -6001,9 +6118,9 @@ You can define default methods and user names for hosts,
 
 @lisp
 @group
-(custom-set-variables
- '(tramp-default-method "ssh")
- '(tramp-default-user "news"))
+(setopt
+ tramp-default-method "ssh"
+ tramp-default-user "news")
 @end group
 @end lisp
 
@@ -6422,8 +6539,8 @@ You can change this directory by setting the user option
 @lisp
 @group
 (unless small-temporary-file-directory
-  (customize-set-variable
-   'small-temporary-file-directory
+  (setopt
+   small-temporary-file-directory
    (format "/run/user/%d/emacs/" (user-uid)))
   (make-directory small-temporary-file-directory t))
 @end group
@@ -6468,17 +6585,7 @@ disable such features.
 Disable @value{tramp} file name completion:
 
 @lisp
-(customize-set-variable 'ido-enable-tramp-completion nil)
-@end lisp
-
-@c Obsolete since Emacs 29.1.
-@item
-@file{rlogin.el}
-
-Disable remote directory tracking mode:
-
-@lisp
-(rlogin-directory-tracking-mode -1)
+(setopt ido-enable-tramp-completion nil)
 @end lisp
 @end itemize
 
@@ -6492,7 +6599,7 @@ To keep Ange FTP as default the remote files access package, set this
 in @file{.emacs}:
 
 @lisp
-(customize-set-variable 'tramp-default-method "ftp")
+(setopt tramp-default-method "ftp")
 @end lisp
 
 If you want to enable Ange FTP's syntax, add the following form:
@@ -6505,9 +6612,8 @@ If you want to enable Ange FTP's syntax, add the following form:
 @item
 To deactivate @value{tramp} for some look-alike remote file names, set
 @code{tramp-ignored-file-name-regexp} to a proper regexp in
-@file{.emacs}.  @strong{Note}, that we don't use
-@code{customize-set-variable}, in order to avoid loading
-@value{tramp}.
+@file{.emacs}.  @strong{Note}, that we don't use @code{setopt}, in
+order to avoid loading @value{tramp}.
 
 @lisp
 (setq tramp-ignored-file-name-regexp "\\`/ssh:example\\.com:")
@@ -7064,9 +7170,9 @@ An example implementing this mechanism is the GNU ELPA package
 @code{dir-locals-find-file} for @value{tramp}'s @code{tramp-sh}
 backend.
 
-@c Another example is the NonGNU ELPA package @file{tramp-rpc}.  It
-@c provides an own @value{tramp} backend, using a server process on the
-@c remote host.
+@c Another example is the package @file{tramp-rpc}.  It provides an
+@c own @value{tramp} backend, using a server process on the remote
+@c host.
 
 
 @node Traces and Profiles
@@ -7155,7 +7261,7 @@ case, you can instruct @value{tramp} to mirror the debug buffer to
 a file:
 
 @lisp
-(customize-set-variable 'tramp-debug-to-file t)
+(setopt tramp-debug-to-file t)
 @end lisp
 
 The debug buffer is written as a file in your @ref{Temporary
@@ -7213,5 +7319,3 @@ means that there is no limit (no warning).
 @c   host and then send commands to it.
 @c
 @c * Consistent small or capitalized words especially in menus.
-@c
-@c * Starting with Emacs 29, use 'setopt' in the examples.

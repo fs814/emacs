@@ -26,6 +26,10 @@
 
 /* The include_next requires a split double-inclusion guard.  */
 #if @HAVE_STDBIT_H@
+/* The FreeBSD 15.1 <stdbit.h> uses the _Bool type.  */
+# if defined __FreeBSD__ && defined __cplusplus
+#  define _Bool bool
+# endif
 # @INCLUDE_NEXT@ @NEXT_STDBIT_H@
 #endif
 
@@ -175,7 +179,7 @@ _GL_INLINE_HEADER_BEGIN
      || (defined __clang_major__ && 4 <= __clang_major__) \
      || (defined __IBMC__ && 1210 <= __IBMC__ && defined __IBM__TYPEOF__) \
      || (defined __SUNPRO_C && 0x5110 <= __SUNPRO_C && !__STDC__) \
-     || (defined _MSC_VER && 1939 <= _MSC_VER))
+     || (defined _MSC_VER && 1939 <= _MSC_VER && !defined __cplusplus))
 # define _GL_STDBIT_TYPEOF_CAST(a, b) ((__typeof__ (a)) (b))
 #elif 202311 <= __STDC_VERSION__
 # define _GL_STDBIT_TYPEOF_CAST(a, b) ((typeof (a)) (b))
@@ -917,7 +921,7 @@ _gl_stdbit_popcount_supported (void)
   if (!_gl_stdbit_popcount_support)
     {
       /* Do as described in
-         <https://docs.microsoft.com/en-us/cpp/intrinsics/popcnt16-popcnt-popcnt64>
+         <https://learn.microsoft.com/en-us/cpp/intrinsics/popcnt16-popcnt-popcnt64>
          Although Microsoft started requiring POPCNT in MS-Windows 11 24H2,
          we'll be more cautious.  */
       int cpu_info[4];

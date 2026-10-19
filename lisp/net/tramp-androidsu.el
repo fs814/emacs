@@ -151,11 +151,13 @@ multibyte mode and waits for the shell prompt to appear."
 		(setq path (tramp-shell-quote-argument
                             (string-join tramp-androidsu-remote-path ":"))
                       su-binary
-                      (shell-quote-argument
+                      (tramp-shell-quote-argument
                        (or (executable-find "su")
                            (tramp-user-error
 			    vec
                             "No su binary is available in any of `exec-path'")))
+		      user (if (tramp-string-empty-or-nil-p user)
+			       "" (tramp-shell-quote-argument user))
                       command (format "PATH=%s exec %s - %s || exit"
                                       path su-binary user))
                 ;; Attempt to execute the shell inside the global mount
@@ -360,13 +362,9 @@ FUNCTION."
 	    :coding coding
             :noquery noquery
             :connection-type connection-type
+	    :filter filter
 	    :sentinel (or sentinel #'ignore)
             :stderr stderr)))
-      ;; Set filter.  Prior Emacs 29.1, it doesn't work reliably to
-      ;; provide it as `make-process' argument when filter is t.  See
-      ;; Bug#51177.
-      (when filter
-	(set-process-filter p filter))
       (tramp-post-process-creation p v)
       ;; Query flag is overwritten in `tramp-post-process-creation',
       ;; so we reset it.
@@ -416,7 +414,6 @@ FUNCTION."
     (directory-files . tramp-handle-directory-files)
     (directory-files-and-attributes
      . tramp-androidsu-handle-directory-files-and-attributes)
-    (dired-compress-file . ignore)
     (dired-uncache . tramp-handle-dired-uncache)
     (exec-path . tramp-androidsu-handle-exec-path)
     (expand-file-name . tramp-handle-expand-file-name)
@@ -463,7 +460,6 @@ FUNCTION."
     (lock-file . tramp-handle-lock-file)
     (make-auto-save-file-name . tramp-handle-make-auto-save-file-name)
     (make-directory . tramp-androidsu-handle-make-directory)
-    (make-directory-internal . ignore)
     (make-lock-file-name . tramp-handle-make-lock-file-name)
     (make-nearby-temp-file . tramp-handle-make-nearby-temp-file)
     (make-process . tramp-androidsu-handle-make-process)

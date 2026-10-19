@@ -1027,64 +1027,120 @@ The path separator is colon in GNU and GNU-like systems."
         (error "No such directory found via CDPATH environment variable: %s" dir)
       (error "No such directory: %s" dir)))))
 
+(defun files--recursively (dir regexp
+                               &optional include-directories predicate
+                               follow-symlinks lessp)
+  "Recursive body of `directory-files-recursively'.
+Expects DIR to be an absolute directory (not file) name,
+and `tramp-mode' and `completion-regexp-list' to be set
+appropriately for `file-name-all-completions'."
+  (let ((result ()) ;; Subdirectories and their files, followed by...
+        (files ())  ;; ...the current directory's regular files.
+        (predfn (and (not (booleanp predicate)) predicate))
+        (comps (file-name-all-completions "" dir)))
+    ;; By returning directory names, `file-name-all-completions' is
+    ;; faster than `directory-files' followed by `file-directory-p'.
+    ;; However, the trailing slash of directory names affects sort
+    ;; order, e.g., it can put "foo-bar/" before "foo/".  Since
+    ;; `file-name-all-completions' uses `file-name-as-directory', it is
+    ;; safe, faster, and more predictable to use `substring' in place of
+    ;; `directory-file-name'.  In fact, it is faster to compute the
+    ;; `substring' twice (first as a sortkey, then for REGEXP) than to
+    ;; do it once and save the result in a temporary object.
+    (dolist (file (if (eq lessp t) comps
+                    (sort comps :in-place t :lessp lessp
+                          ;; Normalize directory names as file names.
+                          :key (lambda (f)
+                                 (if (directory-name-p f)
+                                     (substring f nil -1)
+                                   f)))))
+      (cond ((member file '("./" "../")))
+            ;; When FILE is of the form "foo/".
+            ((directory-name-p file)
+             (let* (;; Nondir part of directory file name,
+                    ;; of the form "foo".
+                    (name (substring file nil -1))
+                    ;; Absolute directory file name, of the form
+                    ;; "/dir/foo".  Cheaper than `expand-file-name', and
+                    ;; avoids pitfalls with files named, e.g., "~".
+                    (full-file (concat dir name))
+                    ;; List of subdirectory's files.
+                    (sub-files
+                     (and
+                      ;; Don't follow symlinks to other directories.
+                      (or follow-symlinks
+                          (not (file-symlink-p full-file)))
+                      ;; Allow filtering subdirectories.
+                      (or (not predfn)
+                          (funcall predfn full-file))
+                      (if (eq predicate t)
+                          (ignore-error file-error
+                            (files--recursively
+                             (file-name-as-directory full-file) regexp
+                             include-directories predicate
+                             follow-symlinks lessp))
+                        (files--recursively
+                         (file-name-as-directory full-file) regexp
+                         include-directories predicate
+                         follow-symlinks lessp))))
+                    ;; Whether to list subdirectory itself.
+                    (sub-dir (and include-directories
+                                  (string-match-p regexp name)
+                                  (list full-file))))
+               ;; Skip any no-op `nconc' traversals.
+               (when (or sub-files sub-dir)
+                 (setq result (nconc result sub-files sub-dir)))))
+            ;; When FILE is of the form "foo".
+            ((string-match-p regexp file)
+             (push (concat dir file) files))))
+    (nconc result (nreverse files))))
+
 (defun directory-files-recursively (dir regexp
                                         &optional include-directories predicate
-                                        follow-symlinks)
+                                        follow-symlinks lessp)
   "Return list of all files under directory DIR whose names match REGEXP.
-This function works recursively.  Files are returned in \"depth
-first\" order, and files from each directory are sorted in
-alphabetical order.  Each file name appears in the returned list
-in its absolute form.
+This function works recursively, with files returned in \"depth
+first\" (bottom-up) order.  Each file name whose non-directory part
+matches REGEXP appears in the returned list in its absolute form.
 
 By default, the returned list excludes directories, but if
-optional argument INCLUDE-DIRECTORIES is non-nil, they are
-included.
+optional argument INCLUDE-DIRECTORIES is non-nil, it means
+consider them for inclusion.
 
 PREDICATE can be either nil (which means that all subdirectories
 of DIR are descended into), t (which means that subdirectories that
 can't be read are ignored), or a function (which is called with
-the name of each subdirectory, and should return non-nil if the
-subdirectory is to be descended into).
+the absolute name of each subdirectory, and should return non-nil
+if the subdirectory is to be descended into).
 
 If FOLLOW-SYMLINKS is non-nil, symbolic links that point to
 directories are followed.  Note that this can lead to infinite
-recursion."
-  (let* ((result nil)
-	 (files nil)
-         (dir (directory-file-name dir))
-	 ;; When DIR is "/", remote file names like "/method:" could
-	 ;; also be offered.  We shall suppress them.
-	 (tramp-mode (and tramp-mode (file-remote-p (expand-file-name dir)))))
-    (dolist (file (sort (file-name-all-completions "" dir)
-			'string<))
-      (unless (member file '("./" "../"))
-	(if (directory-name-p file)
-	    (let* ((leaf (substring file 0 (1- (length file))))
-		   (full-file (concat dir "/" leaf)))
-	      ;; Don't follow symlinks to other directories.
-	      (when (and (or (not (file-symlink-p full-file))
-                             (and (file-symlink-p full-file)
-                                  follow-symlinks))
-                         ;; Allow filtering subdirectories.
-                         (or (eq predicate nil)
-                             (eq predicate t)
-                             (funcall predicate full-file)))
-                (let ((sub-files
-                       (if (eq predicate t)
-                           (ignore-error file-error
-                             (directory-files-recursively
-			      full-file regexp include-directories
-                              predicate follow-symlinks))
-                         (directory-files-recursively
-			  full-file regexp include-directories
-                          predicate follow-symlinks))))
-		  (setq result (nconc result sub-files))))
-	      (when (and include-directories
-			 (string-match regexp leaf))
-		(setq result (nconc result (list full-file)))))
-	  (when (string-match regexp file)
-	    (push (concat dir "/" file) files)))))
-    (nconc result (nreverse files))))
+recursion.
+
+LESSP determines the relative order of file names per directory in the
+returned list.  When nil, it defaults to lexicographic order as per
+`string-lessp'.  When t, files in each directory are not sorted, and
+their order is arbitrary.  Otherwise, it is a function suitable as the
+`:lessp' argument of `sort', that takes two arguments (the non-directory
+part of two file names) and returns non-nil if the first should precede
+the second.  For example, `string-collate-lessp' gives the
+locale-specific collation order one might see in Dired."
+  ;; Set up some (potentially expensive) invariants before recursing.
+  (let* (;; As requested by `files--recursively'.
+         (dir (if (directory-name-p dir) dir (file-name-as-directory dir)))
+         ;; Must be absolute for the `file-remote-p' that follows, and
+         ;; so that the final result comprises absolute names even when
+         ;; the input is relative.  But skip `expand-file-name' if
+         ;; possible, for speed and symmetry with the input.
+         (dir (if (file-name-absolute-p dir) dir (expand-file-name dir)))
+         ;; When DIR is "/", remote file names like "/method:" could
+         ;; also be offered.  We shall suppress them.
+         (tramp-mode (and tramp-mode (file-remote-p dir)))
+         ;; Avoid its influence on `file-name-all-completions',
+         ;; which we use in place of `directory-files' for speed.
+         (completion-regexp-list ()))
+    (files--recursively dir regexp include-directories
+                        predicate follow-symlinks lessp)))
 
 (defun directory-empty-p (dir)
   "Return t if DIR names an existing directory containing no other files.
@@ -3634,9 +3690,11 @@ we don't actually set it to the same mode the buffer already has."
 		   (push (intern (concat (downcase (buffer-substring beg (point))) "-mode"))
 			 modes)))
 	     ;; Simple -*-MODE-*- case.
-	     (push (intern (concat (downcase (buffer-substring (point) end))
-				   "-mode"))
-		   modes))))
+             (and (< (point) end)
+	          (push (intern (concat (downcase
+                                         (buffer-substring (point) end))
+				        "-mode"))
+		        modes)))))
     (or
      ;; If we found modes to use, invoke them now, outside the save-excursion.
      ;; Presume `modes' holds a major mode followed by minor modes.
@@ -3827,6 +3885,7 @@ have no effect."
        (forward-char -3)
        (skip-chars-backward " \t")
        (setq end (point))
+       (setq beg (min beg end))
        (goto-char beg)
        end))))
 
@@ -3991,6 +4050,18 @@ variable `enable-remote-dir-locals' is non-nil."
   :risky t
   :group 'find-file)
 
+(defmacro without-local-variable-queries (&rest body)
+  "Execute BODY without querying user about local variable values.
+In some uses, this is a workaround for the problem that a command
+disables displaying new windows for its own reasons but this also breaks
+`hack-local-variables-confirm'.  See Emacs bug#80528 and bug#81233."
+  (declare (indent 0) (debug t))
+  `(let ((enable-local-variables
+          (if (memq enable-local-variables '(:safe :all nil))
+              enable-local-variables
+            :safe)))
+     ,@body))
+
 (defun hack-local-variables-confirm (all-vars unsafe-vars risky-vars dir-name)
   "Get confirmation before setting up local variable values.
 ALL-VARS is the list of all variables to be set up.
@@ -4055,6 +4126,9 @@ i  -- to ignore the local variables list, and permanently mark these
       ;; Display the buffer and read a choice.
       (save-window-excursion
 	(pop-to-buffer buf '(display-buffer--maybe-at-bottom))
+        (unless (get-buffer-window buf)
+          (error "Failed to display local variables buffer; this is a bug
+Possibly caller should use `without-local-variable-queries', which see."))
 	(let* ((exit-chars '(?y ?n ?\s))
 	       (prompt (format "Please type %s%s: "
 			       (if offer-save
@@ -4305,19 +4379,22 @@ all the specified local variables, but ignores any settings of \"mode:\"."
               (push elem file-local-variables-alist)))
           (hack-local-variables-apply))))))
 
+(defvar-local files--name-of-loading-file nil
+  "File name of the file loaded/evaluated in the buffer.")
+
 (defun internal--get-default-lexical-binding (from)
   (let ((mib (lambda (node) (buttonize node (lambda (_) (info node))
                                   nil "mouse-2: Jump to Info node"))))
     (or (and (bufferp from) (zerop (buffer-size from)))
         (and (stringp from)
              (eql 0 (file-attribute-size (file-attributes from))))
-        (let ((source
-               (if (not (and (bufferp from)
-                             (string-match-p "\\` \\*load\\*\\(-[0-9]+\\)?\\'"
-                                             (buffer-name from))
-                             load-file-name))
-                   from
-                 (abbreviate-file-name load-file-name))))
+        (let* ((fname
+                (if (bufferp from)
+                    (buffer-local-value 'files--name-of-loading-file from)))
+               (source
+                (if fname
+                    (abbreviate-file-name fname)
+                  from)))
           (condition-case nil
               (display-warning
                `(files missing-lexbind-cookie
@@ -6736,15 +6813,13 @@ Signal an error if unsuccessful."
 Optional arg PARENTS, if non-nil then creates parent dirs as needed.
 
 If called interactively, then PARENTS is non-nil."
-  (interactive
-   (let ((filename (read-file-name "Create empty file: ")))
-     (list filename t)))
-  (when (and (file-exists-p filename) (null parents))
-    (signal 'file-already-exists `("File exists" ,filename)))
-  (let ((paren-dir (file-name-directory filename)))
-    (when (and paren-dir (not (file-exists-p paren-dir)))
-      (make-directory paren-dir parents)))
-  (write-region "" nil filename nil 0))
+  (interactive "FCreate empty file: \np")
+  (when parents
+    (when-let* ((paren-dir (file-name-directory filename)))
+      (make-directory paren-dir :parents)))
+  ;; The `excl' is crucial, in case someone else has created the file in
+  ;; the meantime (TOCTTOU).
+  (write-region "" nil filename nil 0 nil 'excl))
 
 (defconst directory-files-no-dot-files-regexp
   "[^.]\\|\\.\\.\\."
@@ -8487,9 +8562,12 @@ normally equivalent short `-D' option is just passed on to
         ;; error.
         (when (> (file-attribute-size (file-attributes errfile)) 0)
           (defvar dired--ls-error-buffer) ; Pacify byte-compiler.
-          (let ((errbuf (get-buffer-create "*ls error*")))
+          (let ((errbuf (or (get-buffer "*ls error*")
+                            (let ((buf (generate-new-buffer "*ls error*")))
+                              (with-current-buffer buf
+                                (setq buffer-read-only t))
+                              buf))))
             (with-current-buffer errbuf
-              (setq buffer-read-only t)
               (let ((inhibit-read-only t))
                 (erase-buffer)
                 (insert-file-contents errfile)))

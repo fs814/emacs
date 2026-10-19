@@ -48,7 +48,8 @@ the terminal-initialization file to be loaded."
     ("vt420" . "vt200")
     ("alacritty" . "xterm")
     ("foot" . "xterm")
-    ("contour" . "xterm"))
+    ("contour" . "xterm")
+    ("xterm-ghostty" . "ghostty"))
   "Alist of terminal type aliases.
 Entries are of the form (TYPE . ALIAS), where both elements are strings.
 This means to treat a terminal of type TYPE as if it were of type ALIAS."
@@ -2264,7 +2265,9 @@ the X resource \"reverseVideo\" is present, handle that."
 
           (if (null visibility-spec)
 	      (make-frame-visible frame)
-	    (modify-frame-parameters frame (list visibility-spec)))
+            (if (or (cdr visibility-spec)
+                    (not (assoc-default 'parent-frame params)))
+	        (modify-frame-parameters frame (list visibility-spec))))
 	  (setq success t))
       (unless success
 	(delete-frame frame)))
@@ -2825,6 +2828,12 @@ Use the face `mode-line-highlight' for features that can be selected."
 (defface header-line-highlight '((t :inherit mode-line-highlight))
   "Basic header line face for highlighting."
   :version "28.1"
+  :group 'basic-faces)
+
+(defface header-line-emphasis '((t :inherit mode-line-emphasis))
+  "Face used to emphasize certain header line features.
+Use the face `header-line-highlight' for features that can be selected."
+  :version "32.1"
   :group 'basic-faces)
 
 (defface header-line-active

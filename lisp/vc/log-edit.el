@@ -387,9 +387,9 @@ automatically."
   "Face for the summary in `log-edit-mode' buffers.")
 
 (defface log-edit-headers-separator
-  '((t :height 0.1 :inverse-video t :extend t))
+  '((t :inherit separator-line :extend t))
   "Face for the separator line in `log-edit-mode' buffers."
-  :version "29.1")
+  :version "32.1")
 
 (defface log-edit-header '((t :inherit font-lock-keyword-face))
   "Face for the headers in `log-edit-mode' buffers.")
@@ -466,7 +466,8 @@ The first subexpression is the actual text of the field.")
        (progn (goto-char (match-end 0)) (1+ (match-end 0))))
       nil
       (0 '( face log-edit-headers-separator
-            display-line-numbers-disable t rear-nonsticky t))))
+            display-line-numbers-disable t front-sticky t rear-nonsticky t
+            cursor-intangible t))))
     (log-edit--match-first-line (0 'log-edit-summary))))
 
 (defvar log-edit-font-lock-gnu-style nil
@@ -579,12 +580,14 @@ the \\[vc-prefix-map] prefix for VC commands, for example).
   (setq-local font-lock-defaults '(log-edit-font-lock-keywords t))
   (make-local-variable 'font-lock-extra-managed-props)
   (cl-pushnew 'display-line-numbers-disable font-lock-extra-managed-props)
+  (cl-pushnew 'cursor-intangible font-lock-extra-managed-props)
   (setq-local jit-lock-contextually t)  ;For the "first line is summary".
   (setq-local fill-paragraph-function #'log-edit-fill-entry)
   (setq-local normal-auto-fill-function #'log-edit-do-auto-fill)
   (make-local-variable 'log-edit-comment-ring-index)
   (add-hook 'kill-buffer-hook 'log-edit-remember-comment nil t)
   (hack-dir-local-variables-non-file-buffer)
+  (cursor-intangible-mode 1)
   ;; Replace the tool bar map with `log-edit-tool-bar-map'.
   (setq-local tool-bar-map log-edit-tool-bar-map))
 
@@ -1392,10 +1395,9 @@ does not begin with \"* \", move it to the Summary header in the
 \"*vc-log*\" buffer, thus making is the summary line of the commit
 message.
 
-If the set of files listed in the ChangeLog entry differs from the set
-of files with changes to commit according to VC, display a warning
-urging the user to correct this discrepancy before committing the
-changes."
+If any of the files listed in the ChangeLog entry are not in the VC
+fileset to commit, display a warning urging the user to correct this
+discrepancy before committing the changes."
   (let (summary beg end files-in-changelog)
     (with-current-buffer buffer
       (save-restriction
@@ -1420,18 +1422,20 @@ changes."
                            (string-match "\\`\\*changes to \\(.+\\)\\*\\'" bn)
                            (match-string 1 bn)))))
             (while (re-search-forward "\t\\* \\([^ :\n]+\\)[ :\n]" nil t)
-              (let ((fn (concat fnd (match-string-no-properties 1))))
+              (let ((fn (expand-file-name
+                         (concat fnd (match-string-no-properties 1)))))
                 (when (file-exists-p fn)
                   (push fn files-in-changelog))))))))
     (log-edit-changelog-insert-entries buffer beg end)
     (when summary (log-edit-set-header "Summary" summary))
-    (unless (seq-set-equal-p
+    (unless (cl-subsetp
+             files-in-changelog
              (save-current-buffer
                (nth 2 (vc-deduce-fileset nil nil 'state-model-only-files)))
-             files-in-changelog)
+             :test 'equal)
       (display-warning
        'log-edit
-       "Files in ChangeLog entry differ from files with changes to commit!
+       "A file in the ChangeLog entry is not in the changeset to commit!
 Remove this discrepancy before committing the changes by adjusting as
 appropriate either the ChangeLog entry or the selection of files to commit."))))
 

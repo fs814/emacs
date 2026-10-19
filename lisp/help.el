@@ -797,7 +797,10 @@ To record all your input, use `open-dribble-file'."
     ;; `help-make-xrefs' adds a newline at the end of the buffer, which
     ;; makes impossible to reposition point in `with-help-window'.
     (when view-lossage-auto-refresh
-      (set-window-point (get-buffer-window (help-buffer)) (point-max)))))
+      (if-let* ((window (get-buffer-window (help-buffer))))
+          (set-window-point window (point-max))
+        (with-current-buffer (help-buffer)
+          (goto-char (point-max)))))))
 
 
 ;; Key bindings
@@ -1261,13 +1264,13 @@ current buffer."
                              "\n"))
           (when (delq nil on-link)
             (insert "\n\nThose are influenced by `mouse-1-click-follows-link'"))
-          (insert "\n\nThey're all described below."))
+          (insert "\n\nThey're all described below.\n"))
         (pcase-dolist (`(,_seq ,brief-desc ,defn ,locus)
                        info-list)
           (when defn
             (when (> (length info-list) 1)
               (with-current-buffer standard-output
-                (insert "\n\n" (make-separator-line) "\n")))
+                (insert (make-separator-line))))
 
             (insert brief-desc)
             (when locus

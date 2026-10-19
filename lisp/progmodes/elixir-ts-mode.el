@@ -724,6 +724,7 @@ Return nil if NODE is not a defun node or doesn't have a name."
   (setq-local comment-start "# ")
   (setq-local comment-start-skip
               (rx "#" (* (syntax whitespace))))
+  (setq-local comment-start-line-regexp comment-start-skip)
 
   (setq-local comment-end "")
   (setq-local comment-end-skip
@@ -754,6 +755,7 @@ Return nil if NODE is not a defun node or doesn't have a name."
 
     ;; Indent.
     (setq-local treesit-simple-indent-rules elixir-ts--indent-rules)
+    (setq-local editorconfig-indent-size-vars '(elixir-ts-indent-offset))
 
     ;; Navigation.
     (setq-local treesit-thing-settings

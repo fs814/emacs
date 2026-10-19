@@ -937,7 +937,7 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
     }
   else
     {
-      struct buffer *old_b = current_buffer;
+      specpdl_ref count = SPECPDL_INDEX ();
 
       clone_per_buffer_values (b->base_buffer, b);
       bset_filename (b, Qnil);
@@ -946,6 +946,7 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
       bset_backed_up (b, Qnil);
       bset_local_minor_modes (b, Qnil);
       bset_auto_save_file_name (b, Qnil);
+      record_unwind_current_buffer ();
       set_buffer_internal_1 (b);
       Fset (Qbuffer_save_without_query, Qnil);
       Fset (Qbuffer_file_number, Qnil);
@@ -955,7 +956,7 @@ Interactively, CLONE and INHIBIT-BUFFER-HOOKS are nil.  */)
 	 variable copies for list variables that might be mangled due
 	 to destructive operations in the indirect buffer. */
       run_hook (Qclone_indirect_buffer_hook);
-      set_buffer_internal_1 (old_b);
+      unbind_to (count, Qnil);
     }
 
   run_buffer_list_update_hook (b);
@@ -1136,6 +1137,9 @@ static void
 reset_buffer_local_variables (struct buffer *b, int permanent_too)
 {
   int offset, i;
+  Lisp_Object tmp = Qnil;
+  Lisp_Object buffer;
+  XSETBUFFER (buffer, b);
 
   /* Reset the major mode to Fundamental, together with all the
      things that depend on the major mode.
@@ -1160,13 +1164,22 @@ reset_buffer_local_variables (struct buffer *b, int permanent_too)
 
   /* Reset all (or most) per-buffer variables to their defaults.  */
   if (permanent_too == 1)
-    bset_local_var_alist (b, Qnil);
+    {
+      for (tmp = BVAR (b, local_var_alist); CONSP (tmp); tmp = XCDR (tmp))
+        {
+          Lisp_Object sym = XCAR (XCAR (tmp));
+          if (BASE_EQ (SYMBOL_BLV (XSYMBOL (sym))->where, buffer))
+            {
+              /* Symbol is set up for this buffer's old local value:
+                 swap it out!  */
+              swap_in_global_binding (XSYMBOL (sym));
+            }
+        }
+      bset_local_var_alist (b, Qnil);
+    }
   else
     {
-      Lisp_Object tmp, last = Qnil;
-      Lisp_Object buffer;
-      XSETBUFFER (buffer, b);
-
+      Lisp_Object last = Qnil;
       for (tmp = BVAR (b, local_var_alist); CONSP (tmp); tmp = XCDR (tmp))
         {
           Lisp_Object local_var = XCAR (XCAR (tmp));
@@ -4833,11 +4846,13 @@ init_buffer_once (void)
 
   /* Make sure all markable slots in buffer_defaults
      are initialized reasonably, so mark_buffer won't choke.  */
+  BUFFER_PVEC_INIT (&buffer_defaults);
   reset_buffer (&buffer_defaults);
   eassert (NILP (BVAR (&buffer_defaults, name)));
   reset_buffer_local_variables (&buffer_defaults, 1);
-  eassert (NILP (BVAR (&buffer_local_symbols, name)));
+  BUFFER_PVEC_INIT (&buffer_local_symbols);
   reset_buffer (&buffer_local_symbols);
+  eassert (NILP (BVAR (&buffer_local_symbols, name)));
   reset_buffer_local_variables (&buffer_local_symbols, 1);
   /* Prevent GC from getting confused.  */
   buffer_defaults.text = &buffer_defaults.own_text;
@@ -4853,8 +4868,6 @@ init_buffer_once (void)
   /* This is not strictly necessary, but let's make them initialized.  */
   bset_name (&buffer_defaults, build_string (" *buffer-defaults*"));
   bset_name (&buffer_local_symbols, build_string (" *buffer-local-symbols*"));
-  BUFFER_PVEC_INIT (&buffer_defaults);
-  BUFFER_PVEC_INIT (&buffer_local_symbols);
 
   /* Set up the default values of various buffer slots.  */
   /* Must do these before making the first buffer! */
@@ -5760,6 +5773,12 @@ An entry (apply DELTA BEG END FUN-NAME . ARGS) supports selective undo
 in the active region.  BEG and END is the range affected by this entry
 and DELTA is the number of characters added or deleted in that range by
 this change.
+
+An entry (apply DELTA (BEG . END) FUN-NAME . ARGS) is similar to the
+previous kind.  The difference is that Emacs invokes FUN-NAME with
+\(apply FUN-NAME BEG2 END2 ARGS), where BEG2 and END2 are the adjusted
+values of BEG and END.  The function can use those arguments to compute
+positions relative to the adjusted region.
 
 An entry (MARKER . DISTANCE) indicates that the marker MARKER
 was adjusted in position by the offset DISTANCE (an integer).

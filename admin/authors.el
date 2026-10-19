@@ -133,6 +133,7 @@ files.")
     ("Ian Dunn" "^Ian D\\>")
     ;; lisp/org/ChangeLog.1 2010-11-11.
     ("Ignacio Casso" "ignacio\\.decasso@imdea\\.org" "ignaciocasso@hotmail\\.com")
+    ("Iris Kroft" "coldsideofyourpillow@disroot\\.org")
     (nil "immerrr")
     (nil "aaa bbb")
     (nil "Code Extracted") ; lisp/newcomment.el's "Author:" header
@@ -309,7 +310,9 @@ files.")
     ("William M. Perry" "Bill Perry")
     ("William O'Brien" "will\\.08rien@gmail.com")
     ("Włodzimierz Bzyl" "W.*dek Bzyl")
+    ("Wu fa yang" "zhaodaniu1@gmail\\.com")
     (nil "xyblor")
+    ("Yifei Yao" "donplat@barrensea\\.org")
     ("Yilkal Argaw" "yilkalargaw" "yilkalargawworkneh@gmail\\.com")
     ("Yoni Rabkin" "Yoni Rabkin Katzenell")
     ("Yoshinori Koseki" "KOSEKI Yoshinori" "小関 吉則")
@@ -2234,6 +2237,7 @@ and changed by AUTHOR."
 	    (cons (list author wrote-list cowrote-list changed-list)
 		  authors-author-list)))))
 
+;;;###autoload
 (defun authors (root &optional nologupdate)
   "Extract author information from change logs and Lisp source files.
 ROOT is the root directory under which to find the files.

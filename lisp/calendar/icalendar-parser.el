@@ -6,6 +6,7 @@
 ;; Created: October 2024
 ;; Keywords: calendar
 ;; Human-Keywords: calendar, iCalendar
+;; Package: icalendar
 
 ;; This file is part of GNU Emacs.
 
@@ -895,7 +896,7 @@ S should be a match against rx `icalendar-time'."
         (second (string-to-number (substring s 4 6)))
         (utcoffset (if (and (length= s 7)
                             (equal "Z" (substring s 6 7)))
-                       0
+                       t ; UTC
                      ;; unknown/'floating' time zone:
                      nil)))
     (ical:make-date-time :second second
@@ -909,7 +910,7 @@ S should be a match against rx `icalendar-time'."
           (decoded-time-hour time)
           (decoded-time-minute time)
           (decoded-time-second time)
-          (if (eql 0 (decoded-time-zone time))
+          (if (eq t (decoded-time-zone time))
               "Z" "")))
 
 (defun ical:-decoded-time-p (val)
@@ -922,7 +923,7 @@ for that, see `icalendar--decoded-date-time-p'."
        (cl-typep (decoded-time-minute val) 'ical:numeric-minute)
        (cl-typep (decoded-time-hour val) 'ical:numeric-hour)
        (cl-typep (decoded-time-dst val) '(member t nil -1))
-       (cl-typep (decoded-time-zone val) '(or integer null))))
+       (cl-typep (decoded-time-zone val) '(or integer boolean))))
 
 (ical:define-type ical:time "TIME"
   "Type for Time values.
@@ -966,7 +967,7 @@ fields and DST are ignored when printed."
        ;; `make-decoded-time':
        ;; (cl-typep (decoded-time-weekday val) '(integer 0 6))
        (cl-typep (decoded-time-dst val) '(member t nil -1))
-       (cl-typep (decoded-time-zone val) '(or integer null))))
+       (cl-typep (decoded-time-zone val) '(or integer boolean))))
 
 (defun ical:read-date-time (s)
   "Read an `icalendar-date-time' from a string S.
@@ -981,7 +982,7 @@ S should be a match against rx `icalendar-date-time'."
         (second (string-to-number (substring s 13 15)))
         (utcoffset (if (and (length= s 16)
                             (equal "Z" (substring s 15 16)))
-                       0
+                       t ; UTC
                      ;; unknown/'floating' time zone:
                      nil)))
     (ical:make-date-time :second second
@@ -1006,16 +1007,15 @@ S should be a match against rx `icalendar-date-time'."
 
 (defun ical:date-time-is-utc-p (datetime)
   "Return non-nil if DATETIME is in UTC time."
-  (let ((offset (decoded-time-zone datetime)))
-    (and offset (= 0 offset))))
+  (eq t (decoded-time-zone datetime)))
 
 (ical:define-type ical:date-time "DATE-TIME"
    "Type for Date-Time values.
 
 When printed, a date-time is a string of digits like:
   YYYYMMDDTHHMMSS
-where the 'T' is literal, and separates the date string from the
-time string.
+where the 'T' is literal, and separates the date string from the time
+string.  If followed by a 'Z', the string represents a UTC date-time.
 
 When read, a date-time is a decoded time, i.e. a list in the format
 (SEC MINUTE HOUR DAY MONTH YEAR DOW DST UTCOFF).  See
@@ -1931,6 +1931,10 @@ syntax node representing the parameter."
     (when (match-string 3)
       (ical:signal-parse-error
        (format "Invalid value for `%s' parameter: %s" type (match-string 3))))
+    (unless (looking-at-p (rx (or ?\; ?:)))
+      (ical:signal-parse-error
+       (format "Garbage in `%s' value starting at: `%s'"
+               type (buffer-substring-no-properties (point) (1+ (point))))))
 
     (let ((value-begin (match-beginning 2))
           (value-end (match-end 2))
@@ -2885,7 +2889,7 @@ facilitate parsing that property."
 
 This property is a keyword used by an Organizer to inform
 Attendees about the status of a component, e.g. whether an
-`icalendar-vevent' has been cancelled, whether an
+`icalendar-vevent' has been canceled, whether an
 `icalendar-vtodo' has been completed, or whether an
 `icalendar-vjournal' is still in draft form.  It can be specified
 at most once on these components."
@@ -2932,6 +2936,7 @@ an `icalendar-vtodo' was actually completed.  The value must be an
 `icalendar-date-time' with a UTC time."
   ical:date-time
   :child-spec (:zero-or-more (ical:otherparam))
+  :other-validator ical:requires-utc-validator
   :link "https://www.rfc-editor.org/rfc/rfc5545#section-3.8.2.1")
 
 (ical:define-property ical:dtend "DTEND"
@@ -3380,6 +3385,7 @@ initially created an `icalendar-vevent', `icalendar-vtodo', or
 in UTC time."
   ical:date-time
   :child-spec (:zero-or-more (ical:otherparam))
+  :other-validator ical:requires-utc-validator
   :link "https://www.rfc-editor.org/rfc/rfc5545#section-3.8.7.1")
 
 (ical:define-property ical:dtstamp "DTSTAMP"
@@ -3403,7 +3409,16 @@ object *representing* that data was created.
 The value must be in UTC time."
   ical:date-time
   :child-spec (:zero-or-more (ical:otherparam))
+  :other-validator ical:requires-utc-validator
   :link "https://www.rfc-editor.org/rfc/rfc5545#section-3.8.7.2")
+
+(defun ical:requires-utc-validator (node)
+  "Validate that a property NODE's value is a UTC date-time"
+  (ical:with-property node nil
+    (unless (ical:date-time-is-utc-p value)
+      (ical:signal-validation-error
+       (format "An `%s's value must be in UTC" (ical:ast-node-type node))
+       :node node))))
 
 (ical:define-property ical:last-modified "LAST-MODIFIED"
   "Last Modified timestamp.
@@ -4442,7 +4457,8 @@ operation on the entire current buffer."
   :type '(hook)
   :options '(ical:fix-blank-lines
              ical:fix-hyphenated-dates
-             ical:fix-missing-mailtos))
+             ical:fix-missing-mailtos
+             ical:fix-ms-tzids))
 
 (defun ical:fix-blank-lines ()
   "Remove blank lines.
@@ -4529,6 +4545,58 @@ which see."
                               (substring (downcase (match-string 1)) 0 7))))
           (replace-match "mailto:\\1" nil nil nil 1))
         (goto-char (match-end 0))))))
+
+(defun ical:fix-ms-tzids ()
+  "Replace certain non-standard TZIDs with acceptable values.
+
+Some implementations (particularly on Microsoft platforms) are known to
+produce TZID strings which are not compliant with RFC5545, like:
+
+  TZID:Amsterdam, Belgrade, Berlin
+  ...;TZID=\"Amsterdam, Belgrade, Berlin\"...
+
+This function replaces such TZIDs with an RFC-compliant version like:
+
+  TZID:AmsterdamEtc
+  ...;TZID=AmsterdamEtc...
+
+This does not affect the interpretation of the time data, and allows the
+TZIDs to be parsed correctly.  This function is intended to be used from
+`icalendar-pre-parsing-hook', which see."
+  (goto-char (point-min))
+  (let (tzids)
+    ;; Collect and replace MS-style TZID property values:
+    (while (re-search-forward
+            (rx line-start "TZID"
+                (zero-or-more ical:other-param-safe) ":"
+                (group-n 1 ; everything until EOL, including unescaped commas
+                  (group-n 2 (one-or-more ical:safe-char)) ; for new TZID
+                  (zero-or-more (not "\n"))))
+            nil t)
+      (let ((old (match-string 1))
+            (new (concat (match-string 2) "Etc")))
+        (while (rassoc new tzids)
+          (setq new (symbol-name (gensym new))))
+        (when (string-match-p (rx (not ical:safe-char)) old)
+          (replace-match new nil nil nil 1)
+          (push (cons old new)
+                tzids))))
+
+    (goto-char (point-min))
+    ;; Replace TZID param values:
+    ;; In all the examples I've seen, when these TZIDs appear in param
+    ;; values, they're surrounded by double quotes, which are invalid.
+    ;; Remove them if present.
+    (while (re-search-forward (rx ";TZID="
+                                  (group-n 1
+                                    (? ?\")
+                                    (group-n 2
+                                      (one-or-more (not (any ?\" ?\; ?\: "\n"))))
+                                    (? ?\")))
+                              nil t)
+      (when-let* ((pair (assoc (match-string 2) tzids))
+                  (new (cdr pair)))
+        (replace-match new nil nil nil 1)))))
 
 
 ;;; Caching and indexing parse trees

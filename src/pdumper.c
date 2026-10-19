@@ -268,10 +268,13 @@ struct dump_table_locator
 enum
   {
    DUMP_RELOC_TYPE_BITS = 5,
-   DUMP_RELOC_ALIGNMENT_BITS = 2,
 
-   /* Minimum alignment required by dump file format.  */
-   DUMP_RELOCATION_ALIGNMENT = 1 << DUMP_RELOC_ALIGNMENT_BITS,
+   /* Minimum alignment required by dump file format.  Lisp_Objects and raw
+      pointers can both be relocated, so this can be any integer power of 2
+      up to min (alignof (Lisp_Object), alignof (void *)).
+      Larger values help dump_reloc_set_offset support larger offsets.  */
+   DUMP_RELOCATION_ALIGNMENT = min (alignof (Lisp_Object),
+				    alignof (void *)),
 
    /* The alignment granularity (in bytes) for objects we store in the
       dump.  Always suitable for heap objects; may be more aligned.  */
@@ -303,16 +306,17 @@ dump_reloc_set_type (struct dump_reloc *reloc, enum dump_reloc_type type)
 static dump_off
 dump_reloc_get_offset (struct dump_reloc reloc)
 {
-  return reloc.raw_offset << DUMP_RELOC_ALIGNMENT_BITS;
+  return reloc.raw_offset * DUMP_RELOCATION_ALIGNMENT;
 }
 
 static void
 dump_reloc_set_offset (struct dump_reloc *reloc, dump_off offset)
 {
-  eassert (offset >= 0);
-  reloc->raw_offset = offset >> DUMP_RELOC_ALIGNMENT_BITS;
+  eassume (offset >= 0);
+  reloc->raw_offset = offset / DUMP_RELOCATION_ALIGNMENT;
   if (dump_reloc_get_offset (*reloc) != offset)
-    error ("dump relocation out of range");
+    error ("dump relocation not an integral multiple of %d: %d",
+	   DUMP_RELOCATION_ALIGNMENT, offset);
 }
 
 void
@@ -2585,13 +2589,14 @@ dump_vectorlike_generic (struct dump_context *ctx,
 }
 
 /* Return a vector of KEY, VALUE pairs in the given hash table H.
-   No room for growth is included.  */
+   Do not leave room for growth.
+   If there are no pairs, return a null pointer.  */
 static Lisp_Object *
 hash_table_contents (struct Lisp_Hash_Table *h)
 {
   ptrdiff_t size = h->count;
-  Lisp_Object *key_and_value = hash_table_alloc_bytes (2 * size
-						       * sizeof *key_and_value);
+  Lisp_Object *key_and_value
+    = size ? hash_table_alloc_bytes (2 * size * sizeof *key_and_value) : NULL;
   ptrdiff_t n = 0;
 
   DOHASH (h, k, v)
@@ -2719,7 +2724,7 @@ dump_obarray_buckets (struct dump_context *ctx, const struct Lisp_Obarray *o)
 static dump_off
 dump_obarray (struct dump_context *ctx, Lisp_Object object)
 {
-#if CHECK_STRUCTS && !defined HASH_Lisp_Obarray_D2757E61AD
+#if CHECK_STRUCTS && !defined HASH_Lisp_Obarray_F6375D820A
 # error "Lisp_Obarray changed. See CHECK_STRUCTS comment in config.h."
 #endif
   const struct Lisp_Obarray *in_oa = XOBARRAY (object);
@@ -2741,7 +2746,7 @@ dump_obarray (struct dump_context *ctx, Lisp_Object object)
 static dump_off
 dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 {
-#if CHECK_STRUCTS && !defined HASH_buffer_418DFE6359
+#if CHECK_STRUCTS && !defined HASH_buffer_DBEF8CFB58
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
   struct buffer munged_buffer = *in_buffer;

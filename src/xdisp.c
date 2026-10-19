@@ -1082,7 +1082,7 @@ bool display_working_on_window_p;
    line, in particular when called from non-redisplay code (so
    redisplaying_p is false).  We inhibit resizing of the frames during
    that time, because that could change glyph_row pointers in the glyph
-   matrix behind the back of teh code which manipulates these pointers.  */
+   matrix behind the back of the code which manipulates these pointers.  */
 int dont_resize_frames;
 
 /* If a string, XTread_socket generates an event to display that string.
@@ -10122,6 +10122,8 @@ move_it_in_display_line_to (struct it *it,
   bool saw_smaller_pos = prev_pos < to_charpos;
   bool line_number_pending = false;
   int this_line_subject_to_line_prefix = 0;
+  bool moved_to_next = false;
+  bool saved_start_of_box_run = it->start_of_box_run_p;
 
 #ifdef GLYPH_DEBUG
   /* atx_flag, atpos_flag and wrap_flag are assigned but never used;
@@ -10202,6 +10204,8 @@ move_it_in_display_line_to (struct it *it,
 
   if (IT_CHARPOS (*it) < CHARPOS (this_line_min_pos))
     SET_TEXT_POS (this_line_min_pos, IT_CHARPOS (*it), IT_BYTEPOS (*it));
+
+  saved_start_of_box_run = it->start_of_box_run_p;
 
   while (true)
     {
@@ -10331,7 +10335,11 @@ move_it_in_display_line_to (struct it *it,
 	 line.  */
       x = it->current_x;
 
+      /* We will record the start_of_box_run_p flag to restore it before
+         exiting if we never move from this glyph.  */
+      saved_start_of_box_run = it->start_of_box_run_p;
       PRODUCE_GLYPHS (it);
+      moved_to_next = false;
 
       if (it->area != TEXT_AREA)
 	{
@@ -10339,6 +10347,7 @@ move_it_in_display_line_to (struct it *it,
 	  if (it->method == GET_FROM_BUFFER)
 	    prev_pos = IT_CHARPOS (*it);
 	  set_iterator_to_next (it, true);
+	  moved_to_next = true;
 	  if (IT_CHARPOS (*it) < CHARPOS (this_line_min_pos))
 	    SET_TEXT_POS (this_line_min_pos,
 			  IT_CHARPOS (*it), IT_BYTEPOS (*it));
@@ -10517,6 +10526,7 @@ move_it_in_display_line_to (struct it *it,
 			  if (it->method == GET_FROM_BUFFER)
 			    prev_pos = IT_CHARPOS (*it);
 			  set_iterator_to_next (it, true);
+			  moved_to_next = true;
 			  if (IT_CHARPOS (*it) < CHARPOS (this_line_min_pos))
 			    SET_TEXT_POS (this_line_min_pos,
 					  IT_CHARPOS (*it), IT_BYTEPOS (*it));
@@ -10722,6 +10732,7 @@ move_it_in_display_line_to (struct it *it,
       /* The current display element has been consumed.  Advance to
 	 the next.  */
       set_iterator_to_next (it, true);
+      moved_to_next = true;
 
       /* If IT has just finished producing glyphs for the wrap prefix
 	 and is proceeding to the next method, there might not be
@@ -10851,6 +10862,13 @@ move_it_in_display_line_to (struct it *it,
     bidi_unshelve_cache (wrap_data, true);
   if (ppos_data)
     bidi_unshelve_cache (ppos_data, true);
+
+  /* Restore the start_of_box_run_p flag, if we haven't moved from the
+     position where it might have been set by get_next_display_element.
+     This is so the following iteration picks up this flag instead of
+     losing it (because PRODUCE_GLYPHS resets it).   */
+  if (!moved_to_next)
+    it->start_of_box_run_p = saved_start_of_box_run;
 
   /* Restore the iterator settings altered at the beginning of this
      function.  */
@@ -11298,10 +11316,18 @@ move_it_vertically_backward (struct it *it, int dy)
      y-distance.  */
   SAVE_IT (it2, *it, it2data);
   it2.max_ascent = it2.max_descent = 0;
+  ptrdiff_t to_pos = start_pos;
   do
     {
-      move_it_to (&it2, start_pos, -1, -1, it2.vpos + 1,
-		  MOVE_TO_POS | MOVE_TO_VPOS);
+      move_it_to (&it2, to_pos, -1, -1, it2.vpos + 1,
+		  (to_pos > 0
+		    ? (MOVE_TO_POS | MOVE_TO_VPOS)
+		   : MOVE_TO_VPOS));
+      /* Avoid inflooping of there's a large display string with several
+         embedded newlines, which makes move_it_to stop after START_POS
+         but still inside a display or overlay string.  */
+      if (IT_CHARPOS (it2) >= start_pos)
+	to_pos = -1;
     }
   while (!(IT_POS_VALID_AFTER_MOVE_P (&it2)
 	   /* If we are in a display string which starts at START_POS,
@@ -11910,7 +11936,11 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
   /* If FROM is on a newline, pretend that we start at the beginning
      of the next line, because the newline takes no place on display.  */
   if (FETCH_BYTE (start_bpos) == '\n')
-    it.current_x = 0, it.wrap_prefix_width = 0;
+    {
+      it.current_x = 0;
+      start_x = 0;	/* in case TO == FROM */
+      it.wrap_prefix_width = 0;
+    }
   if (!NILP (x_limit))
     {
       it.last_visible_x = max_x;
@@ -12125,7 +12155,7 @@ screen line that includes TO to the returned height of the text.  */)
   return value;
 }
 
-DEFUN ("buffer-text-pixel-size", Fbuffer_text_pixel_size, Sbuffer_text_pixel_size, 0, 4, 0,
+DEFUN ("buffer-text-pixel-size", Fbuffer_text_pixel_size, Sbuffer_text_pixel_size, 0, 6, 0,
        doc: /* Return the dimensions of whole text of BUFFER-OR-NAME in WINDOW.
 BUFFER-OR-NAME must specify a live buffer or the name of a live buffer
 and defaults to the current buffer.  WINDOW must be a live window and
@@ -12133,15 +12163,15 @@ defaults to the selected one.  The return value is a cons of the maximum
 pixel-width of any text line and the pixel-height of all the text lines
 of the buffer specified by BUFFER-OR-NAME.
 
-The optional arguments X-LIMIT and Y-LIMIT have the same meaning as with
-`window-text-pixel-size'.
+The optional arguments X-LIMIT, Y-LIMIT, FROM and TO, have the same
+meaning as with `window-text-pixel-size'.
 
 Do not use this function if the buffer specified by BUFFER-OR-NAME is
 already displayed in WINDOW.  `window-text-pixel-size' is cheaper in
 that case because it does not have to temporarily show that buffer in
 WINDOW.  */)
   (Lisp_Object buffer_or_name, Lisp_Object window, Lisp_Object x_limit,
-   Lisp_Object y_limit)
+   Lisp_Object y_limit, Lisp_Object from, Lisp_Object to)
 {
   struct window *w = decode_live_window (window);
   struct buffer *b = (NILP (buffer_or_name)
@@ -12169,7 +12199,7 @@ WINDOW.  */)
       set_marker_both (w->old_pointm, buffer, BEG, BEG_BYTE);
     }
 
-  value = window_text_pixel_size (window, Qnil, Qnil, x_limit, y_limit, Qnil,
+  value = window_text_pixel_size (window, from, to, x_limit, y_limit, Qnil,
 				  Qnil);
 
   unbind_to (count, Qnil);
@@ -18571,12 +18601,12 @@ update_redisplay_ticks (int ticks, struct window *w)
 	 windows, not expected here) or nil (for pseudo-windows like
 	 the one used for the native tool bar).  */
       Lisp_Object contents = w ? w->contents : Qnil;
-      char *bufname =
+      char const *bufname =
 	NILP (contents)
 	? SSDATA (BVAR (current_buffer, name))
 	: (BUFFERP (contents)
 	   ? SSDATA (BVAR (XBUFFER (contents), name))
-	   : (char *) "<unknown>");
+	   : "<unknown>");
 
       windows_or_buffers_changed = 177;
       /* scrolling_window depends too much on the glyph matrices being
@@ -19493,6 +19523,11 @@ try_scrolling (Lisp_Object window, bool just_this_one_p,
 
 	  if (dy > 0)
 	    scroll_down_p = true;
+	}
+      else if (scroll_margin_y < 0)
+	{
+	  /* A tall row (like tall image?) at window's bottom.  */
+	  scroll_down_p = true;
 	}
     }
 
@@ -21852,6 +21887,18 @@ try_window_reusing_current_matrix (struct window *w)
 	 text.  Note that it.vpos == 0 if or if not there is a
          header-line; it's not the same as the MATRIX_ROW_VPOS!  */
       start_display (&it, w, new_start);
+
+      /* After skipping invisible text, we might reach the end position
+	 of the first row before displaying strings or a display-table
+	 entry belonging to that row.  This can happen, for example,
+	 when window-start is in invisible text that is immediately
+	 followed by an overlay string with an embedded newline Buffer
+	 positions cannot reliably identify a reusable row in that case,
+	 so we cannot use this method.  (Bug#82054).  */
+      if (IT_CHARPOS (it) > CHARPOS (start)
+	  && IT_CHARPOS (it) >= CHARPOS (start_row->end.pos))
+	return false;
+
       w->cursor.vpos = -1;
       last_text_row = last_reused_text_row = NULL;
 
@@ -29510,16 +29557,7 @@ decode_mode_spec (struct window *w, register int c, int field_width,
 	}
 
     case 'e':
-#if !defined SYSTEM_MALLOC
-      {
-	if (NILP (Vmemory_full))
-	  return "";
-	else
-	  return "!MEM FULL! ";
-      }
-#else
-      return "";
-#endif
+      return !NILP (Vmemory_full) ? "!MEM FULL! " : "";
 
     case 'F':
       /* %F displays the frame name.  */
@@ -32824,6 +32862,82 @@ append_stretch_glyph (struct it *it, Lisp_Object object,
     IT_EXPAND_MATRIX_WIDTH (it, area);
 }
 
+static void
+redraw_image_glyphs_window (struct window *w, Lisp_Object spec)
+{
+  if (w->current_matrix == NULL)
+    return;
+
+  struct frame* f = WINDOW_XFRAME (w);
+
+  if (w->must_be_updated_p)
+    {
+      SET_FRAME_GARBAGED (f);
+      return;
+    }
+
+  for (int area = LEFT_MARGIN_AREA; area < LAST_AREA; ++area)
+    {
+      for (int y = 0; y < w->current_matrix->nrows; ++y)
+	{
+	  struct glyph_row *row = w->current_matrix->rows + y;
+	  if (row->enabled_p)
+	    {
+	      int pos_x = area == TEXT_AREA ? row->x : 0;
+	      for (int x = 0; x < row->used[area]; ++x)
+		{
+		  struct glyph *glyph = row->glyphs[area] + x;
+		  if (glyph->type == IMAGE_GLYPH)
+		    {
+		      struct image* img =
+			IMAGE_OPT_FROM_ID (f, glyph->u.img_id);
+		      if (img && EQ (img->spec, spec))
+			{
+			  prepare_image_for_display (f, img);
+			  draw_glyphs (w, pos_x, row, area, x, x + 1,
+				       DRAW_NORMAL_TEXT, 0);
+			}
+		    }
+		  pos_x += glyph->pixel_width;
+		}
+	    }
+	}
+    }
+}
+
+static void
+redraw_image_glyphs_window_tree (struct window *w, Lisp_Object spec)
+{
+  while (w)
+    {
+      if (WINDOWP (w->contents))
+	redraw_image_glyphs_window_tree (XWINDOW (w->contents), spec);
+      else
+	redraw_image_glyphs_window (w, spec);
+      w = NILP (w->next) ? NULL : XWINDOW (w->next);
+    }
+}
+
+/* redraw_image_glyphs: Redraw only the image glyphs.  Image redrawing is similar to the
+   handling of Expose or GraphicsExpose events in xterm.c.
+   GraphicsExpose event
+      -> expose_frame -> expose_window_tree -> expose_window
+      -> expose_line -> expose_area -> draw_glyphs */
+
+void
+redraw_image_glyphs (Lisp_Object spec)
+{
+  Lisp_Object tail, frame;
+  FOR_EACH_FRAME (tail, frame)
+    {
+      /* When the frame is garbaged, wait for full redisplay.  Only use
+         the fast path when the frame is in a consistent state.  */
+      struct frame* f = XFRAME (frame);
+      if (!FRAME_GARBAGED_P (f))
+        redraw_image_glyphs_window_tree (XWINDOW (f->root_window), spec);
+    }
+}
+
 #endif	/* HAVE_WINDOW_SYSTEM */
 
 /* Produce a stretch glyph for iterator IT.  IT->object is the value
@@ -34067,15 +34181,17 @@ gui_produce_glyphs (struct it *it)
 	  int leftmost, rightmost, lowest, highest;
 	  int lbearing, rbearing;
 	  int i, width, ascent, descent;
-	  int c;
+	  int c = '\t';	/* See Bug#8512.  */
 	  unsigned char2b;
 	  struct font_metrics *pcm;
 	  ptrdiff_t pos;
 
-	  eassume (0 < glyph_len); /* See Bug#8512.  */
-	  do
-	    c = COMPOSITION_GLYPH (cmp, glyph_len - 1);
-	  while (c == '\t' && 0 < --glyph_len);
+	  if (glyph_len > 0)
+	    {
+	      do
+		c = COMPOSITION_GLYPH (cmp, glyph_len - 1);
+	      while (c == '\t' && 0 < --glyph_len);
+	    }
 
 	  bool right_padded = glyph_len < cmp->glyph_len;
 	  for (i = 0; i < glyph_len; i++)
@@ -34341,6 +34457,9 @@ gui_produce_glyphs (struct it *it)
       if (it->descent < 0)
 	it->descent = 0;
 
+      /* If the composition yields zero glyphs, produce the same effect
+         as an empty 'display' string: hide the buffer positions and
+         show nothing in their stead.  */
       if (it->glyph_row && cmp->glyph_len > 0)
 	append_composite_glyph (it);
     }
@@ -39197,6 +39316,24 @@ with fonts that specify an UNDERLINE_POSITION relatively close to the
 baseline.  The default value is 1.  */);
   underline_minimum_offset = 1;
   DEFSYM (Qunderline_minimum_offset, "underline-minimum-offset");
+
+  DEFVAR_BOOL ("underline-line-scaling-flag",
+	       underline_line_scaling_flag,
+     doc: /* Non-nil means scale the underline line with text scaling.
+This can make underline more prominent with large scaling.  */);
+  underline_line_scaling_flag = false;
+
+  DEFVAR_BOOL ("overline-line-scaling-flag",
+	       overline_line_scaling_flag,
+     doc: /* Non-nil means scale the overline line with text scaling.
+This can make overline more prominent with large scaling.  */);
+  overline_line_scaling_flag = false;
+
+  DEFVAR_BOOL ("strike-through-line-scaling-flag",
+	       strike_through_line_scaling_flag,
+     doc: /* Non-nil means scale the strike-through line with text scaling.
+This can make strike-through more prominent with large scaling.  */);
+  strike_through_line_scaling_flag = false;
 
   DEFVAR_BOOL ("display-hourglass", display_hourglass_p,
 	       doc: /* Non-nil means show an hourglass pointer, when Emacs is busy.

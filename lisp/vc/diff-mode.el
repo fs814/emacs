@@ -107,7 +107,10 @@ The value `font-lock' means to refine during font-lock.
 The value `navigation' means to refine each hunk as you visit it
 with `diff-hunk-next' or `diff-hunk-prev'.
 
-You can always manually refine a hunk with `diff-refine-hunk'."
+You can always manually refine a hunk with `diff-refine-hunk'.
+
+By default, refining a hunk in any way displays the \"shadow cursor\"
+at one end of the refined region.  See `smerge-refine-shadow-cursor'."
   :version "27.1"
   :type '(choice (const :tag "Don't refine hunks" nil)
                  (const :tag "Refine hunks during font-lock" font-lock)
@@ -249,7 +252,9 @@ buffers."
   "u" #'diff-revert-and-kill-hunk
   ;; `diff-revert-and-kill-hunk' is the `diff-mode' analogue of what '@'
   ;; does in VC-Dir, so give it the same short binding.
-  "@" #'diff-revert-and-kill-hunk)
+  "@" #'diff-revert-and-kill-hunk
+  ;; Doesn't ask for confirmation but should be harmless.
+  "f" #'diff-goto-old-source)
 
 (defvar-keymap diff-mode-map
   :doc "Keymap for `diff-mode'.  See also `diff-mode-shared-map'."
@@ -1293,7 +1298,7 @@ else cover the whole buffer."
       (goto-char start)
       (while (and (re-search-forward
                    (concat "^\\(\\(---\\) .+\n\\(\\+\\+\\+\\) .+\\|"
-                           diff-hunk-header-re-unified ".*\\)$")
+                           diff-hunk-header-re-unified "\\( .*\\)?\\)$")
                    nil t)
 		  (< (point) end))
 	(combine-after-change-calls
@@ -1308,13 +1313,14 @@ else cover the whole buffer."
 		  (lines1 (or (match-string 5) "1"))
 		  (line2 (match-string 6))
 		  (lines2 (or (match-string 7) "1"))
+                  (comment (match-string 8))
 		  ;; Variables to use the special undo function.
 		  (old-undo buffer-undo-list)
 		  (old-end (marker-position end))
 		  (start (match-beginning 0))
 		  (reversible t))
 	      (replace-match
-	       (concat "***************\n*** " line1 ","
+	       (concat "***************" comment "\n*** " line1 ","
 		       (number-to-string (+ (string-to-number line1)
 					    (string-to-number lines1)
 					    -1))
@@ -1398,8 +1404,9 @@ else cover the whole buffer."
                   ;; a single entry that uses diff-context->unified to do
                   ;; the work.
 		  (setq buffer-undo-list
-			(cons (list 'apply (- old-end end) start (point-max)
-				    'diff-context->unified start (point-max))
+			(cons (list 'apply (- old-end end)
+                                    (cons start (point-max))
+                                    'diff-context->unified)
 			      old-undo)))))))))))
 
 (defun diff-context->unified (start end &optional to-context)
@@ -1417,7 +1424,7 @@ With a prefix argument, convert unified format to context format."
           (inhibit-read-only t))
       (save-excursion
         (goto-char start)
-        (while (and (re-search-forward "^\\(\\(\\*\\*\\*\\) .+\n\\(---\\) .+\\|\\*\\{15\\}.*\n\\*\\*\\* \\([0-9]+\\),\\(-?[0-9]+\\) \\*\\*\\*\\*\\)\\(?: \\(.*\\)\\|$\\)" nil t)
+        (while (and (re-search-forward "^\\(\\(\\*\\*\\*\\) .+\n\\(---\\) .+\\|\\*\\{15\\}\\( .*\\)?\n\\*\\*\\* \\([0-9]+\\),\\(-?[0-9]+\\) \\*\\*\\*\\*\\)$" nil t)
                     (< (point) end))
           (combine-after-change-calls
             (if (match-beginning 2)
@@ -1427,15 +1434,14 @@ With a prefix argument, convert unified format to context format."
                   (replace-match "+++" t t nil 3)
                   (replace-match "---" t t nil 2))
               ;; we matched a hunk header
-              (let ((line1s (match-string 4))
-                    (line1e (match-string 5))
+              (let ((comment (match-string 4))
+                    (line1s (match-string 5))
+                    (line1e (match-string 6))
                     (pt1 (match-beginning 0))
                     ;; Variables to use the special undo function.
                     (old-undo buffer-undo-list)
                     (old-end (marker-position end))
-                    ;; We currently throw away the comment that can follow
-                    ;; the hunk header.  FIXME: Preserve it instead!
-                    (reversible (not (match-end 6))))
+                    (reversible t))
                 (replace-match "")
                 (unless (re-search-forward
                          diff-context-mid-hunk-header-re nil t)
@@ -1490,14 +1496,16 @@ With a prefix argument, convert unified format to context format."
                             " +" line2s ","
                             (number-to-string (- (string-to-number line2e)
                                                  (string-to-number line2s)
-                                                 -1)) " @@"))
+                                                 -1))
+                            " @@" (or comment "")))
                   (set-marker pt2 nil)
                   ;; The whole procedure succeeded, let's replace the myriad
                   ;; of undo elements with just a single special one.
                   (unless (or (not reversible) (eq buffer-undo-list t))
                     (setq buffer-undo-list
-                          (cons (list 'apply (- old-end end) pt1 (point)
-                                      'diff-unified->context pt1 (point))
+                          (cons (list 'apply (- old-end end)
+                                      (cons pt1 (point))
+                                      'diff-unified->context)
                                 old-undo)))
                   )))))))))
 
@@ -1549,7 +1557,7 @@ else cover the whole buffer."
 			(insert (or half2 ""))))
 		    (goto-char pt-lines1)
 		    (insert str1))))))
-	   ;; a unified-diff hunk header
+	   ;; A unified-diff hunk header.
 	   ((match-beginning 7)
 	    (replace-match "@@ -\\8 +\\7 @@" nil)
 	    (forward-line 1)
@@ -2069,6 +2077,7 @@ char-offset in TEXT."
   "Return the buffer position (BEG . END) of the nearest occurrence of TEXT.
 If TEXT isn't found, nil is returned."
   (let* ((orig (point))
+         (case-fold-search nil)
 	 (forw (and (search-forward text nil t)
 		    (cons (match-beginning 0) (match-end 0))))
 	 (back (and (goto-char (+ orig (length text)))
@@ -2502,10 +2511,20 @@ set to nil if non-nil).  When called from Lisp this toggling
 happens when the value of optional argument OTHER-FILE considered
 as a prefix argument has a numeric value bigger than 8.
 
-Under version control, jumping to the old file means jumping to the old
-revision of the file in the manner of \\[vc-revision-other-window], \
-and occurs only when
-point is on an old changed line (i.e. a removed line)."
+Under version control (usually: in a *vc-diff* buffer), by default jump
+to the version of the file in the working tree.  This version of the
+file may be unrelated to the diff's old and new revisions.
+With a prefix argument (when called from Lisp, with optional argument
+OTHER-FILE non-nil), jump to source code corresponding to one of the
+diff's old or new revisions as follows:
+- if point is on an old changed line (i.e. a removed line),
+  jump to the old source file in the manner of \\[vc-revision-other-window]
+- otherwise, jump to the new source file,
+  either by visiting the version of the file in the working tree
+  (when the new source file is the working tree's),
+  or in the manner of \\[vc-revision-other-window].
+`diff-jump-to-old-file' non-nil and a prefix argument bigger than 8 are
+as above."
   (interactive (list current-prefix-arg last-input-event))
   ;; When pointing at a removal line, we probably want to jump to
   ;; the old location, and else to the new (i.e. as if reverting).
@@ -2518,6 +2537,21 @@ point is on an old changed line (i.e. a removed line)."
       (pop-to-buffer buf)
       (goto-char (+ (car pos) (cdr src)))
       (when buffer (next-error-found buffer (current-buffer))))))
+
+(defun diff-goto-old-source ()
+  "Like `diff-goto-source', but with `diff-jump-to-old-file' always non-nil.
+Jump to corresponding line of the old source file.
+Under version control (usually: in a *vc-diff* buffer), jump to source
+code corresponding to one of the diff's old or new revisions as follows:
+- if point is on an old changed line (i.e. a removed line),
+  jump to the old source file in the manner of \\[vc-revision-other-window]
+- otherwise, jump to the new source file,
+  either by visiting the version of the file in the working tree
+  (when the new source file is the working tree's),
+  or in the manner of \\[vc-revision-other-window]."
+  (interactive)
+  (let ((diff-jump-to-old-file t))
+    (diff-goto-source nil nil)))
 
 (defun diff-kill-ring-save (beg end &optional reverse)
   "Save to `kill-ring' the result of applying diffs in region between BEG and END.
@@ -3504,25 +3538,25 @@ hunk text is not found in the source file."
     ;; When initialization is requested, we should be in a brand new
     ;; temp buffer.
     (cl-assert (null buffer-file-name))
-    ;; Use `:safe' to find `mode:'.  In case of hunk-only, use nil because
-    ;; Local Variables list might be incomplete when context is truncated.
-    (let ((enable-local-variables
-           (unless hunk-only
-             (if (memq enable-local-variables '(:safe :all nil))
-                 enable-local-variables
-               ;; Ignore other values that query.
-               :safe)))
-          (buffer-file-name file))
-      ;; Don't run hooks that might assume buffer-file-name
-      ;; really associates buffer with a file (bug#39190).
-      (delay-mode-hooks (set-auto-mode))
-      ;; FIXME: Is this really worth the trouble?
-      (when (and (fboundp 'generic-mode-find-file-hook)
-                 (memq #'generic-mode-find-file-hook
-                       ;; There's no point checking the buffer-local value,
-                       ;; we're in a fresh new buffer.
-                       (default-value 'find-file-hook)))
-        (generic-mode-find-file-hook))))
+    (cl-flet
+        ((set-mode ()
+           ;; Don't run hooks that might assume buffer-file-name
+           ;; really associates buffer with a file (bug#39190).
+           (delay-mode-hooks (set-auto-mode))
+           ;; FIXME: Is this really worth the trouble?
+           (when (and (fboundp 'generic-mode-find-file-hook)
+                      (memq #'generic-mode-find-file-hook
+                            ;; There's no point checking the
+                            ;; buffer-local value because we're in a
+                            ;; fresh new buffer.
+                            (default-value 'find-file-hook)))
+             (generic-mode-find-file-hook))))
+      ;; Use `:safe' to find `mode:'.  In case of hunk-only, use nil because
+      ;; Local Variables list might be incomplete when context is truncated.
+      (let ((buffer-file-name file))
+        (if hunk-only
+            (let (enable-local-variables) (set-mode))
+          (without-local-variable-queries (set-mode))))))
 
   (let ((font-lock-defaults (or font-lock-defaults '(nil t)))
         props beg end)

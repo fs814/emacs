@@ -526,8 +526,7 @@ make_gap_larger (ptrdiff_t nbytes_added)
   Vinhibit_quit = tem;
 }
 
-#if defined USE_MMAP_FOR_BUFFERS || defined REL_ALLOC \
-  || defined DOUG_LEA_MALLOC
+#if defined USE_MMAP_FOR_BUFFERS || defined REL_ALLOC
 
 /* Make the gap NBYTES_REMOVED bytes shorter.  */
 
@@ -588,7 +587,7 @@ make_gap_smaller (ptrdiff_t nbytes_removed)
   Vinhibit_quit = tem;
 }
 
-#endif /* USE_MMAP_FOR_BUFFERS || REL_ALLOC || DOUG_LEA_MALLOC */
+#endif /* USE_MMAP_FOR_BUFFERS || REL_ALLOC */
 
 void
 make_gap (ptrdiff_t nbytes_added)
@@ -611,8 +610,7 @@ make_gap (ptrdiff_t nbytes_added)
      * performance while limiting the potential wasted memory to 1.5%.
      */
     make_gap_larger (max (nbytes_added, (ZE - BEG) / 64));
-#if defined USE_MMAP_FOR_BUFFERS || defined REL_ALLOC \
-  || defined DOUG_LEA_MALLOC
+#if defined USE_MMAP_FOR_BUFFERS || defined REL_ALLOC
   else
     make_gap_smaller (-nbytes_added);
 #endif

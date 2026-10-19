@@ -249,8 +249,8 @@ Calls REPORT-FN directly."
                                                 :error)))
                                    (push (flymake-make-diagnostic
                                           source beg end type msg)
-                                         diags))
-                                 (funcall report-fn diags))))
+                                         diags)))
+                               (funcall report-fn diags)))
                          (flymake-log :warning "Canceling obsolete check %s" proc))
                      (kill-buffer (process-buffer proc)))))))
         (process-send-region yaml-ts-mode--flymake-process (point-min) (point-max))
@@ -271,10 +271,14 @@ Calls REPORT-FN directly."
     (setq-local comment-start "# ")
     (setq-local comment-end "")
     (setq-local comment-start-skip "#+ *")
+    (setq-local comment-start-line-regexp comment-start-skip)
 
     ;; Indentation.
     (setq-local indent-tabs-mode nil)
     (setq-local tab-width 2)
+    ;; FIXME: This is what used to be in `editorconfig-indentation-alist',
+    ;; but AFAICT we don't use `yaml-indent-offset' at all.
+    (setq-local editorconfig-indent-size-vars '(yaml-indent-offset))
 
     ;; Font-lock.
     (setq-local treesit-font-lock-settings yaml-ts-mode--font-lock-settings)

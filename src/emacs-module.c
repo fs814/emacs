@@ -394,7 +394,7 @@ struct module_global_reference {
 
   /* Reference count, always positive.  */
   ptrdiff_t refcount;
-};
+} GCALIGNED_STRUCT;
 
 static struct module_global_reference *
 XMODULE_GLOBAL_REFERENCE (Lisp_Object o)
@@ -960,6 +960,20 @@ module_vec_size (emacs_env *env, emacs_value vector)
   MODULE_INTERNAL_CLEANUP ();
 
   return ASIZE (lisp);
+}
+
+static uint32_t *
+module_canvas_data (emacs_env *env, emacs_value canvas)
+{
+  uint32_t *data = 0;
+  MODULE_FUNCTION_BEGIN (NULL);
+#ifdef HAVE_WINDOW_SYSTEM
+  data = canvas_data (value_to_lisp (canvas));
+#else
+  error ("Canvas: No window system");
+#endif
+  MODULE_INTERNAL_CLEANUP ();
+  return data;
 }
 
 /* This function should return true if and only if maybe_quit would
@@ -1612,6 +1626,7 @@ initialize_environment (emacs_env *env, struct emacs_env_private *priv)
   env->open_channel = module_open_channel;
   env->make_interactive = module_make_interactive;
   env->make_unibyte_string = module_make_unibyte_string;
+  env->canvas_data = module_canvas_data;
   return env;
 }
 

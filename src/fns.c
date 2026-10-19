@@ -76,11 +76,13 @@ get_random_fixnum (EMACS_INT lim)
 
 DEFUN ("random", Frandom, Srandom, 0, 1, 0,
        doc: /* Return a pseudo-random integer.
-By default, return a fixnum; all fixnums are equally likely.
-With positive integer LIMIT, return random integer in interval [0,LIMIT).
-With argument t, set the random number seed from the system's entropy
+By default, return a random fixnum value with all fixnums equally likely.
+With positive integer value of the optional argument LIMIT, return random
+integer in interval [0,LIMIT); it is an error to pass a negative LIMIT.
+If LIMIT is t, set the random number seed from the system's entropy
 pool if available, otherwise from less-random volatile data such as the time.
-With a string argument, set the seed based on the string's contents.
+If LIMIT is a string, set the seed based on the string's contents.
+Any other value of LIMIT is interpreted as nil.
 
 See Info node `(elisp)Random Numbers' for more details.  */)
   (Lisp_Object limit)
@@ -4831,15 +4833,18 @@ allocate_hash_table (void)
 
 /* Compute the size of the index (as log2) from the table capacity.  */
 static int
-compute_hash_index_bits (hash_idx_t size)
+compute_hash_index_bits (unsigned long long int size)
 {
-  /* An upper bound on the size of a hash table index index.  */
+  /* An upper bound on the size of a hash table index.  */
   hash_idx_t upper_bound = min (MOST_POSITIVE_FIXNUM,
-				min (TYPE_MAXIMUM (hash_idx_t),
-				     PTRDIFF_MAX / sizeof (hash_idx_t)));
-  /* Use next higher power of 2.  This works even for size=0.  */
+				min (HASH_IDX_MAX,
+				     (PTRDIFF_MAX
+				      / max (sizeof (hash_idx_t),
+					     2 * sizeof (Lisp_Object)))));
+
+      /* Use next higher power of 2.  This works even for size=0.  */
   int bits = elogb (size) + 1;
-  if (bits >= TYPE_WIDTH (uintmax_t) || ((uintmax_t)1 << bits) > upper_bound)
+  if (! (bits < UINTMAX_WIDTH && (uintmax_t) {1} << bits <= upper_bound))
     error ("Hash table too large");
   return bits;
 }
@@ -4864,8 +4869,8 @@ make_hash_table (const struct hash_table_test *test, EMACS_INT size,
 		 hash_table_weakness_t weak)
 {
   eassert (SYMBOLP (test->name));
-  eassert (0 <= size && size <= min (MOST_POSITIVE_FIXNUM, PTRDIFF_MAX));
-
+  eassert (0 <= size && size <= MOST_POSITIVE_FIXNUM);
+  int index_bits = compute_hash_index_bits (size);
   struct Lisp_Hash_Table *h = allocate_hash_table ();
 
   h->test = test;
@@ -4896,7 +4901,6 @@ make_hash_table (const struct hash_table_test *test, EMACS_INT size,
 	h->next[i] = i + 1;
       h->next[size - 1] = -1;
 
-      int index_bits = compute_hash_index_bits (size);
       h->index_bits = index_bits;
       ptrdiff_t index_size = hash_table_index_size (h);
       h->index = hash_table_alloc_bytes (index_size * sizeof *h->index);
@@ -4962,12 +4966,16 @@ maybe_resize_hash_table (struct Lisp_Hash_Table *h)
     {
       ptrdiff_t old_size = HASH_TABLE_SIZE (h);
       ptrdiff_t min_size = 6;
-      ptrdiff_t base_size = min (max (old_size, min_size), PTRDIFF_MAX / 2);
       /* Grow aggressively at small sizes, then just double.  */
-      ptrdiff_t new_size =
-	old_size == 0
-	? min_size
-	: (base_size <= 64 ? base_size * 4 : base_size * 2);
+      ptrdiff_t new_size;
+      if (!old_size)
+	new_size = min_size;
+      else if (old_size <= 64)
+	new_size = max (min_size, old_size) * 4;
+      else if (old_size <= PTRDIFF_MAX / (2 * 2 * sizeof (Lisp_Object)))
+	new_size = old_size * 2;
+      else
+	memory_full_up ();
 
       /* Allocate all the new vectors before updating *H, to
 	 avoid problems if memory is exhausted.  */
